@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 33% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --primary: 204 86% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 187 32% 89%;
+  --secondary-foreground: 198 72% 18%;
+  --muted: 210 22% 94%;
+  --muted-foreground: 215 16% 43%;
+  --accent: 173 58% 35%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 22% 87%;
+  --input: 214 22% 87%;
+  --ring: 204 86% 32%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 216 28% 7%;
+  --foreground: 210 30% 96%;
+  --card: 218 24% 11%;
+  --card-foreground: 210 30% 96%;
+  --primary: 196 73% 49%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 205 24% 18%;
+  --secondary-foreground: 205 36% 88%;
+  --muted: 218 20% 16%;
+  --muted-foreground: 214 16% 72%;
+  --accent: 164 58% 45%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 72% 56%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 18% 22%;
+  --input: 217 18% 22%;
+  --ring: 196 73% 49%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.table-scroll {
+  scrollbar-width: thin;
+}
