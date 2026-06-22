@@ -7,9 +7,8 @@ import { FormDialog } from "@/components/form-dialog";
 import { PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { createId, type DataStore } from "@/lib/data-store";
+import type { DataStore } from "@/lib/data-store";
 import type { ModuleConfig } from "@/lib/modules";
-import { projectId } from "@/lib/seed-data";
 import { cn, isOverdue } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
@@ -23,11 +22,13 @@ function displayValue(value: unknown, type?: string) {
 export function DataTable({
   config,
   data,
-  onChange,
+  onSaveRecord,
+  onDeleteRecord,
 }: {
   config: ModuleConfig;
   data: DataStore;
-  onChange: (next: DataStore) => void;
+  onSaveRecord: (record: Row) => Promise<Row>;
+  onDeleteRecord: (record: Row) => Promise<void>;
 }) {
   const Icon = config.icon;
   const rows = data[config.key] as Row[];
@@ -36,6 +37,7 @@ export function DataTable({
   const [editing, setEditing] = useState<Row | null>(null);
   const [selected, setSelected] = useState<Row | null>(rows[0] ?? null);
   const [formOpen, setFormOpen] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   const statuses = useMemo(() => {
     const values = rows.map((row) => String(row.status ?? "")).filter(Boolean);
@@ -58,34 +60,38 @@ export function DataTable({
     setFormOpen(true);
   }
 
-  function saveRecord(record: Row) {
-    const now = new Date().toISOString();
-    const current = data[config.key] as Row[];
-    const nextRecord = {
-      ...record,
-      id: record.id ?? createId(),
-      project_id: record.project_id ?? projectId,
-      created_at: record.created_at ?? now,
-      updated_at: now,
-      uploaded_at: config.key === "documents" ? record.uploaded_at ?? now : record.uploaded_at,
-    };
-    const exists = current.some((row) => row.id === nextRecord.id);
-    const nextRows = exists ? current.map((row) => (row.id === nextRecord.id ? nextRecord : row)) : [nextRecord, ...current];
-    onChange({ ...data, [config.key]: nextRows });
-    setSelected(nextRecord);
-    setFormOpen(false);
+  async function saveRecord(record: Row) {
+    setOperationError(null);
+    try {
+      const saved = await onSaveRecord(record);
+      setSelected(saved);
+      setFormOpen(false);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : `Failed to save ${config.singular.toLowerCase()}`);
+      throw error;
+    }
   }
 
-  function deleteRecord(row: Row) {
+  async function deleteRecord(row: Row) {
     const label = String(row[config.columns[0].key] ?? config.singular);
     if (!window.confirm(`Delete ${label}?`)) return;
-    const nextRows = (data[config.key] as Row[]).filter((item) => item.id !== row.id);
-    onChange({ ...data, [config.key]: nextRows });
-    setSelected(nextRows[0] ?? null);
+    setOperationError(null);
+    try {
+      await onDeleteRecord(row);
+      const nextRows = rows.filter((item) => item.id !== row.id);
+      setSelected(nextRows[0] ?? null);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : `Failed to delete ${config.singular.toLowerCase()}`);
+    }
   }
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      {operationError ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm font-medium text-destructive xl:col-span-2">
+          {operationError}
+        </div>
+      ) : null}
       <section className="min-w-0 rounded-lg border bg-card shadow-operational">
         <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">

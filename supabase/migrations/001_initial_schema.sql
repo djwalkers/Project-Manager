@@ -139,6 +139,17 @@ create index if not exists meetings_project_id_idx on public.meetings(project_id
 create index if not exists documents_project_id_idx on public.documents(project_id);
 create index if not exists activity_log_project_id_idx on public.activity_log(project_id);
 
+create unique index if not exists projects_name_key on public.projects(name);
+create unique index if not exists requirements_project_ref_key on public.requirements(project_id, requirement_ref);
+create unique index if not exists risks_project_ref_key on public.risks(project_id, risk_ref);
+create unique index if not exists decisions_project_ref_key on public.decisions(project_id, decision_ref);
+create unique index if not exists actions_project_ref_key on public.actions(project_id, action_ref);
+create unique index if not exists dependencies_project_name_key on public.dependencies(project_id, name);
+create unique index if not exists test_cases_project_ref_key on public.test_cases(project_id, test_ref);
+create unique index if not exists meetings_project_date_title_key on public.meetings(project_id, meeting_date, title);
+create unique index if not exists documents_project_name_key on public.documents(project_id, document_name);
+create unique index if not exists activity_log_project_type_description_key on public.activity_log(project_id, activity_type, description);
+
 drop trigger if exists set_projects_updated_at on public.projects;
 create trigger set_projects_updated_at before update on public.projects for each row execute function public.set_updated_at();
 

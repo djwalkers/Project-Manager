@@ -19,12 +19,15 @@ export function FormDialog({
   record: RecordValue | null;
   open: boolean;
   onClose: () => void;
-  onSave: (record: RecordValue) => void;
+  onSave: (record: RecordValue) => Promise<void> | void;
 }) {
   const [form, setForm] = useState<RecordValue>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(record ?? {});
+    setError(null);
   }, [record, open]);
 
   if (!open) return null;
@@ -47,11 +50,24 @@ export function FormDialog({
         </div>
         <form
           className="space-y-4 p-5"
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            onSave(form);
+            setSaving(true);
+            setError(null);
+            try {
+              await onSave(form);
+            } catch (saveError) {
+              setError(saveError instanceof Error ? saveError.message : `Failed to save ${config.singular.toLowerCase()}`);
+            } finally {
+              setSaving(false);
+            }
           }}
         >
+          {error ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm font-medium text-destructive">
+              {error}
+            </div>
+          ) : null}
           {config.fields.map((field) => (
             <label key={field.key} className="block space-y-2 text-sm font-medium">
               <span>{field.label}</span>
@@ -81,10 +97,10 @@ export function FormDialog({
             </div>
           ) : null}
           <div className="flex justify-end gap-2 border-t pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit">Save {config.singular}</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Saving…" : `Save ${config.singular}`}</Button>
           </div>
         </form>
       </div>

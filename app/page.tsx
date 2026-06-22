@@ -2,17 +2,20 @@
 
 import {
   AlertTriangle,
+  BriefcaseBusiness,
   ClipboardCheck,
   Gauge,
   ListChecks,
   ShieldQuestion,
   TestTube2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LoadErrorState, LoadingState } from "@/components/data-state";
+import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
 import { StatusBadge } from "@/components/status-badge";
-import { loadData, type DataStore } from "@/lib/data-store";
+import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
@@ -44,11 +47,7 @@ function ListPanel({
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DataStore | null>(null);
-
-  useEffect(() => {
-    setData(loadData());
-  }, []);
+  const { data, error, reload } = useProjectData();
 
   const metrics = useMemo(() => {
     if (!data) return null;
@@ -63,7 +62,19 @@ export default function DashboardPage() {
     };
   }, [data]);
 
-  if (!data || !metrics) return null;
+  if (error) return <AppShell><LoadErrorState onRetry={reload} /></AppShell>;
+  if (!data || !metrics) return <AppShell><LoadingState /></AppShell>;
+  if (data.projects.length === 0) {
+    return (
+      <AppShell>
+        <EmptyState
+          title="No projects found"
+          description="Add a project from the Projects screen before using the control centre."
+          icon={BriefcaseBusiness}
+        />
+      </AppShell>
+    );
+  }
 
   const project = data.projects[0];
   const recentActivity = data.activity_log.slice(0, 5);

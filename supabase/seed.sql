@@ -7,7 +7,7 @@ values (
   'Discovery',
   'Control centre for the Replenishment workstream changes needed to support delivery date range selection.'
 )
-on conflict (id) do update set
+on conflict (name) do update set
   name = excluded.name,
   customer = excluded.customer,
   workstream = excluded.workstream,
@@ -25,7 +25,10 @@ values
 ('11111111-1111-4111-8111-111111111111', 'REP-007', 'Validate replenishment demand aggregation logic', 'Validate replenishment demand aggregation logic', 'Critical', 'Open', 'Andrew Walker', 'CR028 Replenishment discovery', ''),
 ('11111111-1111-4111-8111-111111111111', 'REP-008', 'Validate load balancing after date range implementation', 'Validate load balancing after date range implementation', 'High', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', ''),
 ('11111111-1111-4111-8111-111111111111', 'REP-009', 'Confirm maximum allowed delivery date range', 'Confirm maximum allowed delivery date range', 'High', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.'),
-('11111111-1111-4111-8111-111111111111', 'REP-010', 'Confirm whether demand remains date-specific or aggregates across dates', 'Confirm whether demand remains date-specific or aggregates across dates', 'Critical', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.');
+('11111111-1111-4111-8111-111111111111', 'REP-010', 'Confirm whether demand remains date-specific or aggregates across dates', 'Confirm whether demand remains date-specific or aggregates across dates', 'Critical', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.')
+on conflict (project_id, requirement_ref) do update set
+  title = excluded.title, description = excluded.description, priority = excluded.priority,
+  status = excluded.status, owner = excluded.owner, source = excluded.source, notes = excluded.notes;
 
 insert into public.risks (project_id, risk_ref, description, impact, probability, mitigation, owner, status)
 values
@@ -33,14 +36,20 @@ values
 ('11111111-1111-4111-8111-111111111111', 'RISK-002', 'Under-replenishment caused by future demand being missed', 'High', 'Medium', 'Validate behaviour in focused replenishment test scenarios before release approval.', 'Andrew Walker', 'In Progress'),
 ('11111111-1111-4111-8111-111111111111', 'RISK-003', 'Performance degradation caused by larger date range data volumes', 'High', 'High', 'Validate behaviour in focused replenishment test scenarios before release approval.', 'Solution Architect', 'Open'),
 ('11111111-1111-4111-8111-111111111111', 'RISK-004', 'User selects an excessive date range and triggers unintended processing', 'Medium', 'High', 'Validate behaviour in focused replenishment test scenarios before release approval.', 'Andrew Walker', 'In Progress'),
-('11111111-1111-4111-8111-111111111111', 'RISK-005', 'Load balancing issues in _createTransferRequirement(req)', 'High', 'Medium', 'Validate behaviour in focused replenishment test scenarios before release approval.', 'Andrew Walker', 'In Progress');
+('11111111-1111-4111-8111-111111111111', 'RISK-005', 'Load balancing issues in _createTransferRequirement(req)', 'High', 'Medium', 'Validate behaviour in focused replenishment test scenarios before release approval.', 'Andrew Walker', 'In Progress')
+on conflict (project_id, risk_ref) do update set
+  description = excluded.description, impact = excluded.impact, probability = excluded.probability,
+  mitigation = excluded.mitigation, owner = excluded.owner, status = excluded.status;
 
 insert into public.decisions (project_id, decision_ref, question, decision, owner, status, decision_date)
 values
 ('11111111-1111-4111-8111-111111111111', 'DEC-001', 'Should demand be aggregated across selected delivery dates?', '', 'Sysco', 'Pending', null),
 ('11111111-1111-4111-8111-111111111111', 'DEC-002', 'What is the maximum allowed delivery date range?', '', 'Sysco', 'Pending', null),
 ('11111111-1111-4111-8111-111111111111', 'DEC-003', 'Should replenishment tasks remain separated by delivery date?', '', 'Project Team', 'Open', null),
-('11111111-1111-4111-8111-111111111111', 'DEC-004', 'What performance benchmark must be met before release?', '', 'Project Team', 'Open', null);
+('11111111-1111-4111-8111-111111111111', 'DEC-004', 'What performance benchmark must be met before release?', '', 'Project Team', 'Open', null)
+on conflict (project_id, decision_ref) do update set
+  question = excluded.question, decision = excluded.decision, owner = excluded.owner,
+  status = excluded.status, decision_date = excluded.decision_date;
 
 insert into public.actions (project_id, action_ref, description, owner, due_date, status, notes)
 values
@@ -48,7 +57,10 @@ values
 ('11111111-1111-4111-8111-111111111111', 'ACT-002', 'Confirm business rule for multi-date demand aggregation with Sysco', 'Sysco', '2026-06-25', 'Open', ''),
 ('11111111-1111-4111-8111-111111111111', 'ACT-003', 'Identify current average replenishment job execution time', 'Solution Architect', '2026-06-23', 'In Progress', ''),
 ('11111111-1111-4111-8111-111111111111', 'ACT-004', 'Agree maximum date range validation rule', 'Andrew Walker', '2026-06-27', 'Pending', ''),
-('11111111-1111-4111-8111-111111111111', 'ACT-005', 'Prepare replenishment test scenarios', 'QA Lead', '2026-06-26', 'Open', '');
+('11111111-1111-4111-8111-111111111111', 'ACT-005', 'Prepare replenishment test scenarios', 'QA Lead', '2026-06-26', 'Open', '')
+on conflict (project_id, action_ref) do update set
+  description = excluded.description, owner = excluded.owner, due_date = excluded.due_date,
+  status = excluded.status, notes = excluded.notes;
 
 insert into public.dependencies (project_id, name, owner, status, notes)
 values
@@ -59,7 +71,9 @@ values
 ('11111111-1111-4111-8111-111111111111', '_createTransferRequirement(req)', 'Development Team', 'Open', 'Tracked for CR028 Replenishment delivery date range readiness.'),
 ('11111111-1111-4111-8111-111111111111', 'Replen Rule Updates', 'Project Team', 'Open', 'Tracked for CR028 Replenishment delivery date range readiness.'),
 ('11111111-1111-4111-8111-111111111111', 'Load Balancing Logic', 'Project Team', 'Open', 'Tracked for CR028 Replenishment delivery date range readiness.'),
-('11111111-1111-4111-8111-111111111111', 'Supabase Schema', 'Project Team', 'Complete', 'Tracked for CR028 Replenishment delivery date range readiness.');
+('11111111-1111-4111-8111-111111111111', 'Supabase Schema', 'Project Team', 'Complete', 'Tracked for CR028 Replenishment delivery date range readiness.')
+on conflict (project_id, name) do update set
+  owner = excluded.owner, status = excluded.status, notes = excluded.notes;
 
 insert into public.test_cases (project_id, test_ref, scenario, expected_result, actual_result, status, owner)
 values
@@ -68,15 +82,24 @@ values
 ('11111111-1111-4111-8111-111111111111', 'TEST-003', 'Three delivery dates calculate replenishment demand correctly', 'Expected result to be confirmed during discovery.', '', 'Pending', 'QA Lead'),
 ('11111111-1111-4111-8111-111111111111', 'TEST-004', 'Same route across multiple delivery dates remains logically separated', 'Expected result to be confirmed during discovery.', '', 'Pending', 'QA Lead'),
 ('11111111-1111-4111-8111-111111111111', 'TEST-005', 'Excessive date range is blocked or warned', 'Expected result to be confirmed during discovery.', '', 'Pending', 'QA Lead'),
-('11111111-1111-4111-8111-111111111111', 'TEST-006', 'Large data volume completes within agreed benchmark', 'Expected result to be confirmed during discovery.', '', 'Pending', 'QA Lead');
+('11111111-1111-4111-8111-111111111111', 'TEST-006', 'Large data volume completes within agreed benchmark', 'Expected result to be confirmed during discovery.', '', 'Pending', 'QA Lead')
+on conflict (project_id, test_ref) do update set
+  scenario = excluded.scenario, expected_result = excluded.expected_result,
+  actual_result = excluded.actual_result, status = excluded.status, owner = excluded.owner;
 
 insert into public.meetings (project_id, meeting_date, title, attendees, notes, decisions, actions)
-values ('11111111-1111-4111-8111-111111111111', '2026-06-23', 'CR028 Replenishment discovery sync', 'Andrew Walker, Sysco, Development Team', 'Confirm demand aggregation, validation rules and performance baseline.', '', 'Review ACT-001 to ACT-005');
+values ('11111111-1111-4111-8111-111111111111', '2026-06-23', 'CR028 Replenishment discovery sync', 'Andrew Walker, Sysco, Development Team', 'Confirm demand aggregation, validation rules and performance baseline.', '', 'Review ACT-001 to ACT-005')
+on conflict (project_id, meeting_date, title) do update set
+  attendees = excluded.attendees, notes = excluded.notes,
+  decisions = excluded.decisions, actions = excluded.actions;
 
 insert into public.documents (project_id, document_name, document_type, storage_path, notes)
-values ('11111111-1111-4111-8111-111111111111', 'CR028 Replenishment Notes', 'Discovery', '', 'Document upload will be added in v2.');
+values ('11111111-1111-4111-8111-111111111111', 'CR028 Replenishment Notes', 'Discovery', '', 'Document upload will be added in v2.')
+on conflict (project_id, document_name) do update set
+  document_type = excluded.document_type, storage_path = excluded.storage_path, notes = excluded.notes;
 
 insert into public.activity_log (project_id, activity_type, description)
 values
 ('11111111-1111-4111-8111-111111111111', 'Project created', 'CR028 Replenishment control centre initialized.'),
-('11111111-1111-4111-8111-111111111111', 'Discovery', 'Initial requirements, risks, decisions and test cases captured.');
+('11111111-1111-4111-8111-111111111111', 'Discovery', 'Initial requirements, risks, decisions and test cases captured.')
+on conflict (project_id, activity_type, description) do nothing;
