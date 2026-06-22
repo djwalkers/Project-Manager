@@ -27,7 +27,7 @@ export type ModuleConfig = {
   statusField?: string;
   searchFields: string[];
   columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" }[];
-  fields: { key: string; label: string; type?: "textarea" | "date" | "select"; options?: string[] }[];
+  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[] }[];
 };
 
 export const navItems = [
@@ -52,6 +52,7 @@ const requirementCategoryOptions = ["Business Rule", "Database", "Backend", "UI"
 const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Answered", "Closed"];
 const discoveryCategoryOptions = ["Business Rule", "Replenishment Logic", "Database", "Performance", "Testing", "UI"];
 const milestoneStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
+const testStatusOptions = ["Pending", "In Progress", "Passed", "Failed", "Blocked"];
 
 export const modules: ModuleConfig[] = [
   {
@@ -75,6 +76,7 @@ export const modules: ModuleConfig[] = [
       { key: "workstream", label: "Workstream" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
       { key: "health", label: "Project health", type: "select", options: ["Green", "Amber", "Red"] },
+      { key: "schedule_variance", label: "Schedule variance (%)", type: "number" },
       { key: "description", label: "Description", type: "textarea" },
     ],
   },
@@ -271,7 +273,7 @@ export const modules: ModuleConfig[] = [
       { key: "scenario", label: "Scenario", type: "textarea" },
       { key: "expected_result", label: "Expected result", type: "textarea" },
       { key: "actual_result", label: "Actual result", type: "textarea" },
-      { key: "status", label: "Status", type: "select", options: statusOptions },
+      { key: "status", label: "Status", type: "select", options: testStatusOptions },
       { key: "owner", label: "Owner" },
     ],
   },

@@ -24,6 +24,7 @@ export const projects: Project[] = [
     workstream: "Replenishment",
     status: "Discovery",
     health: "Amber",
+    schedule_variance: -4,
     description:
       "Control centre for the Replenishment workstream changes needed to support delivery date range selection.",
     created_at: now,

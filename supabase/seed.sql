@@ -1,4 +1,4 @@
-insert into public.projects (id, name, customer, workstream, status, health, description)
+insert into public.projects (id, name, customer, workstream, status, health, schedule_variance, description)
 values (
   '11111111-1111-4111-8111-111111111111',
   'CR028 - Delivery Date Range',
@@ -6,6 +6,7 @@ values (
   'Replenishment',
   'Discovery',
   'Amber',
+  -4,
   'Control centre for the Replenishment workstream changes needed to support delivery date range selection.'
 )
 on conflict (name) do update set
@@ -14,6 +15,7 @@ on conflict (name) do update set
   workstream = excluded.workstream,
   status = excluded.status,
   health = excluded.health,
+  schedule_variance = excluded.schedule_variance,
   description = excluded.description;
 
 insert into public.requirements (project_id, requirement_ref, title, description, priority, category, status, owner, source, notes)

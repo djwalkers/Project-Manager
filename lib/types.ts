@@ -13,6 +13,7 @@ export type Impact = "Low" | "Medium" | "High" | "Critical";
 export type Probability = "Low" | "Medium" | "High";
 export type ProjectHealth = "Green" | "Amber" | "Red";
 export type RequirementCategory = "Business Rule" | "Database" | "Backend" | "UI" | "Performance" | "Testing";
+export type TestStatus = "Pending" | "In Progress" | "Passed" | "Failed" | "Blocked";
 
 export type Project = {
   id: string;
@@ -21,6 +22,7 @@ export type Project = {
   workstream: string;
   status: Status;
   health: ProjectHealth;
+  schedule_variance: number;
   description: string;
   created_at: string;
   updated_at: string;
@@ -101,7 +103,7 @@ export type TestCase = {
   scenario: string;
   expected_result: string;
   actual_result: string;
-  status: Status;
+  status: TestStatus;
   owner: string;
   created_at: string;
   updated_at: string;

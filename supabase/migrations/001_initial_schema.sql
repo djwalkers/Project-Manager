@@ -15,6 +15,7 @@ create table if not exists public.projects (
   workstream text not null,
   status text not null default 'Discovery',
   health text not null default 'Amber',
+  schedule_variance numeric not null default 0,
   description text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -161,6 +162,7 @@ create table if not exists public.milestones (
 );
 
 alter table public.projects add column if not exists health text not null default 'Amber';
+alter table public.projects add column if not exists schedule_variance numeric not null default 0;
 alter table public.requirements add column if not exists category text not null default 'Business Rule';
 alter table public.decisions add column if not exists due_date date;
 

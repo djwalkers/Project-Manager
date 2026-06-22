@@ -28,7 +28,7 @@ const tableOrder: EntityName[] = [
 ];
 
 const writableColumns: Record<EntityName, string[]> = {
-  projects: ["name", "customer", "workstream", "status", "health", "description"],
+  projects: ["name", "customer", "workstream", "status", "health", "schedule_variance", "description"],
   requirements: ["project_id", "requirement_ref", "title", "description", "priority", "category", "status", "owner", "source", "notes"],
   risks: ["project_id", "risk_ref", "description", "impact", "probability", "mitigation", "owner", "status"],
   decisions: ["project_id", "decision_ref", "question", "decision", "owner", "status", "decision_date", "due_date"],

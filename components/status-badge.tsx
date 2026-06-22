@@ -7,6 +7,7 @@ const statusStyles: Record<string, string> = {
   Blocked: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   Red: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   "At Risk": "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
+  Failed: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   Open: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   Pending: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   "Not Started": "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
@@ -22,6 +23,7 @@ const statusStyles: Record<string, string> = {
   Closed: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
   Green: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
   Answered: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
+  Passed: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
 };
 
 const icons: Record<string, typeof Circle> = {
@@ -30,6 +32,7 @@ const icons: Record<string, typeof Circle> = {
   Blocked: XCircle,
   Red: ShieldAlert,
   "At Risk": ShieldAlert,
+  Failed: XCircle,
   Open: Circle,
   Pending: Clock3,
   "Not Started": Circle,
@@ -43,6 +46,7 @@ const icons: Record<string, typeof Circle> = {
   Closed: CheckCircle2,
   Green: CheckCircle2,
   Answered: CheckCircle2,
+  Passed: CheckCircle2,
 };
 
 export function StatusBadge({ value, className }: { value?: string | null; className?: string }) {

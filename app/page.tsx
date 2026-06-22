@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   AlertTriangle,
   BriefcaseBusiness,
   CalendarClock,
@@ -8,23 +9,34 @@ import {
   ClipboardCheck,
   Flag,
   Gauge,
-  ListChecks,
-  ShieldQuestion,
-  TestTube2,
+  HeartPulse,
+  Target,
+  Timer,
 } from "lucide-react";
 import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
+import { ControlTowerKpi } from "@/components/control-tower-kpi";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
-import { KpiCard } from "@/components/kpi-card";
+import { InsightPanel } from "@/components/insight-panel";
 import { StatusBadge } from "@/components/status-badge";
+import {
+  buildManagementSummary,
+  buildNeedsAttention,
+  buildUpcomingThisWeek,
+  calculateProgress,
+  calculateProjectHealth,
+  calculateScheduleHealth,
+  calculateTimeline,
+} from "@/lib/control-tower";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border bg-card p-4 shadow-operational">
-      <h2 className="text-base font-semibold">{title}</h2>
+      <h3 className="text-base font-semibold">{title}</h3>
+      {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -52,214 +64,198 @@ function ListPanel({
 export default function DashboardPage() {
   const { data, error, reload } = useProjectData();
 
-  const metrics = useMemo(() => {
-    if (!data) return null;
-    const open = (status?: unknown) => !["Complete", "Approved", "Closed"].includes(String(status ?? ""));
+  const tower = useMemo(() => {
+    const project = data?.projects[0];
+    if (!data || !project) return null;
+
+    const scheduleVariance = Number(project.schedule_variance) || 0;
+    const overdueActions = data.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
+    const overdueDecisions = data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
+    const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length;
+    const overdueItems = overdueActions + overdueDecisions;
+    const health = calculateProjectHealth(overdueItems, blockedMilestones, scheduleVariance);
+    const scheduleHealth = calculateScheduleHealth(scheduleVariance);
+    const progress = calculateProgress(data, scheduleVariance);
+    const timeline = calculateTimeline(data);
+
     return {
-      openRequirements: data.requirements.filter((item) => open(item.status)).length,
-      openRisks: data.risks.filter((item) => open(item.status)).length,
-      openActions: data.actions.filter((item) => open(item.status)).length,
-      overdueActions: data.actions.filter((item) => isOverdue(item.due_date, item.status)).length,
-      openDecisions: data.decisions.filter((item) => open(item.status)).length,
-      overdueDecisions: data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length,
-      pendingTests: data.test_cases.filter((item) => item.status === "Pending").length,
+      project,
+      scheduleVariance,
+      overdueActions,
+      overdueDecisions,
+      overdueItems,
+      blockedMilestones,
+      health,
+      scheduleHealth,
+      progress,
+      timeline,
+      needsAttention: buildNeedsAttention(data),
+      upcomingThisWeek: buildUpcomingThisWeek(data),
+      summary: buildManagementSummary(project, health, data, overdueActions),
+      openRisks: data.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
       openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
-      atRiskMilestones: data.milestones.filter((item) => ["At Risk", "Blocked"].includes(item.status)).length,
+      activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
+      recentActivity: data.activity_log.slice(0, 5),
+      openDecisions: data.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).slice(0, 5),
     };
   }, [data]);
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} /></AppShell>;
-  if (!data || !metrics) return <AppShell><LoadingState /></AppShell>;
-  if (data.projects.length === 0) {
+  if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!tower) {
     return (
       <AppShell>
-        <EmptyState
-          title="No projects found"
-          description="Add a project from the Projects screen before using the control centre."
-          icon={BriefcaseBusiness}
-        />
+        <EmptyState title="No projects found" description="Add a project before using the control tower." icon={BriefcaseBusiness} />
       </AppShell>
     );
   }
 
-  const project = data.projects[0];
-  const recentActivity = data.activity_log.slice(0, 5);
-  const upcomingActions = [...data.actions]
-    .filter((item) => !["Complete", "Closed"].includes(item.status))
-    .sort((a, b) => a.due_date.localeCompare(b.due_date))
-    .slice(0, 5);
-  const highRisks = data.risks.filter((risk) => ["High", "Critical"].includes(risk.impact)).slice(0, 5);
-  const openDecisions = data.decisions.filter((decision) => !["Approved", "Closed"].includes(decision.status)).slice(0, 5);
-  const openQuestions = data.discovery_questions.filter((question) => !["Answered", "Closed"].includes(question.status)).slice(0, 5);
-  const upcomingMilestones = [...data.milestones]
-    .filter((milestone) => milestone.status !== "Complete")
-    .sort((a, b) => (a.target_date ?? "").localeCompare(b.target_date ?? ""))
-    .slice(0, 5);
+  const { project, progress, timeline } = tower;
+  const varianceLabel = tower.scheduleVariance > 0 ? `+${tower.scheduleVariance}%` : `${tower.scheduleVariance}%`;
 
   return (
     <AppShell>
-      <div className="mb-6 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-        <div>
-          <p className="text-sm font-medium text-primary">Project Control Centre</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-normal">{project.name}</h2>
-          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Lightweight control for the {project.customer} {project.workstream} workstream. Current phase: {project.status}.
-          </p>
+      <section aria-labelledby="control-tower-title">
+        <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+          <div>
+            <p className="text-sm font-medium text-primary">Executive Control Tower</p>
+            <h2 id="control-tower-title" className="mt-1 text-2xl font-semibold tracking-normal">Project Control Centre</h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              {project.name} · {project.customer} · {project.workstream}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card p-3 text-sm sm:grid-cols-4">
+            <div>
+              <p className="text-muted-foreground">Phase</p>
+              <StatusBadge value={project.status} />
+            </div>
+            <div>
+              <p className="text-muted-foreground">Auto Health</p>
+              <StatusBadge value={tower.health} />
+            </div>
+            <div>
+              <p className="text-muted-foreground">Schedule variance</p>
+              <p className="font-semibold tabular-nums">{varianceLabel}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Project end</p>
+              <p className="font-semibold tabular-nums">{timeline.projectEnd ?? "Not set"}</p>
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card p-3 text-sm sm:grid-cols-4">
-          <div>
-            <p className="text-muted-foreground">Customer</p>
-            <p className="font-semibold">{project.customer}</p>
+
+        <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="management-summary-title">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Activity className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h3 id="management-summary-title" className="text-base font-semibold">Management Summary</h3>
+              <p className="mt-2 max-w-5xl text-sm leading-6 text-muted-foreground">{tower.summary}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-muted-foreground">Workstream</p>
-            <p className="font-semibold">{project.workstream}</p>
+        </section>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <ControlTowerKpi title="Project Health" rag={tower.health} helper="Calculated from overdue work, blockers and schedule variance" icon={HeartPulse} tone={tower.health === "Red" ? "danger" : tower.health === "Amber" ? "warn" : "good"} />
+          <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth} helper={`${varianceLabel} against the current baseline`} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : "good"} />
+          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} />
+          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} />
+          <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} />
+          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} />
+          <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} />
+          <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <InsightPanel title="Needs Attention" description="Automatically prioritised by severity." items={tower.needsAttention} emptyMessage="No blockers or aged items need attention." />
+          <InsightPanel title="Upcoming This Week" description="Actions, decisions and milestones due in the next seven days." items={tower.upcomingThisWeek} emptyMessage="Nothing is due in the next seven days." />
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-2">
+          <Panel title="Project Timeline Snapshot" description="Current delivery phase and remaining horizon.">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md bg-muted/60 p-3">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Active phases</p>
+                <div className="mt-2 space-y-2">
+                  {timeline.active.length ? timeline.active.map((milestone) => (
+                    <div key={milestone.id}>
+                      <p className="text-sm font-medium">{milestone.title}</p>
+                      <StatusBadge value={milestone.status} className="mt-1" />
+                    </div>
+                  )) : <p className="text-sm text-muted-foreground">No active phase</p>}
+                </div>
+              </div>
+              <div className="rounded-md bg-muted/60 p-3">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Next phase</p>
+                <p className="mt-2 text-sm font-medium">{timeline.next?.title ?? "Not scheduled"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{timeline.next?.target_date ?? "No target date"}</p>
+              </div>
+              <div className="rounded-md bg-muted/60 p-3">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Days to project end</p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums">{timeline.daysRemaining ?? "—"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">End date {timeline.projectEnd ?? "not set"}</p>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Project Status Summary" description="Automatic status based on control-tower thresholds.">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/40 p-3">
+              <div>
+                <p className="text-sm font-medium">Current automatic status</p>
+                <p className="mt-1 text-xs text-muted-foreground">{tower.overdueItems} overdue items · {tower.blockedMilestones} blocked milestones · {varianceLabel} schedule variance</p>
+              </div>
+              <StatusBadge value={tower.health} className="min-h-9 px-3 text-sm" />
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-5">
+              {progress.components.map((component) => (
+                <div key={component.label} className="rounded-md bg-muted/60 p-3 text-center">
+                  <p className="text-xs font-medium text-muted-foreground">{component.label}</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">{Math.round(component.score * 100)}%</p>
+                  <p className="text-xs text-muted-foreground">Weight {component.weight}%</p>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Timer className="h-4 w-4 text-primary" aria-hidden="true" />
+            <h2 className="text-lg font-semibold">Operational Detail</h2>
           </div>
-          <div>
-            <p className="text-muted-foreground">Status</p>
-            <StatusBadge value={project.status} />
-          </div>
-          <div>
-            <p className="text-muted-foreground">Project Health</p>
-            <StatusBadge value={project.health} />
+          <div className="grid gap-5 xl:grid-cols-3">
+            <Panel title="Recent Activity">
+              <ListPanel items={tower.recentActivity} render={(item) => (
+                <>
+                  <p className="font-medium">{String(item.activity_type)}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{String(item.description)}</p>
+                </>
+              )} />
+            </Panel>
+            <Panel title="Open Decisions">
+              <ListPanel items={tower.openDecisions} render={(item) => (
+                <>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-medium">{String(item.decision_ref)}</p>
+                    <StatusBadge value={String(item.status)} />
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">{String(item.question)}</p>
+                  <p className="mt-2 text-xs font-medium">Due {String(item.due_date || "not set")} / {String(item.owner)}</p>
+                </>
+              )} />
+            </Panel>
+            <Panel title="Control Coverage">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Requirements</span><strong>{data.requirements.length}</strong></div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Planned tests</span><strong>{data.test_cases.length}</strong></div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Discovery questions</span><strong>{data.discovery_questions.length}</strong></div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Milestones</span><strong>{data.milestones.length}</strong></div>
+              </div>
+            </Panel>
           </div>
         </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard title="Open Requirements" value={metrics.openRequirements} helper="Discovery and build items" icon={ListChecks} />
-        <KpiCard title="Open Risks" value={metrics.openRisks} helper="Active delivery risks" icon={AlertTriangle} tone="danger" />
-        <KpiCard title="Open Actions" value={metrics.openActions} helper="Owned follow-ups" icon={ClipboardCheck} />
-        <KpiCard title="Overdue Actions" value={metrics.overdueActions} helper="Needs attention" icon={Gauge} tone={metrics.overdueActions ? "danger" : "good"} />
-        <KpiCard title="Open Decisions" value={metrics.openDecisions} helper="Awaiting agreement" icon={ShieldQuestion} tone="warn" />
-        <KpiCard title="Overdue Decisions" value={metrics.overdueDecisions} helper="Past decision due date" icon={CalendarClock} tone={metrics.overdueDecisions ? "danger" : "good"} />
-        <KpiCard title="Pending Test Cases" value={metrics.pendingTests} helper="Ready for planning" icon={TestTube2} tone="warn" />
-        <KpiCard title="Open Discovery Questions" value={metrics.openQuestions} helper="Awaiting answers" icon={CircleHelp} tone="warn" />
-        <KpiCard title="Milestones At Risk" value={metrics.atRiskMilestones} helper="At risk or blocked" icon={Flag} tone={metrics.atRiskMilestones ? "danger" : "good"} />
-      </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-3">
-        <Panel title="Project Summary">
-          <div className="space-y-3 text-sm">
-            <p>{project.description}</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-md bg-muted p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Primary concern</p>
-                <p className="mt-1">Date-range demand aggregation and load balancing.</p>
-              </div>
-              <div className="rounded-md bg-muted p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Next focus</p>
-                <p className="mt-1">Confirm rules with Sysco and development.</p>
-              </div>
-            </div>
-          </div>
-        </Panel>
-        <Panel title="Recent Activity">
-          <ListPanel
-            items={recentActivity}
-            render={(item) => (
-              <>
-                <p className="font-medium">{String(item.activity_type)}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{String(item.description)}</p>
-              </>
-            )}
-          />
-        </Panel>
-        <Panel title="Upcoming Actions">
-          <ListPanel
-            items={upcomingActions}
-            render={(item) => (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium">{String(item.action_ref)}</p>
-                  <StatusBadge value={String(item.status)} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{String(item.description)}</p>
-                <p className="mt-2 text-xs font-medium">Due {String(item.due_date)} / {String(item.owner)}</p>
-              </>
-            )}
-          />
-        </Panel>
-        <Panel title="High Risks">
-          <ListPanel
-            items={highRisks}
-            render={(item) => (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium">{String(item.risk_ref)}</p>
-                  <StatusBadge value={String(item.impact)} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{String(item.description)}</p>
-              </>
-            )}
-          />
-        </Panel>
-        <Panel title="Open Decisions">
-          <ListPanel
-            items={openDecisions}
-            render={(item) => (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium">{String(item.decision_ref)}</p>
-                  <StatusBadge value={String(item.status)} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{String(item.question)}</p>
-                <p className="mt-2 text-xs font-medium">Due {String(item.due_date || "not set")} / {String(item.owner)}</p>
-              </>
-            )}
-          />
-        </Panel>
-        <Panel title="Discovery Questions">
-          <ListPanel
-            items={openQuestions}
-            render={(item) => (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium">{String(item.question_ref)}</p>
-                  <StatusBadge value={String(item.status)} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{String(item.question)}</p>
-                <p className="mt-2 text-xs font-medium">Due {String(item.due_date || "not set")} / {String(item.owner)}</p>
-              </>
-            )}
-          />
-        </Panel>
-        <Panel title="Upcoming Milestones">
-          <ListPanel
-            items={upcomingMilestones}
-            render={(item) => (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <p className="font-medium">{String(item.milestone_ref)}</p>
-                  <StatusBadge value={String(item.status)} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{String(item.title)}</p>
-                <p className="mt-2 text-xs font-medium">Target {String(item.target_date || "not set")} / {String(item.owner)}</p>
-              </>
-            )}
-          />
-        </Panel>
-        <Panel title="Workstream Health">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-              <span>Critical requirements</span>
-              <strong>{data.requirements.filter((item) => item.priority === "Critical").length}</strong>
-            </div>
-            <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-              <span>Technical dependencies</span>
-              <strong>{data.dependencies.length}</strong>
-            </div>
-            <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-              <span>Planned tests</span>
-              <strong>{data.test_cases.length}</strong>
-            </div>
-            <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-              <span>Open discovery questions</span>
-              <strong>{metrics.openQuestions}</strong>
-            </div>
-          </div>
-        </Panel>
-      </div>
+      </section>
     </AppShell>
   );
 }

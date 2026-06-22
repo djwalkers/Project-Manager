@@ -84,7 +84,7 @@ export function FormDialog({
                 </Select>
               ) : (
                 <Input
-                  type={field.type === "date" ? "date" : "text"}
+                  type={field.type === "date" ? "date" : field.type === "number" ? "number" : "text"}
                   value={String(form[field.key] ?? "")}
                   onChange={(event) => update(field.key, event.target.value)}
                 />
