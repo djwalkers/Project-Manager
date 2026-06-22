@@ -11,6 +11,8 @@ export type Status =
 export type Priority = "Low" | "Medium" | "High" | "Critical";
 export type Impact = "Low" | "Medium" | "High" | "Critical";
 export type Probability = "Low" | "Medium" | "High";
+export type ProjectHealth = "Green" | "Amber" | "Red";
+export type RequirementCategory = "Business Rule" | "Database" | "Backend" | "UI" | "Performance" | "Testing";
 
 export type Project = {
   id: string;
@@ -18,6 +20,7 @@ export type Project = {
   customer: string;
   workstream: string;
   status: Status;
+  health: ProjectHealth;
   description: string;
   created_at: string;
   updated_at: string;
@@ -30,6 +33,7 @@ export type Requirement = {
   title: string;
   description: string;
   priority: Priority;
+  category: RequirementCategory;
   status: Status;
   owner: string;
   source: string;
@@ -61,6 +65,7 @@ export type Decision = {
   owner: string;
   status: Status;
   decision_date: string | null;
+  due_date: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -133,6 +138,34 @@ export type ActivityLog = {
   created_at: string;
 };
 
+export type DiscoveryQuestion = {
+  id: string;
+  question_ref: string;
+  project_id: string;
+  question: string;
+  owner: string;
+  category: "Business Rule" | "Replenishment Logic" | "Database" | "Performance" | "Testing" | "UI";
+  status: "Open" | "Awaiting Business" | "Awaiting Development" | "Answered" | "Closed";
+  due_date: string | null;
+  answer: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Milestone = {
+  id: string;
+  milestone_ref: string;
+  project_id: string;
+  title: string;
+  target_date: string | null;
+  status: "Not Started" | "In Progress" | "Complete" | "At Risk" | "Blocked";
+  owner: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EntityMap = {
   projects: Project;
   requirements: Requirement;
@@ -144,6 +177,8 @@ export type EntityMap = {
   meetings: Meeting;
   documents: DocumentRecord;
   activity_log: ActivityLog;
+  discovery_questions: DiscoveryQuestion;
+  milestones: Milestone;
 };
 
 export type EntityName = keyof EntityMap;

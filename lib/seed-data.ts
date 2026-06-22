@@ -3,8 +3,10 @@ import type {
   ActivityLog,
   Decision,
   Dependency,
+  DiscoveryQuestion,
   DocumentRecord,
   Meeting,
+  Milestone,
   Project,
   Requirement,
   Risk,
@@ -21,6 +23,7 @@ export const projects: Project[] = [
     customer: "Sysco",
     workstream: "Replenishment",
     status: "Discovery",
+    health: "Amber",
     description:
       "Control centre for the Replenishment workstream changes needed to support delivery date range selection.",
     created_at: now,
@@ -29,23 +32,24 @@ export const projects: Project[] = [
 ];
 
 export const requirements: Requirement[] = [
-  ["REP-001", "Support Delivery Date Range selection in Replenishment Dashboard", "High", "In Progress"],
-  ["REP-002", "Update ReleasedNotReleasedView for date range filtering", "High", "Open"],
-  ["REP-003", "Update InProgressView for date range filtering", "High", "Open"],
-  ["REP-004", "Update SalesOrderDetails for date range filtering", "Medium", "Open"],
-  ["REP-005", "Update DeliveryDetailsView for date range filtering", "Medium", "Open"],
-  ["REP-006", "Update _createTransferRequirement(req) to process multiple delivery dates", "Critical", "Open"],
-  ["REP-007", "Validate replenishment demand aggregation logic", "Critical", "Open"],
-  ["REP-008", "Validate load balancing after date range implementation", "High", "Pending"],
-  ["REP-009", "Confirm maximum allowed delivery date range", "High", "Pending"],
-  ["REP-010", "Confirm whether demand remains date-specific or aggregates across dates", "Critical", "Pending"],
-].map(([requirement_ref, title, priority, status], index) => ({
+  ["REP-001", "Support Delivery Date Range selection in Replenishment Dashboard", "High", "UI", "In Progress"],
+  ["REP-002", "Update ReleasedNotReleasedView for date range filtering", "High", "UI", "Open"],
+  ["REP-003", "Update InProgressView for date range filtering", "High", "UI", "Open"],
+  ["REP-004", "Update SalesOrderDetails for date range filtering", "Medium", "UI", "Open"],
+  ["REP-005", "Update DeliveryDetailsView for date range filtering", "Medium", "UI", "Open"],
+  ["REP-006", "Update _createTransferRequirement(req) to process multiple delivery dates", "Critical", "Backend", "Open"],
+  ["REP-007", "Validate replenishment demand aggregation logic", "Critical", "Business Rule", "Open"],
+  ["REP-008", "Validate load balancing after date range implementation", "High", "Testing", "Pending"],
+  ["REP-009", "Confirm maximum allowed delivery date range", "High", "Business Rule", "Pending"],
+  ["REP-010", "Confirm whether demand remains date-specific or aggregates across dates", "Critical", "Business Rule", "Pending"],
+].map(([requirement_ref, title, priority, category, status], index) => ({
   id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, "0")}`,
   project_id: projectId,
   requirement_ref,
   title,
   description: title,
   priority: priority as Requirement["priority"],
+  category: category as Requirement["category"],
   status: status as Requirement["status"],
   owner: index < 6 ? "Development Team" : "Andrew Walker",
   source: "CR028 Replenishment discovery",
@@ -75,11 +79,11 @@ export const risks: Risk[] = [
 }));
 
 export const decisions: Decision[] = [
-  ["DEC-001", "Should demand be aggregated across selected delivery dates?", "Pending"],
-  ["DEC-002", "What is the maximum allowed delivery date range?", "Pending"],
-  ["DEC-003", "Should replenishment tasks remain separated by delivery date?", "Open"],
-  ["DEC-004", "What performance benchmark must be met before release?", "Open"],
-].map(([decision_ref, question, status], index) => ({
+  ["DEC-001", "Should demand be aggregated across selected delivery dates?", "Pending", "2026-06-25"],
+  ["DEC-002", "What is the maximum allowed delivery date range?", "Pending", "2026-06-26"],
+  ["DEC-003", "Should replenishment tasks remain separated by delivery date?", "Open", "2026-06-27"],
+  ["DEC-004", "What performance benchmark must be met before release?", "Open", "2026-06-30"],
+].map(([decision_ref, question, status, due_date], index) => ({
   id: `44444444-4444-4444-8444-${String(index + 1).padStart(12, "0")}`,
   project_id: projectId,
   decision_ref,
@@ -88,6 +92,7 @@ export const decisions: Decision[] = [
   owner: index < 2 ? "Sysco" : "Project Team",
   status: status as Decision["status"],
   decision_date: null,
+  due_date,
   created_at: now,
   updated_at: now,
 }));
@@ -195,6 +200,48 @@ export const activity_log: ActivityLog[] = [
   },
 ];
 
+export const discovery_questions: DiscoveryQuestion[] = [
+  ["Q001", "Should replenishment demand aggregate across selected delivery dates?", "Sysco", "Business Rule", "Awaiting Business", "2026-06-25"],
+  ["Q002", "What is the maximum allowed delivery date range?", "Sysco", "Business Rule", "Awaiting Business", "2026-06-26"],
+  ["Q003", "Should replenishment tasks remain separated by delivery date?", "Development Team", "Replenishment Logic", "Awaiting Development", "2026-06-25"],
+  ["Q004", "What are the current replenishment job execution times?", "Solution Architect", "Performance", "Awaiting Development", "2026-06-24"],
+  ["Q005", "Are there existing load balancing issues in _createTransferRequirement(req)?", "Development Team", "Replenishment Logic", "Awaiting Development", "2026-06-24"],
+  ["Q006", "What is the business acceptance criteria for replenishment accuracy?", "Sysco", "Testing", "Awaiting Business", "2026-06-27"],
+].map(([question_ref, question, owner, category, status, due_date], index) => ({
+  id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(index + 1).padStart(12, "0")}`,
+  project_id: projectId,
+  question_ref,
+  question,
+  owner,
+  category: category as DiscoveryQuestion["category"],
+  status: status as DiscoveryQuestion["status"],
+  due_date,
+  answer: "",
+  notes: "",
+  created_at: now,
+  updated_at: now,
+}));
+
+export const milestones: Milestone[] = [
+  ["M001", "Discovery Complete", "2026-06-30", "In Progress", "Andrew Walker"],
+  ["M002", "Requirements Sign-off", "2026-07-02", "Not Started", "Andrew Walker"],
+  ["M003", "Development Start", "2026-07-06", "Not Started", "Development Team"],
+  ["M004", "SIT Complete", "2026-07-17", "Not Started", "QA Lead"],
+  ["M005", "UAT Complete", "2026-07-24", "Not Started", "Sysco"],
+  ["M006", "Go Live", "2026-08-03", "Not Started", "Project Team"],
+].map(([milestone_ref, title, target_date, status, owner], index) => ({
+  id: `cccccccc-cccc-4ccc-8ccc-${String(index + 1).padStart(12, "0")}`,
+  project_id: projectId,
+  milestone_ref,
+  title,
+  target_date,
+  status: status as Milestone["status"],
+  owner,
+  notes: "",
+  created_at: now,
+  updated_at: now,
+}));
+
 export const seedData = {
   projects,
   requirements,
@@ -206,4 +253,6 @@ export const seedData = {
   meetings,
   documents,
   activity_log,
+  discovery_questions,
+  milestones,
 };

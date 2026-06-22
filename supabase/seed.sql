@@ -1,10 +1,11 @@
-insert into public.projects (id, name, customer, workstream, status, description)
+insert into public.projects (id, name, customer, workstream, status, health, description)
 values (
   '11111111-1111-4111-8111-111111111111',
   'CR028 - Delivery Date Range',
   'Sysco',
   'Replenishment',
   'Discovery',
+  'Amber',
   'Control centre for the Replenishment workstream changes needed to support delivery date range selection.'
 )
 on conflict (name) do update set
@@ -12,22 +13,23 @@ on conflict (name) do update set
   customer = excluded.customer,
   workstream = excluded.workstream,
   status = excluded.status,
+  health = excluded.health,
   description = excluded.description;
 
-insert into public.requirements (project_id, requirement_ref, title, description, priority, status, owner, source, notes)
+insert into public.requirements (project_id, requirement_ref, title, description, priority, category, status, owner, source, notes)
 values
-('11111111-1111-4111-8111-111111111111', 'REP-001', 'Support Delivery Date Range selection in Replenishment Dashboard', 'Support Delivery Date Range selection in Replenishment Dashboard', 'High', 'In Progress', 'Development Team', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-002', 'Update ReleasedNotReleasedView for date range filtering', 'Update ReleasedNotReleasedView for date range filtering', 'High', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-003', 'Update InProgressView for date range filtering', 'Update InProgressView for date range filtering', 'High', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-004', 'Update SalesOrderDetails for date range filtering', 'Update SalesOrderDetails for date range filtering', 'Medium', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-005', 'Update DeliveryDetailsView for date range filtering', 'Update DeliveryDetailsView for date range filtering', 'Medium', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-006', 'Update _createTransferRequirement(req) to process multiple delivery dates', 'Update _createTransferRequirement(req) to process multiple delivery dates', 'Critical', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-007', 'Validate replenishment demand aggregation logic', 'Validate replenishment demand aggregation logic', 'Critical', 'Open', 'Andrew Walker', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-008', 'Validate load balancing after date range implementation', 'Validate load balancing after date range implementation', 'High', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', ''),
-('11111111-1111-4111-8111-111111111111', 'REP-009', 'Confirm maximum allowed delivery date range', 'Confirm maximum allowed delivery date range', 'High', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.'),
-('11111111-1111-4111-8111-111111111111', 'REP-010', 'Confirm whether demand remains date-specific or aggregates across dates', 'Confirm whether demand remains date-specific or aggregates across dates', 'Critical', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.')
+('11111111-1111-4111-8111-111111111111', 'REP-001', 'Support Delivery Date Range selection in Replenishment Dashboard', 'Support Delivery Date Range selection in Replenishment Dashboard', 'High', 'UI', 'In Progress', 'Development Team', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-002', 'Update ReleasedNotReleasedView for date range filtering', 'Update ReleasedNotReleasedView for date range filtering', 'High', 'UI', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-003', 'Update InProgressView for date range filtering', 'Update InProgressView for date range filtering', 'High', 'UI', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-004', 'Update SalesOrderDetails for date range filtering', 'Update SalesOrderDetails for date range filtering', 'Medium', 'UI', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-005', 'Update DeliveryDetailsView for date range filtering', 'Update DeliveryDetailsView for date range filtering', 'Medium', 'UI', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-006', 'Update _createTransferRequirement(req) to process multiple delivery dates', 'Update _createTransferRequirement(req) to process multiple delivery dates', 'Critical', 'Backend', 'Open', 'Development Team', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-007', 'Validate replenishment demand aggregation logic', 'Validate replenishment demand aggregation logic', 'Critical', 'Business Rule', 'Open', 'Andrew Walker', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-008', 'Validate load balancing after date range implementation', 'Validate load balancing after date range implementation', 'High', 'Testing', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', ''),
+('11111111-1111-4111-8111-111111111111', 'REP-009', 'Confirm maximum allowed delivery date range', 'Confirm maximum allowed delivery date range', 'High', 'Business Rule', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.'),
+('11111111-1111-4111-8111-111111111111', 'REP-010', 'Confirm whether demand remains date-specific or aggregates across dates', 'Confirm whether demand remains date-specific or aggregates across dates', 'Critical', 'Business Rule', 'Pending', 'Andrew Walker', 'CR028 Replenishment discovery', 'Needs Sysco confirmation before build sign-off.')
 on conflict (project_id, requirement_ref) do update set
-  title = excluded.title, description = excluded.description, priority = excluded.priority,
+  title = excluded.title, description = excluded.description, priority = excluded.priority, category = excluded.category,
   status = excluded.status, owner = excluded.owner, source = excluded.source, notes = excluded.notes;
 
 insert into public.risks (project_id, risk_ref, description, impact, probability, mitigation, owner, status)
@@ -41,15 +43,15 @@ on conflict (project_id, risk_ref) do update set
   description = excluded.description, impact = excluded.impact, probability = excluded.probability,
   mitigation = excluded.mitigation, owner = excluded.owner, status = excluded.status;
 
-insert into public.decisions (project_id, decision_ref, question, decision, owner, status, decision_date)
+insert into public.decisions (project_id, decision_ref, question, decision, owner, status, decision_date, due_date)
 values
-('11111111-1111-4111-8111-111111111111', 'DEC-001', 'Should demand be aggregated across selected delivery dates?', '', 'Sysco', 'Pending', null),
-('11111111-1111-4111-8111-111111111111', 'DEC-002', 'What is the maximum allowed delivery date range?', '', 'Sysco', 'Pending', null),
-('11111111-1111-4111-8111-111111111111', 'DEC-003', 'Should replenishment tasks remain separated by delivery date?', '', 'Project Team', 'Open', null),
-('11111111-1111-4111-8111-111111111111', 'DEC-004', 'What performance benchmark must be met before release?', '', 'Project Team', 'Open', null)
+('11111111-1111-4111-8111-111111111111', 'DEC-001', 'Should demand be aggregated across selected delivery dates?', '', 'Sysco', 'Pending', null, '2026-06-25'),
+('11111111-1111-4111-8111-111111111111', 'DEC-002', 'What is the maximum allowed delivery date range?', '', 'Sysco', 'Pending', null, '2026-06-26'),
+('11111111-1111-4111-8111-111111111111', 'DEC-003', 'Should replenishment tasks remain separated by delivery date?', '', 'Project Team', 'Open', null, '2026-06-27'),
+('11111111-1111-4111-8111-111111111111', 'DEC-004', 'What performance benchmark must be met before release?', '', 'Project Team', 'Open', null, '2026-06-30')
 on conflict (project_id, decision_ref) do update set
   question = excluded.question, decision = excluded.decision, owner = excluded.owner,
-  status = excluded.status, decision_date = excluded.decision_date;
+  status = excluded.status, decision_date = excluded.decision_date, due_date = excluded.due_date;
 
 insert into public.actions (project_id, action_ref, description, owner, due_date, status, notes)
 values
@@ -103,3 +105,27 @@ values
 ('11111111-1111-4111-8111-111111111111', 'Project created', 'CR028 Replenishment control centre initialized.'),
 ('11111111-1111-4111-8111-111111111111', 'Discovery', 'Initial requirements, risks, decisions and test cases captured.')
 on conflict (project_id, activity_type, description) do nothing;
+
+insert into public.discovery_questions (project_id, question_ref, question, owner, category, status, due_date, answer, notes)
+values
+('11111111-1111-4111-8111-111111111111', 'Q001', 'Should replenishment demand aggregate across selected delivery dates?', 'Sysco', 'Business Rule', 'Awaiting Business', '2026-06-25', '', ''),
+('11111111-1111-4111-8111-111111111111', 'Q002', 'What is the maximum allowed delivery date range?', 'Sysco', 'Business Rule', 'Awaiting Business', '2026-06-26', '', ''),
+('11111111-1111-4111-8111-111111111111', 'Q003', 'Should replenishment tasks remain separated by delivery date?', 'Development Team', 'Replenishment Logic', 'Awaiting Development', '2026-06-25', '', ''),
+('11111111-1111-4111-8111-111111111111', 'Q004', 'What are the current replenishment job execution times?', 'Solution Architect', 'Performance', 'Awaiting Development', '2026-06-24', '', ''),
+('11111111-1111-4111-8111-111111111111', 'Q005', 'Are there existing load balancing issues in _createTransferRequirement(req)?', 'Development Team', 'Replenishment Logic', 'Awaiting Development', '2026-06-24', '', ''),
+('11111111-1111-4111-8111-111111111111', 'Q006', 'What is the business acceptance criteria for replenishment accuracy?', 'Sysco', 'Testing', 'Awaiting Business', '2026-06-27', '', '')
+on conflict (project_id, question_ref) do update set
+  question = excluded.question, owner = excluded.owner, category = excluded.category,
+  status = excluded.status, due_date = excluded.due_date, answer = excluded.answer, notes = excluded.notes;
+
+insert into public.milestones (project_id, milestone_ref, title, target_date, status, owner, notes)
+values
+('11111111-1111-4111-8111-111111111111', 'M001', 'Discovery Complete', '2026-06-30', 'In Progress', 'Andrew Walker', ''),
+('11111111-1111-4111-8111-111111111111', 'M002', 'Requirements Sign-off', '2026-07-02', 'Not Started', 'Andrew Walker', ''),
+('11111111-1111-4111-8111-111111111111', 'M003', 'Development Start', '2026-07-06', 'Not Started', 'Development Team', ''),
+('11111111-1111-4111-8111-111111111111', 'M004', 'SIT Complete', '2026-07-17', 'Not Started', 'QA Lead', ''),
+('11111111-1111-4111-8111-111111111111', 'M005', 'UAT Complete', '2026-07-24', 'Not Started', 'Sysco', ''),
+('11111111-1111-4111-8111-111111111111', 'M006', 'Go Live', '2026-08-03', 'Not Started', 'Project Team', '')
+on conflict (project_id, milestone_ref) do update set
+  title = excluded.title, target_date = excluded.target_date,
+  status = excluded.status, owner = excluded.owner, notes = excluded.notes;

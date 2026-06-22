@@ -23,19 +23,23 @@ const tableOrder: EntityName[] = [
   "meetings",
   "documents",
   "activity_log",
+  "discovery_questions",
+  "milestones",
 ];
 
 const writableColumns: Record<EntityName, string[]> = {
-  projects: ["name", "customer", "workstream", "status", "description"],
-  requirements: ["project_id", "requirement_ref", "title", "description", "priority", "status", "owner", "source", "notes"],
+  projects: ["name", "customer", "workstream", "status", "health", "description"],
+  requirements: ["project_id", "requirement_ref", "title", "description", "priority", "category", "status", "owner", "source", "notes"],
   risks: ["project_id", "risk_ref", "description", "impact", "probability", "mitigation", "owner", "status"],
-  decisions: ["project_id", "decision_ref", "question", "decision", "owner", "status", "decision_date"],
+  decisions: ["project_id", "decision_ref", "question", "decision", "owner", "status", "decision_date", "due_date"],
   actions: ["project_id", "action_ref", "description", "owner", "due_date", "status", "notes"],
   dependencies: ["project_id", "name", "owner", "status", "notes"],
   test_cases: ["project_id", "test_ref", "scenario", "expected_result", "actual_result", "status", "owner"],
   meetings: ["project_id", "meeting_date", "title", "attendees", "notes", "decisions", "actions"],
   documents: ["project_id", "document_name", "document_type", "storage_path", "notes"],
   activity_log: ["project_id", "activity_type", "description"],
+  discovery_questions: ["project_id", "question_ref", "question", "owner", "category", "status", "due_date", "answer", "notes"],
+  milestones: ["project_id", "milestone_ref", "title", "target_date", "status", "owner", "notes"],
 };
 
 function cleanRecord(table: EntityName, record: RecordValue) {

@@ -14,6 +14,7 @@ create table if not exists public.projects (
   customer text not null,
   workstream text not null,
   status text not null default 'Discovery',
+  health text not null default 'Amber',
   description text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -26,6 +27,7 @@ create table if not exists public.requirements (
   title text not null,
   description text,
   priority text not null default 'Medium',
+  category text not null default 'Business Rule',
   status text not null default 'Open',
   owner text,
   source text,
@@ -57,6 +59,7 @@ create table if not exists public.decisions (
   owner text,
   status text not null default 'Open',
   decision_date date,
+  due_date date,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -129,6 +132,38 @@ create table if not exists public.activity_log (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.discovery_questions (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  question_ref text not null,
+  question text not null,
+  owner text,
+  category text not null default 'Business Rule',
+  status text not null default 'Open',
+  due_date date,
+  answer text,
+  notes text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.milestones (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  milestone_ref text not null,
+  title text not null,
+  target_date date,
+  status text not null default 'Not Started',
+  owner text,
+  notes text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.projects add column if not exists health text not null default 'Amber';
+alter table public.requirements add column if not exists category text not null default 'Business Rule';
+alter table public.decisions add column if not exists due_date date;
+
 create index if not exists requirements_project_id_idx on public.requirements(project_id);
 create index if not exists risks_project_id_idx on public.risks(project_id);
 create index if not exists decisions_project_id_idx on public.decisions(project_id);
@@ -138,6 +173,8 @@ create index if not exists test_cases_project_id_idx on public.test_cases(projec
 create index if not exists meetings_project_id_idx on public.meetings(project_id);
 create index if not exists documents_project_id_idx on public.documents(project_id);
 create index if not exists activity_log_project_id_idx on public.activity_log(project_id);
+create index if not exists discovery_questions_project_id_idx on public.discovery_questions(project_id);
+create index if not exists milestones_project_id_idx on public.milestones(project_id);
 
 create unique index if not exists projects_name_key on public.projects(name);
 create unique index if not exists requirements_project_ref_key on public.requirements(project_id, requirement_ref);
@@ -149,6 +186,8 @@ create unique index if not exists test_cases_project_ref_key on public.test_case
 create unique index if not exists meetings_project_date_title_key on public.meetings(project_id, meeting_date, title);
 create unique index if not exists documents_project_name_key on public.documents(project_id, document_name);
 create unique index if not exists activity_log_project_type_description_key on public.activity_log(project_id, activity_type, description);
+create unique index if not exists discovery_questions_project_ref_key on public.discovery_questions(project_id, question_ref);
+create unique index if not exists milestones_project_ref_key on public.milestones(project_id, milestone_ref);
 
 drop trigger if exists set_projects_updated_at on public.projects;
 create trigger set_projects_updated_at before update on public.projects for each row execute function public.set_updated_at();
@@ -173,3 +212,9 @@ create trigger set_test_cases_updated_at before update on public.test_cases for 
 
 drop trigger if exists set_meetings_updated_at on public.meetings;
 create trigger set_meetings_updated_at before update on public.meetings for each row execute function public.set_updated_at();
+
+drop trigger if exists set_discovery_questions_updated_at on public.discovery_questions;
+create trigger set_discovery_questions_updated_at before update on public.discovery_questions for each row execute function public.set_updated_at();
+
+drop trigger if exists set_milestones_updated_at on public.milestones;
+create trigger set_milestones_updated_at before update on public.milestones for each row execute function public.set_updated_at();

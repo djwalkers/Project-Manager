@@ -22,7 +22,18 @@ export function loadData(): DataStore {
   if (!stored) return structuredClone(seedData) as DataStore;
 
   try {
-    return JSON.parse(stored) as DataStore;
+    const parsed = JSON.parse(stored) as Partial<DataStore>;
+    return Object.fromEntries(
+      Object.entries(seedData).map(([key, seedRows]) => {
+        const storedRows = parsed[key as EntityName] ?? [];
+        const seeded = seedRows.map((seedRow) => ({
+          ...seedRow,
+          ...storedRows.find((storedRow) => storedRow.id === seedRow.id),
+        }));
+        const seededIds = new Set(seedRows.map((row) => row.id));
+        return [key, [...storedRows.filter((row) => !seededIds.has(row.id)), ...seeded]];
+      }),
+    ) as DataStore;
   } catch {
     return structuredClone(seedData) as DataStore;
   }
