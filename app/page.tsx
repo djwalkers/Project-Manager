@@ -3,7 +3,10 @@
 import {
   AlertTriangle,
   BriefcaseBusiness,
+  CalendarClock,
+  CircleHelp,
   ClipboardCheck,
+  Flag,
   Gauge,
   ListChecks,
   ShieldQuestion,
@@ -58,7 +61,10 @@ export default function DashboardPage() {
       openActions: data.actions.filter((item) => open(item.status)).length,
       overdueActions: data.actions.filter((item) => isOverdue(item.due_date, item.status)).length,
       openDecisions: data.decisions.filter((item) => open(item.status)).length,
+      overdueDecisions: data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length,
       pendingTests: data.test_cases.filter((item) => item.status === "Pending").length,
+      openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
+      atRiskMilestones: data.milestones.filter((item) => ["At Risk", "Blocked"].includes(item.status)).length,
     };
   }, [data]);
 
@@ -84,6 +90,11 @@ export default function DashboardPage() {
     .slice(0, 5);
   const highRisks = data.risks.filter((risk) => ["High", "Critical"].includes(risk.impact)).slice(0, 5);
   const openDecisions = data.decisions.filter((decision) => !["Approved", "Closed"].includes(decision.status)).slice(0, 5);
+  const openQuestions = data.discovery_questions.filter((question) => !["Answered", "Closed"].includes(question.status)).slice(0, 5);
+  const upcomingMilestones = [...data.milestones]
+    .filter((milestone) => milestone.status !== "Complete")
+    .sort((a, b) => (a.target_date ?? "").localeCompare(b.target_date ?? ""))
+    .slice(0, 5);
 
   return (
     <AppShell>
@@ -95,7 +106,7 @@ export default function DashboardPage() {
             Lightweight control for the {project.customer} {project.workstream} workstream. Current phase: {project.status}.
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-2 rounded-lg border bg-card p-3 text-sm">
+        <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card p-3 text-sm sm:grid-cols-4">
           <div>
             <p className="text-muted-foreground">Customer</p>
             <p className="font-semibold">{project.customer}</p>
@@ -108,6 +119,10 @@ export default function DashboardPage() {
             <p className="text-muted-foreground">Status</p>
             <StatusBadge value={project.status} />
           </div>
+          <div>
+            <p className="text-muted-foreground">Project Health</p>
+            <StatusBadge value={project.health} />
+          </div>
         </div>
       </div>
 
@@ -117,7 +132,10 @@ export default function DashboardPage() {
         <KpiCard title="Open Actions" value={metrics.openActions} helper="Owned follow-ups" icon={ClipboardCheck} />
         <KpiCard title="Overdue Actions" value={metrics.overdueActions} helper="Needs attention" icon={Gauge} tone={metrics.overdueActions ? "danger" : "good"} />
         <KpiCard title="Open Decisions" value={metrics.openDecisions} helper="Awaiting agreement" icon={ShieldQuestion} tone="warn" />
+        <KpiCard title="Overdue Decisions" value={metrics.overdueDecisions} helper="Past decision due date" icon={CalendarClock} tone={metrics.overdueDecisions ? "danger" : "good"} />
         <KpiCard title="Pending Test Cases" value={metrics.pendingTests} helper="Ready for planning" icon={TestTube2} tone="warn" />
+        <KpiCard title="Open Discovery Questions" value={metrics.openQuestions} helper="Awaiting answers" icon={CircleHelp} tone="warn" />
+        <KpiCard title="Milestones At Risk" value={metrics.atRiskMilestones} helper="At risk or blocked" icon={Flag} tone={metrics.atRiskMilestones ? "danger" : "good"} />
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-3">
@@ -186,6 +204,37 @@ export default function DashboardPage() {
                   <StatusBadge value={String(item.status)} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{String(item.question)}</p>
+                <p className="mt-2 text-xs font-medium">Due {String(item.due_date || "not set")} / {String(item.owner)}</p>
+              </>
+            )}
+          />
+        </Panel>
+        <Panel title="Discovery Questions">
+          <ListPanel
+            items={openQuestions}
+            render={(item) => (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium">{String(item.question_ref)}</p>
+                  <StatusBadge value={String(item.status)} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{String(item.question)}</p>
+                <p className="mt-2 text-xs font-medium">Due {String(item.due_date || "not set")} / {String(item.owner)}</p>
+              </>
+            )}
+          />
+        </Panel>
+        <Panel title="Upcoming Milestones">
+          <ListPanel
+            items={upcomingMilestones}
+            render={(item) => (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium">{String(item.milestone_ref)}</p>
+                  <StatusBadge value={String(item.status)} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{String(item.title)}</p>
+                <p className="mt-2 text-xs font-medium">Target {String(item.target_date || "not set")} / {String(item.owner)}</p>
               </>
             )}
           />
@@ -203,6 +252,10 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
               <span>Planned tests</span>
               <strong>{data.test_cases.length}</strong>
+            </div>
+            <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
+              <span>Open discovery questions</span>
+              <strong>{metrics.openQuestions}</strong>
             </div>
           </div>
         </Panel>

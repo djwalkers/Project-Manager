@@ -10,7 +10,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-72 shrink-0 border-r bg-card lg:block">
+    <aside className="sticky top-0 hidden h-dvh w-72 shrink-0 overflow-y-auto border-r bg-card lg:block">
       <div className="flex h-16 items-center gap-3 border-b px-5">
         <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Boxes className="h-5 w-5" aria-hidden="true" />

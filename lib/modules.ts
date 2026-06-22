@@ -3,8 +3,10 @@ import {
   BookOpenCheck,
   BriefcaseBusiness,
   CalendarDays,
+  CircleHelp,
   ClipboardCheck,
   FileText,
+  Flag,
   GitBranch,
   LayoutDashboard,
   ListChecks,
@@ -34,7 +36,9 @@ export const navItems = [
   { href: "/requirements", label: "Requirements", icon: ListChecks },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/decisions", label: "Decisions", icon: ShieldQuestion },
+  { href: "/discovery-questions", label: "Discovery Questions", icon: CircleHelp },
   { href: "/actions", label: "Actions", icon: ClipboardCheck },
+  { href: "/milestones", label: "Milestones", icon: Flag },
   { href: "/dependencies", label: "Dependencies", icon: GitBranch },
   { href: "/testing", label: "Testing", icon: BookOpenCheck },
   { href: "/meetings", label: "Meetings", icon: CalendarDays },
@@ -44,6 +48,10 @@ export const navItems = [
 
 const statusOptions = ["Discovery", "Open", "In Progress", "Pending", "Blocked", "Approved", "Complete", "Closed"];
 const priorityOptions = ["Low", "Medium", "High", "Critical"];
+const requirementCategoryOptions = ["Business Rule", "Database", "Backend", "UI", "Performance", "Testing"];
+const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Answered", "Closed"];
+const discoveryCategoryOptions = ["Business Rule", "Replenishment Logic", "Database", "Performance", "Testing", "UI"];
+const milestoneStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
 
 export const modules: ModuleConfig[] = [
   {
@@ -58,6 +66,7 @@ export const modules: ModuleConfig[] = [
       { key: "name", label: "Project" },
       { key: "customer", label: "Customer" },
       { key: "workstream", label: "Workstream" },
+      { key: "health", label: "Health", type: "status" },
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
@@ -65,6 +74,7 @@ export const modules: ModuleConfig[] = [
       { key: "customer", label: "Customer" },
       { key: "workstream", label: "Workstream" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
+      { key: "health", label: "Project health", type: "select", options: ["Green", "Amber", "Red"] },
       { key: "description", label: "Description", type: "textarea" },
     ],
   },
@@ -80,6 +90,7 @@ export const modules: ModuleConfig[] = [
       { key: "requirement_ref", label: "Ref" },
       { key: "title", label: "Requirement" },
       { key: "priority", label: "Priority", type: "priority" },
+      { key: "category", label: "Category" },
       { key: "status", label: "Status", type: "status" },
       { key: "owner", label: "Owner" },
     ],
@@ -88,6 +99,7 @@ export const modules: ModuleConfig[] = [
       { key: "title", label: "Title" },
       { key: "description", label: "Description", type: "textarea" },
       { key: "priority", label: "Priority", type: "select", options: priorityOptions },
+      { key: "category", label: "Category", type: "select", options: requirementCategoryOptions },
       { key: "status", label: "Status", type: "select", options: statusOptions },
       { key: "owner", label: "Owner" },
       { key: "source", label: "Source" },
@@ -132,7 +144,7 @@ export const modules: ModuleConfig[] = [
       { key: "question", label: "Question" },
       { key: "owner", label: "Owner" },
       { key: "status", label: "Status", type: "status" },
-      { key: "decision_date", label: "Date", type: "date" },
+      { key: "due_date", label: "Due", type: "date" },
     ],
     fields: [
       { key: "decision_ref", label: "Reference" },
@@ -141,6 +153,34 @@ export const modules: ModuleConfig[] = [
       { key: "owner", label: "Owner" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
       { key: "decision_date", label: "Decision date", type: "date" },
+      { key: "due_date", label: "Due date", type: "date" },
+    ],
+  },
+  {
+    key: "discovery_questions",
+    slug: "discovery-questions",
+    title: "Discovery Questions",
+    singular: "Discovery Question",
+    description: "Track unanswered business and technical questions through discovery.",
+    icon: CircleHelp,
+    searchFields: ["question_ref", "question", "owner", "category", "status"],
+    columns: [
+      { key: "question_ref", label: "Ref" },
+      { key: "question", label: "Question" },
+      { key: "category", label: "Category" },
+      { key: "owner", label: "Owner" },
+      { key: "due_date", label: "Due", type: "date" },
+      { key: "status", label: "Status", type: "status" },
+    ],
+    fields: [
+      { key: "question_ref", label: "Reference" },
+      { key: "question", label: "Question", type: "textarea" },
+      { key: "owner", label: "Owner" },
+      { key: "category", label: "Category", type: "select", options: discoveryCategoryOptions },
+      { key: "status", label: "Status", type: "select", options: discoveryStatusOptions },
+      { key: "due_date", label: "Due date", type: "date" },
+      { key: "answer", label: "Answer", type: "textarea" },
+      { key: "notes", label: "Notes", type: "textarea" },
     ],
   },
   {
@@ -164,6 +204,30 @@ export const modules: ModuleConfig[] = [
       { key: "owner", label: "Owner" },
       { key: "due_date", label: "Due date", type: "date" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
+      { key: "notes", label: "Notes", type: "textarea" },
+    ],
+  },
+  {
+    key: "milestones",
+    slug: "milestones",
+    title: "Milestones",
+    singular: "Milestone",
+    description: "Track delivery gates, target dates and milestone health.",
+    icon: Flag,
+    searchFields: ["milestone_ref", "title", "owner", "status"],
+    columns: [
+      { key: "milestone_ref", label: "Ref" },
+      { key: "title", label: "Milestone" },
+      { key: "target_date", label: "Target", type: "date" },
+      { key: "owner", label: "Owner" },
+      { key: "status", label: "Status", type: "status" },
+    ],
+    fields: [
+      { key: "milestone_ref", label: "Reference" },
+      { key: "title", label: "Title" },
+      { key: "target_date", label: "Target date", type: "date" },
+      { key: "status", label: "Status", type: "select", options: milestoneStatusOptions },
+      { key: "owner", label: "Owner" },
       { key: "notes", label: "Notes", type: "textarea" },
     ],
   },

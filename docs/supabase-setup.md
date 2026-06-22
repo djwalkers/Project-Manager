@@ -27,6 +27,8 @@ Open the Supabase SQL editor and run:
 
 The migration creates the project-control tables, indexes, update triggers, and stable unique keys used by the seed script.
 
+Rerun the migration after pulling schema updates. It uses additive `if not exists` statements so existing project-control data is preserved.
+
 ## 4. Seed CR028
 
 In the SQL editor, run:
@@ -50,5 +52,7 @@ Open the dashboard and confirm that the local-mode banner is gone. The seeded da
 - 5 open actions
 - 4 open decisions
 - 5 pending test cases
+- 6 open discovery questions
+- 6 milestones
 
 Create or edit one record, refresh the page, and confirm that the change remains visible. The same change should also appear in the matching table in Supabase.
