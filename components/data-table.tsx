@@ -14,7 +14,7 @@ import { cn, isOverdue } from "@/lib/utils";
 type Row = Record<string, unknown>;
 
 function displayValue(value: unknown, type?: string) {
-  if (!value) return "—";
+  if (value === null || value === undefined || value === "") return "—";
   if (type === "date") return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(new Date(String(value)));
   return String(value);
 }
@@ -98,7 +98,7 @@ export function DataTable({
             <label className="relative min-w-0 flex-1">
               <span className="sr-only">Search {config.title}</span>
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <Input className="pl-9" placeholder={`Search ${config.title.toLowerCase()}`} value={query} onChange={(event) => setQuery(event.target.value)} />
+              <Input className="pl-9" placeholder={`Search ${config.title.toLowerCase()}`} value={query} onChange={(event) => setQuery(event.target.value)} onInput={(event) => setQuery(event.currentTarget.value)} />
             </label>
             <label className="w-full sm:w-52">
               <span className="sr-only">Status filter</span>

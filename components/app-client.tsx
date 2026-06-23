@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
+import { TimelineSchedule } from "@/components/timeline-schedule";
 import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
 import {
@@ -49,7 +50,7 @@ export function ModulePageClient({ section }: { section: string }) {
   }
 
   if (!config) return null;
-  if (error) return <AppShell><LoadErrorState onRetry={reload} /></AppShell>;
+  if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
 
   return (
@@ -69,6 +70,9 @@ export function ModulePageClient({ section }: { section: string }) {
           Document upload will be added in v2.
         </div>
       ) : null}
+      {config.key === "timeline_items" && data.projects[0] ? (
+        <TimelineSchedule project={data.projects[0]} items={data.timeline_items} />
+      ) : null}
       <DataTable config={config} data={data} onSaveRecord={persistRecord} onDeleteRecord={removeRecord} />
     </AppShell>
   );
@@ -81,7 +85,7 @@ export function SettingsPageClient() {
     return Object.entries(data).map(([key, value]) => ({ key, count: value.length }));
   }, [data]);
 
-  if (error) return <AppShell><LoadErrorState onRetry={reload} /></AppShell>;
+  if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
 
   return (

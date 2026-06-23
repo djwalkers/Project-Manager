@@ -1,5 +1,6 @@
 import type { DataStore } from "@/lib/data-store";
 import type { Project } from "@/lib/types";
+import { formatScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 
 export type RagStatus = "Green" | "Amber" | "Red";
 export type InsightSeverity = "Critical" | "High" | "Medium";
@@ -148,22 +149,12 @@ export function buildUpcomingThisWeek(data: DataStore): InsightItem[] {
   return items.sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
 }
 
-export function calculateTimeline(data: DataStore) {
-  const active = data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status));
-  const next = [...data.milestones]
-    .filter((item) => item.status === "Not Started")
-    .sort((a, b) => String(a.target_date ?? "").localeCompare(String(b.target_date ?? "")))[0] ?? null;
-  const projectEnd = [...data.milestones]
-    .filter((item) => item.target_date)
-    .sort((a, b) => String(b.target_date).localeCompare(String(a.target_date)))[0]?.target_date ?? null;
-  const remaining = daysFromToday(projectEnd);
-  return { active, next, projectEnd, daysRemaining: remaining };
-}
-
-export function buildManagementSummary(project: Project, health: RagStatus, data: DataStore, overdueActions: number) {
-  const activePhase = data.milestones.find((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status))?.title ?? project.status;
+export function buildManagementSummary(project: Project, health: RagStatus, data: DataStore, overdueActions: number, schedule: ScheduleMetrics) {
+  const activePhase = schedule.active[0]?.phase_name ?? schedule.atRisk[0]?.phase_name ?? schedule.blocked[0]?.phase_name ?? "No active phase";
   const outstandingDecisions = data.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).length;
-  const variance = Number(project.schedule_variance) || 0;
-  const varianceLabel = variance > 0 ? `+${variance}%` : `${variance}%`;
-  return `${project.name.replace(" - Delivery Date Range", "")} is currently ${health}. ${activePhase} is in progress. ${plural(outstandingDecisions, "decision")} remain outstanding. ${plural(overdueActions, "action")} ${overdueActions === 1 ? "is" : "are"} overdue. Schedule variance is ${varianceLabel}.`;
+  if (!schedule.valid || schedule.variance === null) {
+    return `${project.name.replace(" - Delivery Date Range", "")} is currently ${health}. Schedule dates need review. ${activePhase} is the current phase. ${plural(outstandingDecisions, "decision")} remain outstanding and ${plural(overdueActions, "action")} ${overdueActions === 1 ? "is" : "are"} overdue.`;
+  }
+  const varianceLabel = schedule.variance > 0 ? `+${schedule.variance}%` : `${schedule.variance}%`;
+  return `${project.name.replace(" - Delivery Date Range", "")} is currently ${health}. ${activePhase} is the active phase. The project ends ${formatScheduleDate(schedule.projectEnd)} with ${schedule.daysRemaining} days remaining. Planned progress is ${schedule.plannedProgress}% and actual progress is ${schedule.actualProgress}%, giving a schedule variance of ${varianceLabel}. ${plural(outstandingDecisions, "decision")} remain outstanding and ${plural(overdueActions, "action")} ${overdueActions === 1 ? "is" : "are"} overdue.`;
 }

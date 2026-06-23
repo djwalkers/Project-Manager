@@ -22,7 +22,7 @@ export type SystemHealthReport = {
   localMode: boolean;
   tables: TableHealth[];
   mismatches: string[];
-  counts: Record<"projects" | "requirements" | "risks" | "actions" | "decisions", number>;
+  counts: Record<"projects" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items", number>;
 };
 
 function staticMismatches() {
@@ -59,6 +59,7 @@ function requestedCounts(values: Partial<Record<EntityName, number | null>>) {
     risks: values.risks ?? 0,
     actions: values.actions ?? 0,
     decisions: values.decisions ?? 0,
+    timeline_items: values.timeline_items ?? 0,
   };
 }
 
@@ -87,7 +88,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
   const client = supabase;
   const results = await Promise.all(schemaTables.map(async (table): Promise<TableHealth> => {
     const columns = table.columns.map((column) => column.name).join(",");
-    const { count, error } = await client.from(table.name).select(columns, { count: "exact", head: true });
+    const { count, error } = await client.from(table.name).select(columns, { count: "exact" }).limit(1);
     if (error) {
       return {
         name: table.name,

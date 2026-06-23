@@ -23,7 +23,26 @@ export type Project = {
   status: Status;
   health: ProjectHealth;
   schedule_variance: number;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
   description: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TimelineStatus = "Not Started" | "In Progress" | "Complete" | "At Risk" | "Blocked";
+
+export type TimelineItem = {
+  id: string;
+  project_id: string;
+  phase_ref: string;
+  phase_name: string;
+  start_date: string;
+  end_date: string;
+  owner: string | null;
+  status: TimelineStatus;
+  progress_percent: number;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -181,6 +200,7 @@ export type EntityMap = {
   activity_log: ActivityLog;
   discovery_questions: DiscoveryQuestion;
   milestones: Milestone;
+  timeline_items: TimelineItem;
 };
 
 export type EntityName = keyof EntityMap;

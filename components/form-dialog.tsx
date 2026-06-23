@@ -70,11 +70,11 @@ export function FormDialog({
           ) : null}
           {config.fields.map((field) => (
             <label key={field.key} className="block space-y-2 text-sm font-medium">
-              <span>{field.label}</span>
+              <span>{field.label}{field.required ? <span className="text-destructive" aria-hidden="true"> *</span> : null}</span>
               {field.type === "textarea" ? (
-                <Textarea value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)} />
+                <Textarea required={field.required} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)} />
               ) : field.type === "select" ? (
-                <Select value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)}>
+                <Select required={field.required} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)}>
                   <option value="">Select</option>
                   {field.options?.map((option) => (
                     <option key={option} value={option}>
@@ -87,6 +87,10 @@ export function FormDialog({
                   type={field.type === "date" ? "date" : field.type === "number" ? "number" : "text"}
                   value={String(form[field.key] ?? "")}
                   onChange={(event) => update(field.key, event.target.value)}
+                  onInput={(event) => update(field.key, event.currentTarget.value)}
+                  required={field.required}
+                  min={field.min}
+                  max={field.max}
                 />
               )}
             </label>

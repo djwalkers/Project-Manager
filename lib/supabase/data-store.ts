@@ -7,7 +7,7 @@ import {
   type DataStore,
 } from "@/lib/data-store";
 import { projectId } from "@/lib/seed-data";
-import { schemaTables, writableColumns } from "@/lib/schema";
+import { schemaByTable, schemaTables, writableColumns } from "@/lib/schema";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
 import type { EntityMap, EntityName } from "@/lib/types";
 
@@ -16,10 +16,17 @@ type RecordValue = Record<string, unknown>;
 const tableOrder = schemaTables.map((table) => table.name);
 
 function cleanRecord(table: EntityName, record: RecordValue) {
+  const columns = schemaByTable.get(table)?.columns ?? [];
   return Object.fromEntries(
     writableColumns[table]
       .filter((column) => record[column] !== undefined)
-      .map((column) => [column, record[column] === "" && column.endsWith("_date") ? null : record[column]]),
+      .map((column) => {
+        const type = columns.find((item) => item.name === column)?.type;
+        const value = record[column];
+        if (value === "" && type === "date") return [column, null];
+        if ((type === "integer" || type === "numeric") && value !== "") return [column, Number(value)];
+        return [column, value];
+      }),
   );
 }
 
@@ -60,7 +67,7 @@ export async function loadData(): Promise<DataStore> {
 }
 
 export async function createRecord<K extends EntityName>(table: K, record: RecordValue): Promise<EntityMap[K]> {
-  const value = record;
+  const value = cleanRecord(table, record);
 
   if (!supabase) {
     const data = loadLocalData();
@@ -69,13 +76,13 @@ export async function createRecord<K extends EntityName>(table: K, record: Recor
     return created;
   }
 
-  const { data, error } = await supabase.from(table).insert(cleanRecord(table, value)).select().single();
+  const { data, error } = await supabase.from(table).insert(value).select().single();
   if (error) throw errorMessage(`Failed to create ${table}`, error);
   return data as EntityMap[K];
 }
 
 export async function updateRecord<K extends EntityName>(table: K, record: RecordValue & { id: string }): Promise<EntityMap[K]> {
-  const value = record;
+  const value = { ...cleanRecord(table, record), id: record.id };
 
   if (!supabase) {
     const data = loadLocalData();

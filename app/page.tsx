@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BriefcaseBusiness,
   CalendarClock,
+  CalendarRange,
   CircleHelp,
   ClipboardCheck,
   Flag,
@@ -26,9 +27,8 @@ import {
   buildUpcomingThisWeek,
   calculateProgress,
   calculateProjectHealth,
-  calculateScheduleHealth,
-  calculateTimeline,
 } from "@/lib/control-tower";
+import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
 
@@ -68,15 +68,15 @@ export default function DashboardPage() {
     const project = data?.projects[0];
     if (!data || !project) return null;
 
-    const scheduleVariance = Number(project.schedule_variance) || 0;
+    const schedule = calculateSchedule(project, data.timeline_items);
+    const scheduleVariance = schedule.variance ?? -1;
     const overdueActions = data.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
     const overdueDecisions = data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length;
+    const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
     const overdueItems = overdueActions + overdueDecisions;
     const health = calculateProjectHealth(overdueItems, blockedMilestones, scheduleVariance);
-    const scheduleHealth = calculateScheduleHealth(scheduleVariance);
+    const scheduleHealth = schedule.health;
     const progress = calculateProgress(data, scheduleVariance);
-    const timeline = calculateTimeline(data);
 
     return {
       project,
@@ -88,10 +88,10 @@ export default function DashboardPage() {
       health,
       scheduleHealth,
       progress,
-      timeline,
+      schedule,
       needsAttention: buildNeedsAttention(data),
       upcomingThisWeek: buildUpcomingThisWeek(data),
-      summary: buildManagementSummary(project, health, data, overdueActions),
+      summary: buildManagementSummary(project, health, data, overdueActions, schedule),
       openRisks: data.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
       openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
       activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
@@ -100,7 +100,7 @@ export default function DashboardPage() {
     };
   }, [data]);
 
-  if (error) return <AppShell><LoadErrorState onRetry={reload} /></AppShell>;
+  if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
   if (!tower) {
     return (
@@ -110,8 +110,8 @@ export default function DashboardPage() {
     );
   }
 
-  const { project, progress, timeline } = tower;
-  const varianceLabel = tower.scheduleVariance > 0 ? `+${tower.scheduleVariance}%` : `${tower.scheduleVariance}%`;
+  const { project, progress, schedule } = tower;
+  const varianceLabel = schedule.variance === null ? "Review" : schedule.variance > 0 ? `+${schedule.variance}%` : `${schedule.variance}%`;
 
   return (
     <AppShell>
@@ -139,7 +139,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <p className="text-muted-foreground">Project end</p>
-              <p className="font-semibold tabular-nums">{timeline.projectEnd ?? "Not set"}</p>
+              <p className="font-semibold tabular-nums">{formatScheduleDate(schedule.projectEnd)}</p>
             </div>
           </div>
         </div>
@@ -158,7 +158,12 @@ export default function DashboardPage() {
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <ControlTowerKpi title="Project Health" rag={tower.health} helper="Calculated from overdue work, blockers and schedule variance" icon={HeartPulse} tone={tower.health === "Red" ? "danger" : tower.health === "Amber" ? "warn" : "good"} />
-          <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth} helper={`${varianceLabel} against the current baseline`} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : "good"} />
+          <ControlTowerKpi title="Project End Date" value={schedule.valid ? formatScheduleDate(schedule.projectEnd) : "Review"} helper={schedule.valid ? "Editable planned delivery end date" : "Schedule dates need review"} icon={CalendarRange} tone={schedule.valid ? "neutral" : "warn"} />
+          <ControlTowerKpi title="Days Remaining" value={schedule.daysRemaining ?? "Review"} helper={schedule.valid ? "Calendar days to planned project end" : "Schedule dates need review"} icon={CalendarClock} tone={schedule.daysRemaining === 0 && !schedule.projectComplete ? "danger" : "neutral"} />
+          <ControlTowerKpi title="Planned Progress" value={schedule.plannedProgress === null ? "Review" : `${schedule.plannedProgress}%`} helper="Elapsed calendar days across the project baseline" icon={Target} progress={schedule.plannedProgress ?? undefined} />
+          <ControlTowerKpi title="Actual Progress" value={schedule.actualProgress === null ? "Review" : `${schedule.actualProgress}%`} helper="Duration-weighted progress across timeline phases" icon={Gauge} progress={schedule.actualProgress ?? undefined} />
+          <ControlTowerKpi title="Schedule Variance" value={schedule.variance === null ? "Review" : varianceLabel} helper="Actual progress minus planned progress" icon={Activity} tone={schedule.health === "Red" ? "danger" : schedule.health === "Amber" ? "warn" : "good"} />
+          <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth ?? undefined} value="Review" helper={schedule.valid ? `${varianceLabel} against the editable schedule` : "Schedule dates need review"} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : schedule.valid ? "good" : "warn"} />
           <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} />
           <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} />
           <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} />
@@ -173,29 +178,43 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-2">
-          <Panel title="Project Timeline Snapshot" description="Current delivery phase and remaining horizon.">
-            <div className="grid gap-3 sm:grid-cols-3">
+          <Panel title="Dashboard Timeline" description="Live phase position and duration-weighted schedule progress.">
+            {!schedule.valid ? (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">Schedule dates need review</div>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-md bg-muted/60 p-3">
                 <p className="text-xs font-semibold uppercase text-muted-foreground">Active phases</p>
                 <div className="mt-2 space-y-2">
-                  {timeline.active.length ? timeline.active.map((milestone) => (
-                    <div key={milestone.id}>
-                      <p className="text-sm font-medium">{milestone.title}</p>
-                      <StatusBadge value={milestone.status} className="mt-1" />
+                  {schedule.active.length ? schedule.active.map((phase) => (
+                    <div key={phase.id}>
+                      <p className="text-sm font-medium">{phase.phase_name}</p>
+                      <StatusBadge value={phase.status} className="mt-1" />
                     </div>
                   )) : <p className="text-sm text-muted-foreground">No active phase</p>}
                 </div>
               </div>
               <div className="rounded-md bg-muted/60 p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Next phase</p>
-                <p className="mt-2 text-sm font-medium">{timeline.next?.title ?? "Not scheduled"}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{timeline.next?.target_date ?? "No target date"}</p>
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Upcoming phases</p>
+                <div className="mt-2 space-y-2">
+                  {schedule.upcoming.slice(0, 3).map((phase) => <div key={phase.id}><p className="text-sm font-medium">{phase.phase_name}</p><p className="text-xs text-muted-foreground">Starts {formatScheduleDate(phase.start_date)}</p></div>)}
+                  {!schedule.upcoming.length ? <p className="text-sm text-muted-foreground">No upcoming phase</p> : null}
+                </div>
               </div>
               <div className="rounded-md bg-muted/60 p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Days to project end</p>
-                <p className="mt-2 text-3xl font-semibold tabular-nums">{timeline.daysRemaining ?? "—"}</p>
-                <p className="mt-1 text-xs text-muted-foreground">End date {timeline.projectEnd ?? "not set"}</p>
+                <p className="text-xs font-semibold uppercase text-muted-foreground">At risk / blocked</p>
+                <p className="mt-2 text-2xl font-semibold tabular-nums">{schedule.atRisk.length} / {schedule.blocked.length}</p>
+                <p className="mt-1 text-xs text-muted-foreground">At risk phases / blocked phases</p>
               </div>
+              <div className="rounded-md bg-muted/60 p-3">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Planned vs actual</p>
+                <p className="mt-2 text-lg font-semibold tabular-nums">{schedule.plannedProgress ?? "—"}% / {schedule.actualProgress ?? "—"}%</p>
+                <p className="mt-1 text-xs text-muted-foreground">Variance {schedule.variance === null ? "needs review" : varianceLabel}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div><div className="mb-1 flex justify-between text-xs"><span>Planned</span><span>{schedule.plannedProgress ?? 0}%</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-slate-500" style={{ width: `${schedule.plannedProgress ?? 0}%` }} /></div></div>
+              <div><div className="mb-1 flex justify-between text-xs"><span>Actual</span><span>{schedule.actualProgress ?? 0}%</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${schedule.actualProgress ?? 0}%` }} /></div></div>
             </div>
           </Panel>
 

@@ -11,6 +11,7 @@ import type {
   Requirement,
   Risk,
   TestCase,
+  TimelineItem,
 } from "@/lib/types";
 
 export const projectId = "11111111-1111-4111-8111-111111111111";
@@ -25,6 +26,8 @@ export const projects: Project[] = [
     status: "Discovery",
     health: "Amber",
     schedule_variance: -4,
+    planned_start_date: "2026-06-22",
+    planned_end_date: "2026-07-24",
     description:
       "Control centre for the Replenishment workstream changes needed to support delivery date range selection.",
     created_at: now,
@@ -243,6 +246,28 @@ export const milestones: Milestone[] = [
   updated_at: now,
 }));
 
+export const timeline_items: TimelineItem[] = [
+  ["PH-001", "Functional Analysis", "2026-06-22", "2026-06-25", "Andy", "In Progress", 25],
+  ["PH-002", "UI Design", "2026-06-24", "2026-06-30", "UI / Development", "Not Started", 0],
+  ["PH-003", "Replenishment Development", "2026-06-29", "2026-07-15", "Development", "Not Started", 0],
+  ["PH-004", "Picking/Palletisation/Marshalling/Loading Development", "2026-06-29", "2026-07-17", "Development", "Not Started", 0],
+  ["PH-005", "UI Development", "2026-07-01", "2026-07-10", "UI / Development", "Not Started", 0],
+  ["PH-006", "Unit Testing Picking/Palletisation/Marshalling/Loading/Replen", "2026-07-16", "2026-07-24", "Testing / Andy", "Not Started", 0],
+].map(([phase_ref, phase_name, start_date, end_date, owner, status, progress_percent], index) => ({
+  id: `dddddddd-dddd-4ddd-8ddd-${String(index + 1).padStart(12, "0")}`,
+  project_id: projectId,
+  phase_ref: String(phase_ref),
+  phase_name: String(phase_name),
+  start_date: String(start_date),
+  end_date: String(end_date),
+  owner: String(owner),
+  status: status as TimelineItem["status"],
+  progress_percent: Number(progress_percent),
+  notes: "",
+  created_at: now,
+  updated_at: now,
+}));
+
 export const seedData = {
   projects,
   requirements,
@@ -256,4 +281,5 @@ export const seedData = {
   activity_log,
   discovery_questions,
   milestones,
+  timeline_items,
 };

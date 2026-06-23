@@ -1,6 +1,6 @@
 # CR028 schema authority
 
-The application schema version is `002_schema_alignment`. The executable contract is defined in `lib/schema.ts`; `supabase/migrations/002_schema_alignment.sql` is the authoritative, additive database migration.
+The application schema version is `003_timeline_schedule`. The executable contract is defined in `lib/schema.ts`; migrations 001–003 form the additive database history, with `003_timeline_schedule.sql` adding the editable schedule.
 
 `Required` means the canonical database definition is `NOT NULL`. All child-table `project_id` columns reference `projects.id` with `ON DELETE CASCADE`.
 
@@ -17,6 +17,8 @@ The application schema version is `002_schema_alignment`. The executable contrac
 | status | text | Yes | — |
 | health | text | Yes | — |
 | schedule_variance | numeric | Yes | — |
+| planned_start_date | date | No | — |
+| planned_end_date | date | No | — |
 | description | text | No | — |
 | created_at | timestamptz | Yes | — |
 | updated_at | timestamptz | Yes | — |
@@ -131,6 +133,23 @@ The application schema version is `002_schema_alignment`. The executable contrac
 | created_at | timestamptz | Yes | — |
 | updated_at | timestamptz | Yes | — |
 
+### timeline_items
+
+| Column | PostgreSQL type | Required | Foreign key |
+| --- | --- | --- | --- |
+| id | uuid | Yes | — |
+| project_id | uuid | Yes | projects.id |
+| phase_ref | text | Yes | — |
+| phase_name | text | Yes | — |
+| start_date | date | Yes | — |
+| end_date | date | Yes | — |
+| owner | text | No | — |
+| status | text | Yes | — |
+| progress_percent | integer | Yes | — |
+| notes | text | No | — |
+| created_at | timestamptz | Yes | — |
+| updated_at | timestamptz | Yes | — |
+
 ### test_cases
 
 | Column | PostgreSQL type | Required | Foreign key |
@@ -193,19 +212,20 @@ The application schema version is `002_schema_alignment`. The executable contrac
 
 ## Relationships
 
-`projects` is the parent aggregate. Requirements, risks, decisions, actions, dependencies, discovery questions, milestones, test cases, meetings, documents, and activity entries each belong to one project through `project_id`. Deleting a project cascades to its children in a database created from the authoritative migration.
+`projects` is the parent aggregate. Requirements, risks, decisions, actions, dependencies, discovery questions, milestones, timeline items, test cases, meetings, documents, and activity entries each belong to one project through `project_id`. Deleting a project cascades to its children in a database created from the authoritative migration.
 
 ## Seed strategy
 
-Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 project plus requirements, risks, decisions, discovery questions, actions, dependencies, milestones, and test cases. Stable natural references are protected by unique indexes and used by `ON CONFLICT` upserts, so rerunning the seed updates CR028 rather than duplicating it. Meetings, document metadata, and activity history are intentionally excluded from the full baseline seed.
+Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 project plus requirements, risks, decisions, discovery questions, actions, dependencies, milestones, timeline items, and test cases. Timeline seed dates are editable starting values, not calculation constants. Stable natural references are protected by unique indexes and used by `ON CONFLICT` upserts, so rerunning the seed updates CR028 rather than duplicating it. Meetings, document metadata, and activity history are intentionally excluded from the full baseline seed.
 
 ## Migration strategy
 
 1. Keep `001_initial_schema.sql` as historical/bootstrap context.
-2. Run `002_schema_alignment.sql` as the current authority. It creates absent tables and uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for every expected column. It also creates indexes and timestamp triggers. It never drops columns or rows.
-3. Run `seed_full_cr028.sql` after migration 002.
-4. Use the System Health page to verify table accessibility, expected column presence, connection mode, and record counts.
+2. Run `002_schema_alignment.sql` to align the original control tables.
+3. Run `003_timeline_schedule.sql` to add project planned dates and `timeline_items`. It uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and never drops columns or rows.
+4. Run `seed_full_cr028.sql` after migration 003.
+5. Use the System Health page to verify table accessibility, expected column presence, connection mode, and record counts.
 
-Because PostgreSQL cannot safely infer how to repair arbitrary legacy data, migration 002 does not coerce existing column types, remove obsolete columns, or force new nullable legacy columns to `NOT NULL`. Likewise, a unique index cannot be created if an older database already contains duplicate natural keys. Those cases require a reviewed data-cleanup migration. The browser-side Supabase client can detect missing/inaccessible tables and columns, but not inspect constraints, exact types, foreign keys, or applied migration history through the anonymous API.
+Because PostgreSQL cannot safely infer how to repair arbitrary legacy data, additive migrations do not coerce existing column types, remove obsolete columns, or force new nullable legacy columns to `NOT NULL`. Likewise, a unique index cannot be created if an older database already contains duplicate natural keys. Those cases require a reviewed data-cleanup migration. The browser-side Supabase client can detect missing/inaccessible tables and columns, but not inspect constraints, exact types, foreign keys, or applied migration history through the anonymous API.
 
 Authentication and row-level security remain intentionally out of scope. They must be designed together before production use.

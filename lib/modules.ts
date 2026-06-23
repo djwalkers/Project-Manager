@@ -3,6 +3,7 @@ import {
   BookOpenCheck,
   BriefcaseBusiness,
   CalendarDays,
+  CalendarRange,
   CircleHelp,
   ClipboardCheck,
   FileText,
@@ -28,7 +29,7 @@ export type ModuleConfig = {
   statusField?: string;
   searchFields: string[];
   columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" }[];
-  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[] }[];
+  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number }[];
 };
 
 export const navItems = [
@@ -40,6 +41,7 @@ export const navItems = [
   { href: "/discovery-questions", label: "Discovery Questions", icon: CircleHelp },
   { href: "/actions", label: "Actions", icon: ClipboardCheck },
   { href: "/milestones", label: "Milestones", icon: Flag },
+  { href: "/timeline", label: "Timeline", icon: CalendarRange },
   { href: "/dependencies", label: "Dependencies", icon: GitBranch },
   { href: "/testing", label: "Testing", icon: BookOpenCheck },
   { href: "/meetings", label: "Meetings", icon: CalendarDays },
@@ -54,6 +56,7 @@ const requirementCategoryOptions = ["Business Rule", "Database", "Backend", "UI"
 const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Answered", "Closed"];
 const discoveryCategoryOptions = ["Business Rule", "Replenishment Logic", "Database", "Performance", "Testing", "UI"];
 const milestoneStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
+const timelineStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
 const testStatusOptions = ["Pending", "In Progress", "Passed", "Failed", "Blocked"];
 
 export const modules: ModuleConfig[] = [
@@ -78,7 +81,8 @@ export const modules: ModuleConfig[] = [
       { key: "workstream", label: "Workstream" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
       { key: "health", label: "Project health", type: "select", options: ["Green", "Amber", "Red"] },
-      { key: "schedule_variance", label: "Schedule variance (%)", type: "number" },
+      { key: "planned_start_date", label: "Planned start date", type: "date" },
+      { key: "planned_end_date", label: "Planned end date", type: "date" },
       { key: "description", label: "Description", type: "textarea" },
     ],
   },
@@ -232,6 +236,34 @@ export const modules: ModuleConfig[] = [
       { key: "target_date", label: "Target date", type: "date" },
       { key: "status", label: "Status", type: "select", options: milestoneStatusOptions },
       { key: "owner", label: "Owner" },
+      { key: "notes", label: "Notes", type: "textarea" },
+    ],
+  },
+  {
+    key: "timeline_items",
+    slug: "timeline",
+    title: "Timeline",
+    singular: "Timeline Item",
+    description: "Manage delivery phases, dates, ownership and schedule progress.",
+    icon: CalendarRange,
+    statusField: "status",
+    searchFields: ["phase_ref", "phase_name", "owner", "status", "notes"],
+    columns: [
+      { key: "phase_ref", label: "Ref" },
+      { key: "phase_name", label: "Phase" },
+      { key: "start_date", label: "Start", type: "date" },
+      { key: "end_date", label: "End", type: "date" },
+      { key: "progress_percent", label: "Progress %" },
+      { key: "status", label: "Status", type: "status" },
+    ],
+    fields: [
+      { key: "phase_ref", label: "Phase reference", required: true },
+      { key: "phase_name", label: "Phase name", required: true },
+      { key: "start_date", label: "Start date", type: "date", required: true },
+      { key: "end_date", label: "End date", type: "date", required: true },
+      { key: "owner", label: "Owner" },
+      { key: "status", label: "Status", type: "select", options: timelineStatusOptions, required: true },
+      { key: "progress_percent", label: "Progress percent", type: "number", required: true, min: 0, max: 100 },
       { key: "notes", label: "Notes", type: "textarea" },
     ],
   },

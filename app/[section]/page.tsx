@@ -12,6 +12,7 @@ export function generateStaticParams() {
     "discovery-questions",
     "actions",
     "milestones",
+    "timeline",
     "dependencies",
     "testing",
     "meetings",

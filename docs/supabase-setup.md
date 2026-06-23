@@ -23,7 +23,11 @@ Never put a service-role key in a `NEXT_PUBLIC_` variable.
 
 Open the Supabase SQL editor and run:
 
-`supabase/migrations/001_initial_schema.sql`
+Run these files in order:
+
+1. `supabase/migrations/001_initial_schema.sql`
+2. `supabase/migrations/002_schema_alignment.sql`
+3. `supabase/migrations/003_timeline_schedule.sql`
 
 The migration creates the project-control tables, indexes, update triggers, and stable unique keys used by the seed script.
 
@@ -54,5 +58,6 @@ Open the dashboard and confirm that the local-mode banner is gone. The seeded da
 - 5 pending test cases
 - 6 open discovery questions
 - 6 milestones
+- 6 timeline phases
 
 Create or edit one record, refresh the page, and confirm that the change remains visible. The same change should also appear in the matching table in Supabase.

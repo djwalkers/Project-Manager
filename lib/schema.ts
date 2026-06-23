@@ -1,10 +1,10 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "002_schema_alignment";
+export const schemaVersion = "003_timeline_schedule";
 
 export type SchemaColumn = {
   name: string;
-  type: "uuid" | "text" | "numeric" | "date" | "timestamptz";
+  type: "uuid" | "text" | "integer" | "numeric" | "date" | "timestamptz";
   required: boolean;
   managed?: boolean;
   foreignKey?: string;
@@ -33,6 +33,8 @@ export const schemaTables: SchemaTable[] = [
       { name: "status", type: "text", required: true },
       { name: "health", type: "text", required: true },
       { name: "schedule_variance", type: "numeric", required: true },
+      { name: "planned_start_date", type: "date", required: false },
+      { name: "planned_end_date", type: "date", required: false },
       { name: "description", type: "text", required: false },
       createdAt,
       updatedAt,
@@ -137,6 +139,22 @@ export const schemaTables: SchemaTable[] = [
       { name: "target_date", type: "date", required: false },
       { name: "status", type: "text", required: true },
       { name: "owner", type: "text", required: false },
+      { name: "notes", type: "text", required: false },
+      createdAt, updatedAt,
+    ],
+  },
+  {
+    name: "timeline_items",
+    seedKey: ["project_id", "phase_ref"],
+    columns: [
+      id, projectId,
+      { name: "phase_ref", type: "text", required: true },
+      { name: "phase_name", type: "text", required: true },
+      { name: "start_date", type: "date", required: true },
+      { name: "end_date", type: "date", required: true },
+      { name: "owner", type: "text", required: false },
+      { name: "status", type: "text", required: true },
+      { name: "progress_percent", type: "integer", required: true },
       { name: "notes", type: "text", required: false },
       createdAt, updatedAt,
     ],

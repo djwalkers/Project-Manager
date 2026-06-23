@@ -1,9 +1,9 @@
 -- Full, idempotent CR028 seed for the aligned schema.
--- Run 002_schema_alignment.sql before this file.
+-- Run migrations through 003_timeline_schedule.sql before this file.
 
 begin;
 
-insert into public.projects (id, name, customer, workstream, status, health, schedule_variance, description)
+insert into public.projects (id, name, customer, workstream, status, health, schedule_variance, planned_start_date, planned_end_date, description)
 values (
   '11111111-1111-4111-8111-111111111111',
   'CR028 - Delivery Date Range',
@@ -12,6 +12,8 @@ values (
   'Discovery',
   'Amber',
   -4,
+  '2026-06-22',
+  '2026-07-24',
   'Control centre for the Replenishment workstream changes needed to support delivery date range selection.'
 )
 on conflict (name) do update set
@@ -20,6 +22,8 @@ on conflict (name) do update set
   status = excluded.status,
   health = excluded.health,
   schedule_variance = excluded.schedule_variance,
+  planned_start_date = excluded.planned_start_date,
+  planned_end_date = excluded.planned_end_date,
   description = excluded.description;
 
 insert into public.requirements (project_id, requirement_ref, title, description, priority, category, status, owner, source, notes)
@@ -119,5 +123,17 @@ values
 on conflict (project_id, test_ref) do update set
   scenario = excluded.scenario, expected_result = excluded.expected_result,
   actual_result = excluded.actual_result, status = excluded.status, owner = excluded.owner;
+
+insert into public.timeline_items (project_id, phase_ref, phase_name, start_date, end_date, owner, status, progress_percent, notes)
+values
+('11111111-1111-4111-8111-111111111111', 'PH-001', 'Functional Analysis', '2026-06-22', '2026-06-25', 'Andy', 'In Progress', 25, ''),
+('11111111-1111-4111-8111-111111111111', 'PH-002', 'UI Design', '2026-06-24', '2026-06-30', 'UI / Development', 'Not Started', 0, ''),
+('11111111-1111-4111-8111-111111111111', 'PH-003', 'Replenishment Development', '2026-06-29', '2026-07-15', 'Development', 'Not Started', 0, ''),
+('11111111-1111-4111-8111-111111111111', 'PH-004', 'Picking/Palletisation/Marshalling/Loading Development', '2026-06-29', '2026-07-17', 'Development', 'Not Started', 0, ''),
+('11111111-1111-4111-8111-111111111111', 'PH-005', 'UI Development', '2026-07-01', '2026-07-10', 'UI / Development', 'Not Started', 0, ''),
+('11111111-1111-4111-8111-111111111111', 'PH-006', 'Unit Testing Picking/Palletisation/Marshalling/Loading/Replen', '2026-07-16', '2026-07-24', 'Testing / Andy', 'Not Started', 0, '')
+on conflict (project_id, phase_ref) do update set
+  phase_name = excluded.phase_name, start_date = excluded.start_date, end_date = excluded.end_date,
+  owner = excluded.owner, status = excluded.status, progress_percent = excluded.progress_percent, notes = excluded.notes;
 
 commit;
