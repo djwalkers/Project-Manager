@@ -1,6 +1,6 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "003_timeline_schedule";
+export const schemaVersion = "004_timeline_visibility_and_project_reconciliation";
 
 export type SchemaColumn = {
   name: string;

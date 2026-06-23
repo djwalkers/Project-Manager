@@ -138,12 +138,12 @@ on conflict (project_id, milestone_ref) do update set
 
 insert into public.timeline_items (project_id, phase_ref, phase_name, start_date, end_date, owner, status, progress_percent, notes)
 values
-('11111111-1111-4111-8111-111111111111', 'PH-001', 'Functional Analysis', '2026-06-22', '2026-06-25', 'Andy', 'In Progress', 25, ''),
-('11111111-1111-4111-8111-111111111111', 'PH-002', 'UI Design', '2026-06-24', '2026-06-30', 'UI / Development', 'Not Started', 0, ''),
-('11111111-1111-4111-8111-111111111111', 'PH-003', 'Replenishment Development', '2026-06-29', '2026-07-15', 'Development', 'Not Started', 0, ''),
-('11111111-1111-4111-8111-111111111111', 'PH-004', 'Picking/Palletisation/Marshalling/Loading Development', '2026-06-29', '2026-07-17', 'Development', 'Not Started', 0, ''),
-('11111111-1111-4111-8111-111111111111', 'PH-005', 'UI Development', '2026-07-01', '2026-07-10', 'UI / Development', 'Not Started', 0, ''),
-('11111111-1111-4111-8111-111111111111', 'PH-006', 'Unit Testing Picking/Palletisation/Marshalling/Loading/Replen', '2026-07-16', '2026-07-24', 'Testing / Andy', 'Not Started', 0, '')
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'PH-001', 'Functional Analysis', '2026-06-22', '2026-06-25', 'Andy', 'In Progress', 25, ''),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'PH-002', 'UI Design', '2026-06-24', '2026-06-30', 'UI / Development', 'Not Started', 0, ''),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'PH-003', 'Replenishment Development', '2026-06-29', '2026-07-15', 'Development', 'Not Started', 0, ''),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'PH-004', 'Picking/Palletisation/Marshalling/Loading Development', '2026-06-29', '2026-07-17', 'Development', 'Not Started', 0, ''),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'PH-005', 'UI Development', '2026-07-01', '2026-07-10', 'UI / Development', 'Not Started', 0, ''),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'PH-006', 'Unit Testing Picking/Palletisation/Marshalling/Loading/Replen', '2026-07-16', '2026-07-24', 'Testing / Andy', 'Not Started', 0, '')
 on conflict (project_id, phase_ref) do update set
   phase_name = excluded.phase_name, start_date = excluded.start_date, end_date = excluded.end_date,
   owner = excluded.owner, status = excluded.status, progress_percent = excluded.progress_percent, notes = excluded.notes;

@@ -104,6 +104,24 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
   results.filter((table) => table.error).forEach((table) => {
     mismatches.push(`${table.name}: ${table.error}`);
   });
+  const timelineHealth = results.find((table) => table.name === "timeline_items");
+  if (timelineHealth?.status === "Healthy" && timelineHealth.rowCount === 0 && seedData.timeline_items.length > 0) {
+    mismatches.push("timeline_items: the anon client can see 0 rows although the CR028 seed defines 6; check RLS/table grants and run migration 004");
+  }
+
+  const [{ data: projectRows }, { data: timelineRows }] = await Promise.all([
+    client.from("projects").select("id,name"),
+    client.from("timeline_items").select("project_id,phase_ref"),
+  ]);
+  const cr028Projects = (projectRows ?? []).filter((project) => String(project.name).toLowerCase().includes("cr028"));
+  if (cr028Projects.length > 1) {
+    mismatches.push(`projects: ${cr028Projects.length} CR028 project rows are visible; active selection will use the project with the strongest control-data ownership`);
+  }
+  const visibleProjectIds = new Set((projectRows ?? []).map((project) => project.id));
+  const unmatchedTimelineRows = (timelineRows ?? []).filter((item) => !visibleProjectIds.has(item.project_id)).length;
+  if (unmatchedTimelineRows) {
+    mismatches.push(`timeline_items: ${unmatchedTimelineRows} rows reference a project not visible to the anon client`);
+  }
   const databaseCounts = Object.fromEntries(results.map((table) => [table.name, table.rowCount]));
 
   return {

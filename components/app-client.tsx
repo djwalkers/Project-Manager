@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -7,6 +8,7 @@ import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
 import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
+import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import {
   deleteRecord,
   hasSupabaseConfig,
@@ -20,12 +22,17 @@ type Row = Record<string, unknown>;
 export function ModulePageClient({ section }: { section: string }) {
   const { data, setData, error, reload } = useProjectData();
   const config = moduleBySlug.get(section);
+  const activeProject = data ? selectActiveProject(data) : null;
+  const timelineScope = data && activeProject ? selectTimelineItems(data, activeProject) : null;
+  const pageData = data && config?.key === "timeline_items" && timelineScope
+    ? { ...data, timeline_items: timelineScope.items }
+    : data;
 
   async function persistRecord(record: Row) {
     if (!config) throw new Error("Unknown module");
     const saved = await saveRecord(config.key, {
       ...record,
-      ...(config.key === "projects" ? {} : { project_id: record.project_id ?? data?.projects[0]?.id }),
+      ...(config.key === "projects" ? {} : { project_id: record.project_id ?? activeProject?.id }),
     });
     setData((current) => {
       if (!current) return current;
@@ -51,7 +58,7 @@ export function ModulePageClient({ section }: { section: string }) {
 
   if (!config) return null;
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
-  if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!data || !pageData) return <AppShell><LoadingState /></AppShell>;
 
   return (
     <AppShell>
@@ -62,7 +69,7 @@ export function ModulePageClient({ section }: { section: string }) {
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{config.description}</p>
         </div>
         <p className="rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground">
-          {data[config.key].length} total records
+          {pageData[config.key].length} total records
         </p>
       </div>
       {config.key === "documents" ? (
@@ -70,10 +77,19 @@ export function ModulePageClient({ section }: { section: string }) {
           Document upload will be added in v2.
         </div>
       ) : null}
-      {config.key === "timeline_items" && data.projects[0] ? (
-        <TimelineSchedule project={data.projects[0]} items={data.timeline_items} />
+      {config.key === "timeline_items" && timelineScope?.mode !== "exact" ? (
+        <div className="mb-5 flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-semibold">Timeline project ownership needs review</p>
+            <p className="mt-1">{timelineScope?.mode === "duplicate-project" ? "Phases were found against a duplicate CR028 project and are shown here for continuity." : "Timeline records exist, but none belong to the active CR028 project."}</p>
+          </div>
+        </div>
       ) : null}
-      <DataTable config={config} data={data} onSaveRecord={persistRecord} onDeleteRecord={removeRecord} />
+      {config.key === "timeline_items" && activeProject && timelineScope ? (
+        <TimelineSchedule project={activeProject} items={timelineScope.items} />
+      ) : null}
+      <DataTable config={config} data={pageData} onSaveRecord={persistRecord} onDeleteRecord={removeRecord} />
     </AppShell>
   );
 }

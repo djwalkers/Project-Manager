@@ -29,6 +29,7 @@ import {
   calculateProjectHealth,
 } from "@/lib/control-tower";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
+import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
 
@@ -65,10 +66,11 @@ export default function DashboardPage() {
   const { data, error, reload } = useProjectData();
 
   const tower = useMemo(() => {
-    const project = data?.projects[0];
+    const project = data ? selectActiveProject(data) : null;
     if (!data || !project) return null;
 
-    const schedule = calculateSchedule(project, data.timeline_items);
+    const timelineScope = selectTimelineItems(data, project);
+    const schedule = calculateSchedule(project, timelineScope.items);
     const scheduleVariance = schedule.variance ?? -1;
     const overdueActions = data.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
     const overdueDecisions = data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;

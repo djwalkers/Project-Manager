@@ -1,6 +1,6 @@
 # CR028 schema authority
 
-The application schema version is `003_timeline_schedule`. The executable contract is defined in `lib/schema.ts`; migrations 001–003 form the additive database history, with `003_timeline_schedule.sql` adding the editable schedule.
+The application schema version is `004_timeline_visibility_and_project_reconciliation`. The executable contract is defined in `lib/schema.ts`; migration 003 adds the editable schedule and migration 004 repairs development visibility and CR028 phase ownership.
 
 `Required` means the canonical database definition is `NOT NULL`. All child-table `project_id` columns reference `projects.id` with `ON DELETE CASCADE`.
 
@@ -223,9 +223,10 @@ Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 proj
 1. Keep `001_initial_schema.sql` as historical/bootstrap context.
 2. Run `002_schema_alignment.sql` to align the original control tables.
 3. Run `003_timeline_schedule.sql` to add project planned dates and `timeline_items`. It uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and never drops columns or rows.
-4. Run `seed_full_cr028.sql` after migration 003.
-5. Use the System Health page to verify table accessibility, expected column presence, connection mode, and record counts.
+4. Run `004_timeline_visibility_and_project_reconciliation.sql`. While authentication is absent, it disables RLS for `timeline_items`, grants development CRUD access to the anon client, and reparents stranded phases to the CR028 project with the strongest control-data ownership without deleting duplicate projects.
+5. Run `seed_full_cr028.sql` after migration 004.
+6. Use the System Health page to verify table accessibility, expected column presence, connection mode, record counts, duplicate CR028 projects, and timeline visibility.
 
 Because PostgreSQL cannot safely infer how to repair arbitrary legacy data, additive migrations do not coerce existing column types, remove obsolete columns, or force new nullable legacy columns to `NOT NULL`. Likewise, a unique index cannot be created if an older database already contains duplicate natural keys. Those cases require a reviewed data-cleanup migration. The browser-side Supabase client can detect missing/inaccessible tables and columns, but not inspect constraints, exact types, foreign keys, or applied migration history through the anonymous API.
 
-Authentication and row-level security remain intentionally out of scope. They must be designed together before production use.
+Authentication and production row-level security remain intentionally out of scope. Migration 004 contains an explicit temporary development grant for `timeline_items`; replace it with authenticated RLS policies before production use.

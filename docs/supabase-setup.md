@@ -28,6 +28,7 @@ Run these files in order:
 1. `supabase/migrations/001_initial_schema.sql`
 2. `supabase/migrations/002_schema_alignment.sql`
 3. `supabase/migrations/003_timeline_schedule.sql`
+4. `supabase/migrations/004_timeline_visibility_and_project_reconciliation.sql`
 
 The migration creates the project-control tables, indexes, update triggers, and stable unique keys used by the seed script.
 
