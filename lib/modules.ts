@@ -13,6 +13,7 @@ import {
   MessageSquareText,
   Settings,
   ShieldQuestion,
+  Stethoscope,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import type { EntityName } from "@/lib/types";
@@ -43,6 +44,7 @@ export const navItems = [
   { href: "/testing", label: "Testing", icon: BookOpenCheck },
   { href: "/meetings", label: "Meetings", icon: CalendarDays },
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/system-health", label: "System Health", icon: Stethoscope },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

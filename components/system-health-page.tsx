@@ -1,0 +1,122 @@
+"use client";
+
+import { AlertTriangle, CheckCircle2, Database, Server, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AppShell } from "@/components/app-shell";
+import { LoadingState } from "@/components/data-state";
+import { getSystemHealth, type SystemHealthReport } from "@/lib/system-health";
+
+function MetricCard({ label, value, state }: { label: string; value: string | number; state?: boolean }) {
+  const Icon = state === undefined ? Database : state ? CheckCircle2 : XCircle;
+  return (
+    <section className="rounded-lg border bg-card p-4 shadow-operational">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+        </div>
+        <Icon className={state === false ? "h-5 w-5 text-destructive" : state === true ? "h-5 w-5 text-emerald-600" : "h-5 w-5 text-primary"} aria-hidden="true" />
+      </div>
+    </section>
+  );
+}
+
+export function SystemHealthPage() {
+  const [report, setReport] = useState<SystemHealthReport | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getSystemHealth().then((value) => active && setReport(value)).catch(() => active && setError(true));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!report && !error) return <AppShell><LoadingState /></AppShell>;
+
+  if (!report) {
+    return (
+      <AppShell>
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-center">
+          <XCircle className="mx-auto h-8 w-8 text-destructive" aria-hidden="true" />
+          <h2 className="mt-3 text-lg font-semibold">System health check failed</h2>
+          <p className="mt-2 text-sm text-muted-foreground">The diagnostic report could not be generated.</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  const healthyTables = report.tables.filter((table) => table.status !== "Mismatch").length;
+
+  return (
+    <AppShell>
+      <div>
+        <p className="text-sm font-medium text-primary">Diagnostics</p>
+        <h2 className="mt-1 text-2xl font-semibold">System Health</h2>
+        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Runtime alignment between the application contract, local fallback, and Supabase tables.</p>
+      </div>
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Database Tables" value={`${healthyTables} / ${report.tables.length}`} state={healthyTables === report.tables.length} />
+        <MetricCard label="Migration Version" value={report.schemaVersion} />
+        <MetricCard label="Supabase Connected" value={report.connected ? "Yes" : "No"} state={report.connected} />
+        <MetricCard label="Local Mode Active" value={report.localMode ? "Yes" : "No"} state={report.localMode} />
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Project Count" value={report.counts.projects} />
+        <MetricCard label="Requirements Count" value={report.counts.requirements} />
+        <MetricCard label="Risks Count" value={report.counts.risks} />
+        <MetricCard label="Actions Count" value={report.counts.actions} />
+        <MetricCard label="Decision Count" value={report.counts.decisions} />
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
+        <section className="min-w-0 rounded-lg border bg-card shadow-operational">
+          <div className="border-b p-4">
+            <div className="flex items-center gap-2">
+              <Server className="h-5 w-5 text-primary" aria-hidden="true" />
+              <h3 className="font-semibold">Table Alignment</h3>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/70 text-left text-xs uppercase text-muted-foreground">
+                <tr><th className="px-4 py-3">Table</th><th className="px-4 py-3">Columns</th><th className="px-4 py-3">Rows</th><th className="px-4 py-3">Status</th></tr>
+              </thead>
+              <tbody>
+                {report.tables.map((table) => (
+                  <tr key={table.name} className="border-t">
+                    <td className="px-4 py-3 font-medium">{table.name}</td>
+                    <td className="px-4 py-3 tabular-nums">{table.columnCount}</td>
+                    <td className="px-4 py-3 tabular-nums">{table.rowCount ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <span className={table.status === "Mismatch" ? "font-medium text-destructive" : "font-medium text-emerald-700 dark:text-emerald-300"}>{table.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-lg border bg-card p-4 shadow-operational">
+          <div className="flex items-center gap-2">
+            {report.mismatches.length ? <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden="true" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />}
+            <h3 className="font-semibold">Schema Mismatch</h3>
+          </div>
+          {report.mismatches.length ? (
+            <ul className="mt-4 space-y-2 text-sm">
+              {report.mismatches.map((mismatch) => <li key={mismatch} className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">{mismatch}</li>)}
+            </ul>
+          ) : (
+            <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+              No schema mismatches detected.{report.localMode ? " Live database columns were not checked in local mode." : ""}
+            </div>
+          )}
+        </section>
+      </div>
+    </AppShell>
+  );
+}
