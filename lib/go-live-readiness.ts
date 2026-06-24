@@ -1,5 +1,3 @@
-"use client";
-
 import type { DataStore } from "@/lib/data-store";
 import type { GoLiveChecklist, GoLiveChecklistCategory, Project, Risk } from "@/lib/types";
 import { scopeProjectData } from "@/lib/project-scope";
