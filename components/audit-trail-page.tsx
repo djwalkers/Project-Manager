@@ -86,7 +86,7 @@ function AuditRow({ entry }: { entry: AuditLog }) {
           <p className="truncate text-xs text-muted-foreground">{formatAuditChange(entry)}</p>
         )}
       </td>
-      <td className="px-4 py-3 text-sm text-muted-foreground">{entry.changed_by_name}</td>
+      <td className="max-w-[140px] px-4 py-3 text-sm text-muted-foreground"><span className="block truncate" title={entry.changed_by_name ?? undefined}>{entry.changed_by_name ?? "—"}</span></td>
       <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">{fmt(entry.changed_at)}</td>
     </tr>
   );
@@ -289,7 +289,7 @@ export function AuditTrailPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[580px] text-sm">
               <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">Action</th>

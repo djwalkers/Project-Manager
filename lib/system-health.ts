@@ -4,7 +4,7 @@ import { loadData as loadLocalData } from "@/lib/data-store";
 import { getAuditCount } from "@/lib/audit";
 import { modules } from "@/lib/modules";
 import { intelligenceEngineValidation } from "@/lib/project-intelligence";
-import { schemaTables, schemaVersion } from "@/lib/schema";
+import { allMigrations, latestMigration, schemaTables, schemaVersion } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
 import type { EntityName } from "@/lib/types";
@@ -33,8 +33,17 @@ export type AuditHealth = {
   recordCount: number;
 };
 
+export type MigrationHealth = {
+  schemaVersion: string;
+  latestMigration: string;
+  appliedCount: number;
+  totalCount: number;
+  outstandingMigrations: string[];
+};
+
 export type SystemHealthReport = {
   schemaVersion: string;
+  migration: MigrationHealth;
   configured: boolean;
   connected: boolean;
   localMode: boolean;
@@ -104,6 +113,19 @@ function requestedCounts(values: Partial<Record<EntityName, number | null>>) {
   };
 }
 
+function buildMigrationHealth(appliedVersion: string): MigrationHealth {
+  const appliedIdx = allMigrations.indexOf(appliedVersion as typeof allMigrations[number]);
+  const applied = appliedIdx === -1 ? [] : allMigrations.slice(0, appliedIdx + 1);
+  const outstanding = appliedIdx === -1 ? [...allMigrations] : allMigrations.slice(appliedIdx + 1);
+  return {
+    schemaVersion: appliedVersion,
+    latestMigration,
+    appliedCount: applied.length,
+    totalCount: allMigrations.length,
+    outstandingMigrations: [...outstanding],
+  };
+}
+
 export async function getSystemHealth(): Promise<SystemHealthReport> {
   const mismatches = staticMismatches();
   const intelligence = intelligenceEngineValidation();
@@ -115,6 +137,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     const localCounts = Object.fromEntries(schemaTables.map((table) => [table.name, data[table.name].length]));
     return {
       schemaVersion,
+      migration: buildMigrationHealth(schemaVersion),
       configured: hasSupabaseConfig,
       connected: false,
       localMode: true,
@@ -184,6 +207,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
 
   return {
     schemaVersion,
+    migration: buildMigrationHealth(schemaVersion),
     configured: hasSupabaseConfig,
     connected: results.some((table) => table.status === "Healthy"),
     localMode: false,

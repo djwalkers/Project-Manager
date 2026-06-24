@@ -1,6 +1,19 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "007_email_delivery";
+export const schemaVersion = "010_manager_summary";
+export const latestMigration = "010_manager_summary";
+export const allMigrations = [
+  "001_initial_schema",
+  "002_schema_alignment",
+  "003_timeline_schedule",
+  "004_timeline_visibility_and_project_reconciliation",
+  "005_project_snapshots",
+  "006_delivery_management",
+  "007_email_delivery",
+  "008_auth_rls",
+  "009_audit_trail",
+  "010_manager_summary",
+] as const;
 
 export type SchemaColumn = {
   name: string;

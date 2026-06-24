@@ -51,10 +51,10 @@ function ProjectCard({ summary }: { summary: ManagerProjectSummary }) {
         <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", cfg.text)} aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={cn("rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide", cfg.badge)}>
+            <span className={cn("shrink-0 rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide", cfg.badge)}>
               {summary.status}
             </span>
-            <h3 className="text-base font-semibold">{summary.project.name}</h3>
+            <h3 className="min-w-0 break-words text-base font-semibold">{summary.project.name}</h3>
           </div>
 
           <p className="mt-2 text-sm leading-relaxed text-foreground/85">{summary.summary}</p>
