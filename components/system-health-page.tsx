@@ -1,10 +1,12 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, Database, MailCheck, Server, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, MailCheck, Server, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
 import { getSystemHealth, type SystemHealthReport } from "@/lib/system-health";
+import { useAuth } from "@/contexts/auth-context";
+import { hasSupabaseConfig } from "@/lib/supabase/client";
 
 function MetricCard({ label, value, state }: { label: string; value: string | number; state?: boolean }) {
   const Icon = state === undefined ? Database : state ? CheckCircle2 : XCircle;
@@ -25,6 +27,7 @@ export function SystemHealthPage() {
   const [report, setReport] = useState<SystemHealthReport | null>(null);
   const [resendConfigured, setResendConfigured] = useState(false);
   const [error, setError] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     let active = true;
@@ -65,7 +68,25 @@ export function SystemHealthPage() {
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Runtime alignment between the application contract, local fallback, and Supabase tables.</p>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      {/* Auth status */}
+      <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="auth-health-title">
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h3 id="auth-health-title" className="font-semibold">Authentication</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Session, access control, and role assignment.</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <MetricCard label="Auth Enabled" value={hasSupabaseConfig ? "Yes" : "No (local mode)"} state={hasSupabaseConfig} />
+          <MetricCard label="Current User" value={user?.fullName ?? "—"} />
+          <MetricCard label="Current Role" value={user?.role ?? "—"} state={user?.role === "Admin" ? true : user?.role === "Manager" ? true : undefined} />
+        </div>
+      </section>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Database Tables" value={`${healthyTables} / ${report.tables.length}`} state={healthyTables === report.tables.length} />
         <MetricCard label="Migration Version" value={report.schemaVersion} />
         <MetricCard label="Supabase Connected" value={report.connected ? "Yes" : "No"} state={report.connected} />

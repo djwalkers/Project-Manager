@@ -4,10 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Boxes } from "lucide-react";
 import { navItems } from "@/lib/modules";
+import { useAuth } from "@/contexts/auth-context";
+import { ROLE_NAV_ACCESS } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const role = user?.role ?? "Viewer";
+  const access = ROLE_NAV_ACCESS[role];
+
+  const visibleItems = navItems.filter((item) => {
+    if (access === "all") return true;
+    return access.includes(item.href);
+  });
 
   return (
     <aside className="sticky top-0 hidden h-dvh w-72 shrink-0 overflow-y-auto border-r bg-card lg:block">
@@ -21,7 +31,7 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="space-y-1 p-3" aria-label="Main navigation">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
