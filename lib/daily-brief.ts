@@ -7,7 +7,7 @@ import {
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
-import { selectCanonicalProjects, selectTimelineItems } from "@/lib/project-scope";
+import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildWeeklyExecutiveSummary, type SinceYesterday, type WeeklyExecutiveSummary } from "@/lib/project-trends";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import type { Milestone, Project } from "@/lib/types";
@@ -38,26 +38,6 @@ export type DailyBrief = {
   plainText: string;
   html: string;
 };
-
-export function scopeProjectData(data: DataStore, project: Project): DataStore {
-  const belongsToProject = <T extends { project_id: string }>(rows: T[]) => rows.filter((row) => row.project_id === project.id);
-  return {
-    projects: [project],
-    requirements: belongsToProject(data.requirements),
-    risks: belongsToProject(data.risks),
-    decisions: belongsToProject(data.decisions),
-    actions: belongsToProject(data.actions),
-    dependencies: belongsToProject(data.dependencies),
-    discovery_questions: belongsToProject(data.discovery_questions),
-    milestones: belongsToProject(data.milestones),
-    timeline_items: selectTimelineItems(data, project).items,
-    test_cases: belongsToProject(data.test_cases),
-    meetings: belongsToProject(data.meetings),
-    documents: belongsToProject(data.documents),
-    activity_log: belongsToProject(data.activity_log),
-    project_snapshots: belongsToProject(data.project_snapshots),
-  };
-}
 
 function upcomingMilestone(milestones: Milestone[], now: Date) {
   const today = now.toISOString().slice(0, 10);

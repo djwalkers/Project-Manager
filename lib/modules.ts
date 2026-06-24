@@ -13,6 +13,7 @@ import {
   ListChecks,
   MessageSquareText,
   Newspaper,
+  PanelsTopLeft,
   Settings,
   ShieldQuestion,
   Stethoscope,
@@ -36,6 +37,7 @@ export type ModuleConfig = {
 
 export const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/project-workspace", label: "Project Workspace", icon: PanelsTopLeft },
   { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
   { href: "/project-trends", label: "Project Trends", icon: TrendingUp },
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },

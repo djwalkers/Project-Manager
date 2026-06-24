@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarClock, Code2, Eye, FileText, GitCompareArrows, Mail, TrendingUp, X } from "lucide-react";
+import { ArrowRight, CalendarClock, Code2, Eye, FileText, GitCompareArrows, Mail, TrendingUp, X } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -8,6 +9,7 @@ import { InsightPanel } from "@/components/insight-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { buildDailyBrief, type DailyBrief } from "@/lib/daily-brief";
+import { persistSelectedProjectId } from "@/lib/project-selection";
 import { formatScheduleDate } from "@/lib/schedule";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
@@ -169,6 +171,7 @@ export function DailyBriefPage() {
               <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
               <div><p className="text-xs font-semibold uppercase text-muted-foreground">Upcoming milestone</p><p className="mt-1 text-sm font-medium">{item.upcomingMilestone?.title ?? "No milestone scheduled"}</p>{item.upcomingMilestone ? <p className="mt-1 text-xs text-muted-foreground">{formatScheduleDate(item.upcomingMilestone.target_date)} · {item.upcomingMilestone.owner ?? "Unassigned"}</p> : null}</div>
             </div>
+            <div className="mt-4 flex justify-end"><Link href="/project-workspace" onClick={() => persistSelectedProjectId(item.project.id)} className="inline-flex min-h-10 items-center gap-2 rounded-md border bg-background px-4 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Open workspace<ArrowRight className="h-4 w-4" aria-hidden="true" /></Link></div>
           </article>
         ))}
       </div>

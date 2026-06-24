@@ -1,14 +1,15 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
 import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
-import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
+import { loadSelectedProjectId } from "@/lib/project-selection";
+import { selectProjectById, selectTimelineItems } from "@/lib/project-scope";
 import {
   deleteRecord,
   hasSupabaseConfig,
@@ -21,12 +22,17 @@ type Row = Record<string, unknown>;
 
 export function ModulePageClient({ section }: { section: string }) {
   const { data, setData, error, reload } = useProjectData();
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const config = moduleBySlug.get(section);
-  const activeProject = data ? selectActiveProject(data) : null;
+  const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
   const timelineScope = data && activeProject ? selectTimelineItems(data, activeProject) : null;
   const pageData = data && config?.key === "timeline_items" && timelineScope
     ? { ...data, timeline_items: timelineScope.items }
     : data;
+
+  useEffect(() => {
+    setSelectedProjectId(loadSelectedProjectId());
+  }, []);
 
   async function persistRecord(record: Row) {
     if (!config) throw new Error("Unknown module");

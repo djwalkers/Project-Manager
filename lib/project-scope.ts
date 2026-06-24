@@ -54,6 +54,13 @@ export function selectCanonicalProjects(data: DataStore): Project[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function selectProjectById(data: DataStore, projectId?: string | null): Project | null {
+  if (!projectId) return selectActiveProject(data);
+  return selectCanonicalProjects(data).find((project) => project.id === projectId)
+    ?? data.projects.find((project) => project.id === projectId)
+    ?? selectActiveProject(data);
+}
+
 export type TimelineScope = {
   items: TimelineItem[];
   mode: "exact" | "duplicate-project" | "unmatched";
@@ -77,4 +84,24 @@ export function selectTimelineItems(data: DataStore, activeProject: Project): Ti
   }
 
   return { items: [], mode: "unmatched", ownerProjectIds };
+}
+
+export function scopeProjectData(data: DataStore, project: Project): DataStore {
+  const belongsToProject = <T extends { project_id: string }>(rows: T[]) => rows.filter((row) => row.project_id === project.id);
+  return {
+    projects: [project],
+    requirements: belongsToProject(data.requirements),
+    risks: belongsToProject(data.risks),
+    decisions: belongsToProject(data.decisions),
+    actions: belongsToProject(data.actions),
+    dependencies: belongsToProject(data.dependencies),
+    discovery_questions: belongsToProject(data.discovery_questions),
+    milestones: belongsToProject(data.milestones),
+    timeline_items: selectTimelineItems(data, project).items,
+    test_cases: belongsToProject(data.test_cases),
+    meetings: belongsToProject(data.meetings),
+    documents: belongsToProject(data.documents),
+    activity_log: belongsToProject(data.activity_log),
+    project_snapshots: belongsToProject(data.project_snapshots),
+  };
 }

@@ -2,8 +2,7 @@
 
 import { calculateProgress, calculateProjectHealth } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
-import { scopeProjectData } from "@/lib/daily-brief";
-import { selectCanonicalProjects } from "@/lib/project-scope";
+import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule } from "@/lib/schedule";
 import { upsertRecord } from "@/lib/supabase/data-store";
 import type { Project, ProjectSnapshot } from "@/lib/types";
