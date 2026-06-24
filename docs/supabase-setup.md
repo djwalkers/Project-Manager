@@ -65,3 +65,5 @@ Open the dashboard and confirm that the local-mode banner is gone. The seeded da
 Create or edit one record, refresh the page, and confirm that the change remains visible. The same change should also appear in the matching table in Supabase.
 
 The Project Workspace uses the existing project delivery tables and requires no additional migration. Its quick-create, quick-edit, action status, and activity updates automatically use Supabase whenever the environment variables above are configured.
+
+Project Intelligence is read-only and uses those existing tables plus snapshots, activity, meetings, and testing data. It requires no additional migration or API credentials.

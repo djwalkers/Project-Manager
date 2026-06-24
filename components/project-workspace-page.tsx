@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertTriangle,
+  BrainCircuit,
   CalendarClock,
   CircleAlert,
   CircleHelp,
@@ -19,11 +20,13 @@ import {
   ShieldQuestion,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
 import { FormDialog } from "@/components/form-dialog";
+import { IntelligenceFindingCard } from "@/components/intelligence-components";
 import { PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -32,6 +35,7 @@ import type { DataStore } from "@/lib/data-store";
 import { moduleByKey, type ModuleConfig } from "@/lib/modules";
 import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildProjectWorkspace, type WorkspaceActionColumn } from "@/lib/project-workspace";
 import { formatScheduleDate } from "@/lib/schedule";
 import { createRecord, saveRecord } from "@/lib/supabase/data-store";
@@ -82,6 +86,7 @@ export function ProjectWorkspacePage() {
   const projects = useMemo(() => data ? selectCanonicalProjects(data) : [], [data]);
   const project = data ? selectProjectById(data, selectedProjectId) : null;
   const workspace = useMemo(() => data && project ? buildProjectWorkspace(data, project) : null, [data, project]);
+  const intelligence = useMemo(() => data && project ? buildProjectIntelligence(data, project) : null, [data, project]);
 
   useEffect(() => {
     if (!projects.length) return;
@@ -151,7 +156,9 @@ export function ProjectWorkspacePage() {
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
-  if (!projects.length || !project || !workspace) return <AppShell><EmptyState title="No projects available" description="Add a project before opening the operational workspace." icon={Users} /></AppShell>;
+  if (!projects.length || !project || !workspace || !intelligence) return <AppShell><EmptyState title="No projects available" description="Add a project before opening the operational workspace." icon={Users} /></AppShell>;
+
+  const topFindings = [...intelligence.critical, ...intelligence.warnings].slice(0, 3);
 
   return (
     <AppShell>
@@ -180,6 +187,10 @@ export function ProjectWorkspacePage() {
       </section>
 
       {workspace.warnings.length ? <section className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" aria-labelledby="workspace-health-checks"><div className="flex items-center gap-2"><CircleAlert className="h-5 w-5" aria-hidden="true" /><h3 id="workspace-health-checks" className="font-semibold">Workspace Health Checks</h3></div><ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">{workspace.warnings.map((warning) => <li key={warning} className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />{warning}</li>)}</ul></section> : null}
+
+      <WorkspaceSection id="workspace-intelligence" title="Project Intelligence" description="Top deterministic findings from the current project control data." icon={BrainCircuit} className="mt-5" action={<Link href="/project-intelligence" className="inline-flex min-h-10 items-center rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View intelligence</Link>}>
+        {topFindings.length ? <div className="grid gap-3 lg:grid-cols-3">{topFindings.map((item) => <IntelligenceFindingCard key={item.id} finding={item} compact />)}</div> : <WorkspaceEmpty>No critical or warning findings detected.</WorkspaceEmpty>}
+      </WorkspaceSection>
 
       <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-2">
         <WorkspaceSection id="workspace-timeline" title="Timeline Overview" description="Current delivery phase, near-term work and schedule performance." icon={GitPullRequestArrow}>

@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   BookOpenCheck,
+  BrainCircuit,
   BriefcaseBusiness,
   CalendarDays,
   CalendarRange,
@@ -38,6 +39,7 @@ export type ModuleConfig = {
 export const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/project-workspace", label: "Project Workspace", icon: PanelsTopLeft },
+  { href: "/project-intelligence", label: "Project Intelligence", icon: BrainCircuit },
   { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
   { href: "/project-trends", label: "Project Trends", icon: TrendingUp },
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },

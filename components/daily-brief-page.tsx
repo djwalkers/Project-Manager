@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowRight, CalendarClock, Code2, Eye, FileText, GitCompareArrows, Mail, TrendingUp, X } from "lucide-react";
+import { ArrowRight, CalendarClock, Code2, Eye, FileText, GitCompareArrows, Lightbulb, Mail, TrendingUp, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { InsightPanel } from "@/components/insight-panel";
+import { IntelligenceFindingCard } from "@/components/intelligence-components";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { buildDailyBrief, type DailyBrief } from "@/lib/daily-brief";
@@ -114,6 +115,12 @@ export function DailyBriefPage() {
             <p className="mt-2 max-w-5xl text-sm leading-6 text-muted-foreground">{brief.executiveSummary}</p>
           </div>
         </div>
+      </section>
+
+      <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="daily-recommendations-title">
+        <div className="flex items-center gap-2"><Lightbulb className="h-5 w-5 text-primary" aria-hidden="true" /><h3 id="daily-recommendations-title" className="font-semibold">Today’s Recommendations</h3></div>
+        <p className="mt-1 text-sm text-muted-foreground">Highest-priority deterministic management actions across all projects.</p>
+        {brief.todaysRecommendations.length ? <div className="mt-4 grid gap-3 xl:grid-cols-2">{brief.todaysRecommendations.map((item) => <div key={item.finding.id}><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">{item.projectName}</p><IntelligenceFindingCard finding={item.finding} compact /></div>)}</div> : <div className="mt-4 rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">No management recommendations today.</div>}
       </section>
 
       <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="since-yesterday-title">

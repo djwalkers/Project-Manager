@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Database, Server, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, Server, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
@@ -57,11 +57,12 @@ export function SystemHealthPage() {
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Runtime alignment between the application contract, local fallback, and Supabase tables.</p>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Database Tables" value={`${healthyTables} / ${report.tables.length}`} state={healthyTables === report.tables.length} />
         <MetricCard label="Migration Version" value={report.schemaVersion} />
         <MetricCard label="Supabase Connected" value={report.connected ? "Yes" : "No"} state={report.connected} />
         <MetricCard label="Local Mode Active" value={report.localMode ? "Yes" : "No"} state={report.localMode} />
+        <MetricCard label="Intelligence Engine" value={report.intelligence.valid ? "Healthy" : "Review"} state={report.intelligence.valid} />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
@@ -119,6 +120,11 @@ export function SystemHealthPage() {
           )}
         </section>
       </div>
+
+      <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="intelligence-validation-title">
+        <div className="flex items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><BrainCircuit className="h-5 w-5" aria-hidden="true" /></span><div><h3 id="intelligence-validation-title" className="font-semibold">Intelligence Engine Validation</h3><p className="mt-1 text-sm text-muted-foreground">Deterministic rule registry and project-data source coverage.</p></div></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-md border bg-muted/30 p-3"><p className="text-xs font-semibold uppercase text-muted-foreground">Registered Rules</p><p className="mt-1 text-2xl font-semibold tabular-nums">{report.intelligence.ruleCount}</p></div><div className="rounded-md border bg-muted/30 p-3"><p className="text-xs font-semibold uppercase text-muted-foreground">Covered Sources</p><p className="mt-1 text-2xl font-semibold tabular-nums">{report.intelligence.sourceCount}</p></div><div className="rounded-md border bg-muted/30 p-3"><p className="text-xs font-semibold uppercase text-muted-foreground">Validation</p><p className="mt-1 text-lg font-semibold">{report.intelligence.valid ? "Passed" : "Needs review"}</p></div></div>
+      </section>
     </AppShell>
   );
 }

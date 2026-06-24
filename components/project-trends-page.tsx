@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowRight, ArrowUp, BriefcaseBusiness, Camera, History, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, BrainCircuit, BriefcaseBusiness, Camera, History, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -10,6 +10,7 @@ import { TrendChart } from "@/components/trend-chart";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { selectCanonicalProjects } from "@/lib/project-scope";
+import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildTrendAnalysis, type TrendChange } from "@/lib/project-trends";
 import { formatScheduleDate } from "@/lib/schedule";
 import { saveDailySnapshots } from "@/lib/snapshot-service";
@@ -37,6 +38,7 @@ export function ProjectTrendsPage() {
   const projects = useMemo(() => data ? selectCanonicalProjects(data) : [], [data]);
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null;
   const trend = useMemo(() => selectedProject && data ? buildTrendAnalysis(selectedProject, data.project_snapshots) : null, [data, selectedProject]);
+  const intelligence = useMemo(() => selectedProject && data ? buildProjectIntelligence(data, selectedProject) : null, [data, selectedProject]);
 
   async function takeSnapshot() {
     if (!data) return;
@@ -55,7 +57,7 @@ export function ProjectTrendsPage() {
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
-  if (!projects.length || !selectedProject || !trend) return <AppShell><EmptyState title="No projects found" description="Add a project before creating snapshot history." icon={BriefcaseBusiness} /></AppShell>;
+  if (!projects.length || !selectedProject || !trend || !intelligence) return <AppShell><EmptyState title="No projects found" description="Add a project before creating snapshot history." icon={BriefcaseBusiness} /></AppShell>;
 
   const points = <K extends "progress_percent" | "open_risks" | "open_actions" | "open_decisions" | "schedule_variance">(field: K) => trend.snapshots.map((snapshot) => ({ date: snapshot.snapshot_date, value: Number(snapshot[field]) }));
 
@@ -80,6 +82,10 @@ export function ProjectTrendsPage() {
 
       <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="project-trend-narrative">
         <div className="flex items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><RefreshCw className="h-5 w-5" aria-hidden="true" /></span><div><h3 id="project-trend-narrative" className="font-semibold">Project Narrative</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{trend.narrative}</p></div></div>
+      </section>
+
+      <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="intelligence-trend-title">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><BrainCircuit className="h-5 w-5" aria-hidden="true" /></span><div><h3 id="intelligence-trend-title" className="font-semibold">Intelligence Trend</h3><p className="mt-1 text-sm text-muted-foreground">{intelligence.trend.detail}</p></div></div><div className="flex flex-wrap gap-2"><span className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-semibold">{intelligence.trend.direction}</span><span className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{intelligence.critical.length} critical · {intelligence.warnings.length} warnings</span></div></div>
       </section>
 
       <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-2">

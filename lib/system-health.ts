@@ -2,6 +2,7 @@
 
 import { loadData as loadLocalData } from "@/lib/data-store";
 import { modules } from "@/lib/modules";
+import { intelligenceEngineValidation } from "@/lib/project-intelligence";
 import { schemaTables, schemaVersion } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
@@ -23,6 +24,7 @@ export type SystemHealthReport = {
   tables: TableHealth[];
   mismatches: string[];
   counts: Record<"projects" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items" | "project_snapshots", number>;
+  intelligence: ReturnType<typeof intelligenceEngineValidation>;
 };
 
 function staticMismatches() {
@@ -66,6 +68,9 @@ function requestedCounts(values: Partial<Record<EntityName, number | null>>) {
 
 export async function getSystemHealth(): Promise<SystemHealthReport> {
   const mismatches = staticMismatches();
+  const intelligence = intelligenceEngineValidation();
+  intelligence.missingSources.forEach((source) => mismatches.push(`intelligence: missing source coverage for ${source}`));
+  intelligence.duplicateRuleIds.forEach((ruleId) => mismatches.push(`intelligence: duplicate rule id ${ruleId}`));
 
   if (!supabase) {
     const data = loadLocalData();
@@ -77,6 +82,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
       localMode: true,
       mismatches,
       counts: requestedCounts(localCounts),
+      intelligence,
       tables: schemaTables.map((table) => ({
         name: table.name,
         columnCount: table.columns.length,
@@ -133,5 +139,6 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     tables: results,
     mismatches,
     counts: requestedCounts(databaseCounts),
+    intelligence,
   };
 }
