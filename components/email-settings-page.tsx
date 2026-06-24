@@ -26,7 +26,7 @@ function SettingToggle({ id, title, description, checked, onChange }: { id: stri
     <label htmlFor={id} className="flex min-h-20 cursor-pointer items-center justify-between gap-4 rounded-lg border bg-muted/25 p-4 transition-colors hover:bg-muted/45">
       <span><span className="block text-sm font-semibold">{title}</span><span className="mt-1 block text-sm text-muted-foreground">{description}</span></span>
       <span className="relative inline-flex h-7 w-12 shrink-0 items-center rounded-full bg-muted-foreground/35 transition-colors has-[:checked]:bg-primary">
-        <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" />
+        <input id={id} type="checkbox" checked={Boolean(checked)} onChange={(event) => onChange(event.target.checked)} className="peer sr-only" />
         <span className="ml-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
       </span>
     </label>
@@ -46,9 +46,9 @@ export function EmailSettingsPage() {
 
   useEffect(() => {
     if (stored) setForm({
-      daily_brief_enabled: stored.daily_brief_enabled,
-      weekly_summary_enabled: stored.weekly_summary_enabled,
-      manager_summary_enabled: stored.manager_summary_enabled ?? false,
+      daily_brief_enabled: Boolean(stored.daily_brief_enabled),
+      weekly_summary_enabled: Boolean(stored.weekly_summary_enabled),
+      manager_summary_enabled: Boolean(stored.manager_summary_enabled ?? false),
       recipient_email: stored.recipient_email,
       manager_recipient_email: stored.manager_recipient_email ?? null,
     });
