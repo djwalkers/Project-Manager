@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, Database, MailCheck, Server, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, History, MailCheck, Server, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
@@ -83,6 +83,22 @@ export function SystemHealthPage() {
           <MetricCard label="Auth Enabled" value={hasSupabaseConfig ? "Yes" : "No (local mode)"} state={hasSupabaseConfig} />
           <MetricCard label="Current User" value={user?.fullName ?? "—"} />
           <MetricCard label="Current Role" value={user?.role ?? "—"} state={user?.role === "Admin" ? true : user?.role === "Manager" ? true : undefined} />
+        </div>
+      </section>
+
+      {/* Audit Trail */}
+      <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="audit-health-title">
+        <div className="flex items-center gap-2 border-b pb-3">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <History className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h3 id="audit-health-title" className="font-semibold">Audit Trail</h3>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <MetricCard label="Audit Logging" value={report.audit.enabled ? "Enabled" : "Local mode (not tracking)"} state={report.audit.enabled} />
+          <MetricCard label="Audit Records" value={report.audit.recordCount} />
         </div>
       </section>
 

@@ -8,6 +8,8 @@ import {
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
 import { deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
+import { formatAuditChange } from "@/lib/audit";
+import type { AuditLog } from "@/lib/types";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildWeeklyExecutiveSummary, type SinceYesterday, type WeeklyExecutiveSummary } from "@/lib/project-trends";
 import { buildProjectIntelligence, type IntelligenceFinding } from "@/lib/project-intelligence";
@@ -35,6 +37,7 @@ export type DailyBrief = {
   upcoming: InsightItem[];
   executiveSummary: string;
   sinceYesterday: SinceYesterday[];
+  recentAuditChanges: AuditLog[];
   weeklySummary: WeeklyExecutiveSummary;
   todaysRecommendations: Array<{ projectName: string; finding: IntelligenceFinding }>;
   todaysDeliverables: Array<{ projectName: string; attention: DeliverableAttention }>;
@@ -72,7 +75,7 @@ function emailDate(value: Date) {
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "long" }).format(value);
 }
 
-function buildPlainText(date: Date, summary: string, projects: DailyBriefProject[], attention: InsightItem[], upcoming: InsightItem[], sinceYesterday: SinceYesterday[], weekly: WeeklyExecutiveSummary, recommendations: DailyBrief["todaysRecommendations"], deliverables: DailyBrief["todaysDeliverables"]) {
+function buildPlainText(date: Date, summary: string, projects: DailyBriefProject[], attention: InsightItem[], upcoming: InsightItem[], sinceYesterday: SinceYesterday[], recentAuditChanges: AuditLog[], weekly: WeeklyExecutiveSummary, recommendations: DailyBrief["todaysRecommendations"], deliverables: DailyBrief["todaysDeliverables"]) {
   const projectLines = projects.map((item) => [
     item.project.name,
     `Health: ${item.health} | Schedule: ${item.scheduleHealth} | Progress: ${item.progress}%`,
@@ -91,10 +94,13 @@ function buildPlainText(date: Date, summary: string, projects: DailyBriefProject
 
   const recommendationLines = recommendations.length ? recommendations.map((item) => `- [${item.finding.severity}] ${item.projectName}: ${item.finding.recommendation} (${item.finding.confidence}% confidence)`).join("\n") : "- No management recommendations today.";
   const deliverableLines = deliverables.length ? deliverables.map((item) => `- [${item.attention.severity}] ${item.projectName}: ${item.attention.deliverable.deliverable_ref} ${item.attention.deliverable.title} — ${item.attention.reason}`).join("\n") : "- No deliverables require attention today.";
-  return `DAILY PROJECT BRIEF — ${emailDate(date).toUpperCase()}\n\nEXECUTIVE SUMMARY\n${summary}\n\nTODAY'S RECOMMENDATIONS\n${recommendationLines}\n\nTODAY'S DELIVERABLES REQUIRING ATTENTION\n${deliverableLines}\n\nSINCE YESTERDAY\n${yesterday || "- Snapshot history is still building."}\n\nPROJECT STATUS\n${projectLines || "No projects available."}\n\nATTENTION REQUIRED\n${list(attention, "No items require attention.")}\n\nUPCOMING THIS WEEK\n${list(upcoming, "No items are due in the next seven days.")}\n\nWEEKLY EXECUTIVE SUMMARY\n${weeklyList("WHAT IMPROVED", weekly.improved, "No measured improvements yet.")}\n${weeklyList("WHAT WORSENED", weekly.worsened, "No measured deterioration.")}\n${weeklyList("UPCOMING MILESTONES", weekly.upcomingMilestones, "No milestones scheduled.")}\n${weeklyList("PROJECTS REQUIRING ATTENTION", weekly.projectsRequiringAttention, "No projects require attention.")}\n\nPrepared by Project Manager / Control Centre`;
+  const auditLines = recentAuditChanges.length
+    ? recentAuditChanges.slice(0, 10).map((e) => `- [${e.action_type}] ${formatAuditChange(e)} — ${e.changed_by_name}`).join("\n")
+    : "- No data changes recorded in the last 24 hours.";
+  return `DAILY PROJECT BRIEF — ${emailDate(date).toUpperCase()}\n\nEXECUTIVE SUMMARY\n${summary}\n\nTODAY'S RECOMMENDATIONS\n${recommendationLines}\n\nTODAY'S DELIVERABLES REQUIRING ATTENTION\n${deliverableLines}\n\nSINCE YESTERDAY\n${yesterday || "- Snapshot history is still building."}\n\nCHANGES SINCE YESTERDAY (AUDIT)\n${auditLines}\n\nPROJECT STATUS\n${projectLines || "No projects available."}\n\nATTENTION REQUIRED\n${list(attention, "No items require attention.")}\n\nUPCOMING THIS WEEK\n${list(upcoming, "No items are due in the next seven days.")}\n\nWEEKLY EXECUTIVE SUMMARY\n${weeklyList("WHAT IMPROVED", weekly.improved, "No measured improvements yet.")}\n${weeklyList("WHAT WORSENED", weekly.worsened, "No measured deterioration.")}\n${weeklyList("UPCOMING MILESTONES", weekly.upcomingMilestones, "No milestones scheduled.")}\n${weeklyList("PROJECTS REQUIRING ATTENTION", weekly.projectsRequiringAttention, "No projects require attention.")}\n\nPrepared by Project Manager / Control Centre`;
 }
 
-function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], attention: InsightItem[], upcoming: InsightItem[], sinceYesterday: SinceYesterday[], weekly: WeeklyExecutiveSummary, recommendations: DailyBrief["todaysRecommendations"], deliverables: DailyBrief["todaysDeliverables"]) {
+function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], attention: InsightItem[], upcoming: InsightItem[], sinceYesterday: SinceYesterday[], recentAuditChanges: AuditLog[], weekly: WeeklyExecutiveSummary, recommendations: DailyBrief["todaysRecommendations"], deliverables: DailyBrief["todaysDeliverables"]) {
   const projectRows = projects.map((item) => `<tr>
     <td style="padding:14px;border-top:1px solid #e2e8f0;"><strong>${escapeHtml(item.project.name)}</strong><br><span style="color:#64748b;">${escapeHtml(item.activePhase)}</span></td>
     <td style="padding:14px;border-top:1px solid #e2e8f0;color:${healthColor(item.health)};"><strong>${item.health}</strong></td>
@@ -113,6 +119,9 @@ function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], a
   const sinceYesterdayHtml = sinceYesterday.length
     ? `<ul style="margin:0;padding-left:20px;">${sinceYesterday.map((item) => `<li style="margin:0 0 8px;"><strong>${escapeHtml(item.projectName)}:</strong> ${item.available ? `progress ${item.progressChange > 0 ? "+" : ""}${item.progressChange} points; ${item.newRisks} new and ${item.closedRisks} closed risks; ${item.newActions} new and ${item.completedActions} completed actions${item.healthChange ? `; health ${escapeHtml(item.healthChange)}` : ""}${item.milestoneChange ? `; milestone ${escapeHtml(item.milestoneChange)}` : ""}` : "another daily snapshot is required before comparison"}.</li>`).join("")}</ul>`
     : `<p style="margin:0;color:#64748b;">Snapshot history is still building.</p>`;
+  const auditChangesHtml = recentAuditChanges.length
+    ? `<ul style="margin:0;padding-left:20px;">${recentAuditChanges.slice(0, 10).map((e) => `<li style="margin:0 0 8px;"><strong>${escapeHtml(e.action_type)}:</strong> ${escapeHtml(formatAuditChange(e))}<span style="color:#64748b;"> — ${escapeHtml(e.changed_by_name)}</span></li>`).join("")}</ul>`
+    : `<p style="margin:0;color:#64748b;">No data changes recorded in the last 24 hours.</p>`;
   const recommendationHtml = recommendations.length
     ? `<ol style="margin:0;padding-left:20px;">${recommendations.map((item) => `<li style="margin:0 0 10px;"><strong>${escapeHtml(item.projectName)}:</strong> ${escapeHtml(item.finding.recommendation)}<br><span style="color:#64748b;">${escapeHtml(item.finding.severity)} · ${item.finding.confidence}% confidence</span></li>`).join("")}</ol>`
     : `<p style="margin:0;color:#64748b;">No management recommendations today.</p>`;
@@ -127,6 +136,7 @@ function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], a
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Today&#39;s Recommendations</h2>${recommendationHtml}</div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Today&#39;s Deliverables Requiring Attention</h2>${deliverableHtml}</div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Since Yesterday</h2>${sinceYesterdayHtml}</div>
+  <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Changes Since Yesterday (Audit Log)</h2>${auditChangesHtml}</div>
   <div style="background:#fff;padding:0 24px 24px;border:1px solid #e2e8f0;border-top:0;overflow-x:auto;"><h2 style="margin:0 0 14px;padding-top:24px;font-size:18px;">Project Status</h2><table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="background:#f8fafc;text-align:left;"><th style="padding:12px;">Project / Phase</th><th style="padding:12px;">Health</th><th style="padding:12px;">Schedule</th><th style="padding:12px;">Progress</th><th style="padding:12px;">Days</th><th style="padding:12px;">Risks / Decisions / Actions</th><th style="padding:12px;">Next Milestone</th></tr></thead><tbody>${projectRows || '<tr><td colspan="7" style="padding:14px;">No projects available.</td></tr>'}</tbody></table></div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Attention Required</h2>${list(attention, "No items require attention.")}</div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Upcoming This Week</h2>${list(upcoming, "No items are due in the next seven days.")}</div>
@@ -135,7 +145,7 @@ function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], a
 </div></body></html>`;
 }
 
-export function buildDailyBrief(data: DataStore, now = new Date()): DailyBrief {
+export function buildDailyBrief(data: DataStore, now = new Date(), recentAuditChanges: AuditLog[] = []): DailyBrief {
   const projects = selectCanonicalProjects(data).map((project): DailyBriefProject => {
     const scoped = scopeProjectData(data, project);
     const schedule = calculateSchedule(project, scoped.timeline_items, now);
@@ -170,8 +180,8 @@ export function buildDailyBrief(data: DataStore, now = new Date()): DailyBrief {
   const weeklySummary = buildWeeklyExecutiveSummary(data);
   const todaysRecommendations = selectCanonicalProjects(data).flatMap((project) => buildProjectIntelligence(data, project, now).recommendations.map((finding) => ({ projectName: project.name, finding }))).slice(0, 5);
   const todaysDeliverables = selectCanonicalProjects(data).flatMap((project) => deliverablesRequiringAttention(scopeProjectData(data, project).deliverables, now).map((item) => ({ projectName: project.name, attention: item }))).slice(0, 8);
-  const plainText = buildPlainText(now, executiveSummary, projects, attention, upcoming, sinceYesterday, weeklySummary, todaysRecommendations, todaysDeliverables);
-  const html = buildHtml(now, executiveSummary, projects, attention, upcoming, sinceYesterday, weeklySummary, todaysRecommendations, todaysDeliverables);
+  const plainText = buildPlainText(now, executiveSummary, projects, attention, upcoming, sinceYesterday, recentAuditChanges, weeklySummary, todaysRecommendations, todaysDeliverables);
+  const html = buildHtml(now, executiveSummary, projects, attention, upcoming, sinceYesterday, recentAuditChanges, weeklySummary, todaysRecommendations, todaysDeliverables);
 
-  return { generatedAt: now, projects, attention, upcoming, executiveSummary, sinceYesterday, weeklySummary, todaysRecommendations, todaysDeliverables, subject, plainText, html };
+  return { generatedAt: now, projects, attention, upcoming, executiveSummary, sinceYesterday, recentAuditChanges, weeklySummary, todaysRecommendations, todaysDeliverables, subject, plainText, html };
 }

@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { DataStore } from "@/lib/data-store";
 import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildTestEmail, type EmailContent } from "@/lib/email-content";
+import { getChangesSince } from "@/lib/audit";
+import { selectCanonicalProjects } from "@/lib/project-scope";
 import { schemaTables } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
 import type { EmailActivity, EmailSettings } from "@/lib/types";
@@ -115,7 +117,10 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
     recipient = recipient.toLowerCase();
     if (trigger === "Scheduled" && client && await alreadySentToday(client, kind, now)) return { ok: true, skipped: true, message: `${kind} was already sent today.` };
     const data = payload.data ?? await loadProjectData(client);
-    const content = kind === "Test" ? buildTestEmail(now) : kind === "Daily Brief" ? buildAutomatedDailyBrief(data, now) : buildAutomatedWeeklySummary(data, now);
+    const projectIds = selectCanonicalProjects(data).map((p) => p.id);
+    const recentAuditChanges = kind === "Daily Brief" ? await getChangesSince(24, projectIds).catch(() => []) : [];
+    const weeklyAuditChanges = kind === "Weekly Summary" ? await getChangesSince(168, projectIds).catch(() => []) : [];
+    const content = kind === "Test" ? buildTestEmail(now) : kind === "Daily Brief" ? buildAutomatedDailyBrief(data, now, recentAuditChanges) : buildAutomatedWeeklySummary(data, now, weeklyAuditChanges);
     await sendWithResend(recipient, content);
     const sentAt = new Date().toISOString();
     const activity = await logActivity(client, { id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt, success: true, failure_reason: null, duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt });

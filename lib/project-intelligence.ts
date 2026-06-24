@@ -2,7 +2,7 @@ import type { DataStore } from "@/lib/data-store";
 import { deliverableDaysUntil, isDeliverableComplete, isDevelopmentComplete, isSitComplete, isUatComplete } from "@/lib/delivery";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
-import type { Project, ProjectSnapshot } from "@/lib/types";
+import type { AuditLog, Project, ProjectSnapshot } from "@/lib/types";
 import { isOverdue } from "@/lib/utils";
 
 export type IntelligenceCategory = "Schedule" | "Risk" | "Governance" | "Delivery" | "Testing" | "Stakeholder";
@@ -114,7 +114,7 @@ function finding(project: Project, ruleId: string, category: IntelligenceCategor
   return { id: `${project.id}-${ruleId}-${title}`, ruleId, projectId: project.id, category, severity, title, detail, evidence, confidence, recommendation };
 }
 
-export function buildProjectIntelligence(data: DataStore, project: Project, now = new Date()): IntelligenceReport {
+export function buildProjectIntelligence(data: DataStore, project: Project, now = new Date(), auditEntries: AuditLog[] = []): IntelligenceReport {
   const scoped = scopeProjectData(data, project);
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const findings: IntelligenceFinding[] = [];
@@ -179,6 +179,63 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (scoped.requirements.length && scoped.requirements.every((item) => Boolean(item.owner?.trim()))) add(project, "POS-GOV", "Governance", "Info", "All requirements have owners", `${scoped.requirements.length} requirements have accountable owners.`, "Requirement ownership coverage is 100%.", 100, null);
   if (newestActivity && (ageInDays(newestActivity.created_at, now) ?? 99) < 7) add(project, "POS-STK", "Stakeholder", "Info", "Project activity is current", "A project update has been recorded within the last 7 days.", `${newestActivity.activity_type}: ${newestActivity.description}`, 96, null);
   if (scoped.test_cases.some((item) => item.status === "Passed")) add(project, "POS-TST", "Testing", "Info", "Test execution has produced passed cases", `${scoped.test_cases.filter((item) => item.status === "Passed").length} test cases have passed.`, "Testing progress is evidenced in the test inventory.", 100, null);
+
+  // ── Audit-based intelligence rules ───────────────────────────────────────────
+  if (auditEntries.length) {
+    const projectAudit = auditEntries.filter((e) => e.project_id === project.id);
+    const cutoff7d = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+
+    // AUD-001: Multiple date changes in 7 days
+    const recentDateChanges = projectAudit.filter((e) => e.action_type === "Date Change" && e.changed_at >= cutoff7d);
+    if (recentDateChanges.length >= 3) {
+      add(project, "AUD-001", "Schedule", "Warning",
+        "Repeated date changes suggest unstable planning",
+        `${recentDateChanges.length} date changes recorded in the last 7 days.`,
+        `Dates have been moved on: ${[...new Set(recentDateChanges.map((e) => e.entity_name))].slice(0, 3).join(", ")}.`,
+        85,
+        "Review the planning baseline and agree firm dates before continuing delivery.");
+    }
+
+    // AUD-002: Frequent health changes (≥2 in 7 days)
+    const recentHealthChanges = projectAudit.filter((e) => e.action_type === "Health Change" && e.changed_at >= cutoff7d);
+    if (recentHealthChanges.length >= 2) {
+      const directions = recentHealthChanges.map((e) => `${e.old_value ?? "—"} → ${e.new_value ?? "—"}`);
+      add(project, "AUD-002", "Risk", "Warning",
+        "Project health is fluctuating — possible instability",
+        `Health changed ${recentHealthChanges.length} times in 7 days.`,
+        `Changes: ${directions.slice(0, 3).join("; ")}.`,
+        88,
+        "Stabilise the underlying issues driving health changes before the next management review.");
+    }
+
+    // AUD-003: Risk repeatedly escalated to High / Critical
+    const riskEscalations = projectAudit.filter((e) =>
+      e.action_type === "Severity Change" &&
+      e.entity_type === "risks" &&
+      ["High", "Critical"].includes(e.new_value ?? "") &&
+      e.changed_at >= cutoff7d,
+    );
+    const escalatedRisks = [...new Set(riskEscalations.map((e) => e.entity_name))];
+    if (escalatedRisks.length >= 2) {
+      add(project, "AUD-003", "Risk", "Critical",
+        "Multiple risks escalated to High or Critical this week",
+        `${escalatedRisks.length} distinct risks have been escalated in the last 7 days.`,
+        `Risks: ${escalatedRisks.slice(0, 3).join(", ")}.`,
+        93,
+        "Convene a risk review meeting and agree mitigation actions for all escalated risks.");
+    }
+
+    // AUD-004: Excessive schedule movement (≥3 schedule_variance changes in 7 days)
+    const scheduleChanges = projectAudit.filter((e) => e.action_type === "Schedule Change" && e.changed_at >= cutoff7d);
+    if (scheduleChanges.length >= 3) {
+      add(project, "AUD-004", "Schedule", "Warning",
+        "Schedule variance has been adjusted repeatedly",
+        `Schedule variance changed ${scheduleChanges.length} times in 7 days — baseline may be unstable.`,
+        scheduleChanges.slice(0, 2).map((e) => `${e.old_value ?? "—"} → ${e.new_value ?? "—"}`).join("; "),
+        82,
+        "Lock the schedule baseline and track changes through a formal change control process.");
+    }
+  }
 
   findings.sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence || a.ruleId.localeCompare(b.ruleId));
   const actionable = findings.filter((item) => item.severity !== "Info");

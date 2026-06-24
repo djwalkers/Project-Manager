@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import type { Session, User } from "@supabase/supabase-js";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import type { AuthUser, UserRole } from "@/lib/auth";
+import { setAuditUser } from "@/lib/audit";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -55,16 +56,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hydrateUser = useCallback(async (supabaseUser: User | null) => {
     if (!supabaseUser) {
       setUser(null);
+      setAuditUser(null);
       return;
     }
     const profile = await fetchProfile(supabaseUser.id);
-    setUser(buildAuthUser(supabaseUser, profile.fullName, profile.role));
+    const authUser = buildAuthUser(supabaseUser, profile.fullName, profile.role);
+    setUser(authUser);
+    setAuditUser({ id: authUser.id, name: authUser.fullName });
   }, []);
 
   useEffect(() => {
     if (!hasSupabaseConfig) {
       // Local mode — create a synthetic admin user so the UI still renders
-      setUser({ id: "local", email: "local@dev", fullName: "Local Dev", role: "Admin" });
+      const localUser = { id: "local", email: "local@dev", fullName: "Local Dev", role: "Admin" as UserRole };
+      setUser(localUser);
+      setAuditUser({ id: localUser.id, name: localUser.fullName });
       setLoading(false);
       return;
     }

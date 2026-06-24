@@ -249,6 +249,43 @@ export type Milestone = {
   updated_at: string;
 };
 
+export type AuditActionType =
+  | "Create"
+  | "Update"
+  | "Delete"
+  | "Status Change"
+  | "Health Change"
+  | "Date Change"
+  | "Severity Change"
+  | "Progress Change"
+  | "Schedule Change";
+
+export type AuditLog = {
+  id: string;
+  project_id: string | null;
+  entity_type: string;
+  entity_id: string;
+  entity_name: string;
+  action_type: AuditActionType;
+  field_name: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by: string | null;
+  changed_by_name: string;
+  changed_at: string;
+};
+
+export type AuditFilter = {
+  projectId?: string;
+  entityType?: string;
+  actionType?: AuditActionType;
+  changedBy?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+};
+
 export type EntityMap = {
   projects: Project;
   deliverables: Deliverable;

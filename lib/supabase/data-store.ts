@@ -6,6 +6,7 @@ import {
   saveData as saveLocalData,
   type DataStore,
 } from "@/lib/data-store";
+import { AUDITABLE_TABLES, detectChanges, getEntityName, logAudit } from "@/lib/audit";
 import { projectId } from "@/lib/seed-data";
 import { schemaByTable, schemaTables, writableColumns } from "@/lib/schema";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
@@ -79,6 +80,17 @@ export async function createRecord<K extends EntityName>(table: K, record: Recor
 
   const { data, error } = await supabase.from(table).insert(value).select().single();
   if (error) throw errorMessage(`Failed to create ${table}`, error);
+
+  // Fire-and-forget audit — never blocks the save
+  if (AUDITABLE_TABLES.has(table)) {
+    const saved = data as RecordValue;
+    logAudit(
+      table, String(saved.id), getEntityName(table, saved),
+      "Create",
+      String(saved.project_id ?? record.project_id ?? null),
+    );
+  }
+
   return data as EntityMap[K];
 }
 
@@ -97,6 +109,13 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
     return updated;
   }
 
+  // Fetch old record for change detection (only for auditable tables)
+  let oldRecord: RecordValue | null = null;
+  if (AUDITABLE_TABLES.has(table)) {
+    const { data: old } = await supabase.from(table).select("*").eq("id", record.id).single();
+    oldRecord = old as RecordValue | null;
+  }
+
   const { data, error } = await supabase
     .from(table)
     .update(cleanRecord(table, value))
@@ -104,6 +123,22 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
     .select()
     .single();
   if (error) throw errorMessage(`Failed to update ${table}`, error);
+
+  // Fire-and-forget audit for each changed field
+  if (AUDITABLE_TABLES.has(table) && oldRecord) {
+    const saved = data as RecordValue;
+    const entityName = getEntityName(table, saved);
+    const projectId = String(saved.project_id ?? oldRecord.project_id ?? null);
+    const changes = detectChanges(table, oldRecord, { ...oldRecord, ...record });
+
+    for (const change of changes) {
+      logAudit(
+        table, record.id, entityName, change.actionType, projectId,
+        change.fieldName, change.oldValue, change.newValue,
+      );
+    }
+  }
+
   return data as EntityMap[K];
 }
 
@@ -141,6 +176,21 @@ export async function deleteRecord<K extends EntityName>(table: K, id: string) {
     return;
   }
 
+  // Fetch before delete so we can log what was removed
+  let deletedRecord: RecordValue | null = null;
+  if (AUDITABLE_TABLES.has(table)) {
+    const { data: found } = await supabase.from(table).select("*").eq("id", id).single();
+    deletedRecord = found as RecordValue | null;
+  }
+
   const { error } = await supabase.from(table).delete().eq("id", id);
   if (error) throw errorMessage(`Failed to delete ${table}`, error);
+
+  if (AUDITABLE_TABLES.has(table) && deletedRecord) {
+    logAudit(
+      table, id, getEntityName(table, deletedRecord),
+      "Delete",
+      String(deletedRecord.project_id ?? null),
+    );
+  }
 }

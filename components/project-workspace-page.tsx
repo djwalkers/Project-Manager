@@ -38,6 +38,7 @@ import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-s
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildProjectWorkspace, type WorkspaceActionColumn } from "@/lib/project-workspace";
+import { RecentChangesPanel } from "@/components/recent-changes-panel";
 import { formatScheduleDate } from "@/lib/schedule";
 import { createRecord, saveRecord } from "@/lib/supabase/data-store";
 import type { ActionItem, ActivityLog, EntityMap, EntityName } from "@/lib/types";
@@ -239,6 +240,10 @@ export function ProjectWorkspacePage() {
         <WorkspaceSection id="workspace-narrative" title="Project Narrative" description="Automatically generated executive delivery summary." icon={MessageSquareText}>
           <div className="rounded-md border bg-primary/[0.04] p-4"><div className="flex items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"><Gauge className="h-5 w-5" aria-hidden="true" /></span><div><p className="text-sm leading-7">{workspace.narrative}</p><div className="mt-4 flex flex-wrap gap-2"><StatusBadge value={workspace.projectHealth} /><StatusBadge value={workspace.scheduleHealth} />{workspace.schedule.projectComplete ? <StatusBadge value="Complete" /> : null}</div></div></div></div>
         </WorkspaceSection>
+      </div>
+
+      <div className="mt-5">
+        <RecentChangesPanel projectId={project.id} limit={10} />
       </div>
 
       <FormDialog config={dialog?.config ?? moduleByKey.get("actions")!} record={dialog?.record ?? null} open={Boolean(dialog)} onClose={() => setDialog(null)} onSave={saveDialogRecord} />

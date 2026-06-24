@@ -43,6 +43,7 @@ export const ROLE_NAV_ACCESS: Record<UserRole, "all" | string[]> = {
     "/testing",
     "/meetings",
     "/documents",
+    "/audit-trail",
     "/system-health",
   ],
   Viewer: ["/"],

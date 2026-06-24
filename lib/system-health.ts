@@ -1,6 +1,7 @@
 "use client";
 
 import { loadData as loadLocalData } from "@/lib/data-store";
+import { getAuditCount } from "@/lib/audit";
 import { modules } from "@/lib/modules";
 import { intelligenceEngineValidation } from "@/lib/project-intelligence";
 import { schemaTables, schemaVersion } from "@/lib/schema";
@@ -25,6 +26,11 @@ export type TableHealth = {
   error?: string;
 };
 
+export type AuditHealth = {
+  enabled: boolean;
+  recordCount: number;
+};
+
 export type SystemHealthReport = {
   schemaVersion: string;
   configured: boolean;
@@ -35,6 +41,7 @@ export type SystemHealthReport = {
   counts: Record<"projects" | "deliverables" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items" | "project_snapshots", number>;
   intelligence: ReturnType<typeof intelligenceEngineValidation>;
   email: EmailHealth;
+  audit: AuditHealth;
 };
 
 function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; recipient_email: string } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
@@ -111,6 +118,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
       counts: requestedCounts(localCounts),
       intelligence,
       email: emailHealth(data.email_settings[0], data.email_activity_log),
+      audit: { enabled: false, recordCount: 0 },
       tables: schemaTables.map((table) => ({
         name: table.name,
         columnCount: table.columns.length,
@@ -160,6 +168,15 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     mismatches.push(`timeline_items: ${unmatchedTimelineRows} rows reference a project not visible to the anon client`);
   }
   const databaseCounts = Object.fromEntries(results.map((table) => [table.name, table.rowCount]));
+  const auditRecordCount = await getAuditCount().catch(() => 0);
+
+  // Validate audit_log table is accessible
+  try {
+    const { error: auditError } = await client.from("audit_log").select("id", { count: "exact", head: true }).limit(1);
+    if (auditError) mismatches.push(`audit_log: ${auditError.message}`);
+  } catch {
+    mismatches.push("audit_log: table unreachable");
+  }
 
   return {
     schemaVersion,
@@ -171,5 +188,6 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     counts: requestedCounts(databaseCounts),
     intelligence,
     email: emailHealth(emailSettings?.[0], emailActivity ?? []),
+    audit: { enabled: true, recordCount: auditRecordCount },
   };
 }
