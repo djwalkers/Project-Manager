@@ -12,9 +12,11 @@ import type { EntityName } from "@/lib/types";
 export type EmailHealth = {
   dailyBriefEnabled: boolean;
   weeklySummaryEnabled: boolean;
+  managerSummaryEnabled: boolean;
   recipientConfigured: boolean;
   lastDailyBriefStatus: "Sent" | "Failed" | "Never";
   lastWeeklySummaryStatus: "Sent" | "Failed" | "Never";
+  lastManagerSummaryStatus: "Sent" | "Failed" | "Never";
   lastEmailSentTimestamp: string | null;
 };
 
@@ -44,18 +46,20 @@ export type SystemHealthReport = {
   audit: AuditHealth;
 };
 
-function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; recipient_email: string } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
+function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; manager_summary_enabled?: boolean; recipient_email: string } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
   const ordered = [...activity].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
-  const status = (type: string) => {
+  const status = (type: string): "Sent" | "Failed" | "Never" => {
     const item = ordered.find((row) => row.email_type === type);
     return item ? (item.success ? "Sent" : "Failed") : "Never";
   };
   return {
     dailyBriefEnabled: settings?.daily_brief_enabled ?? false,
     weeklySummaryEnabled: settings?.weekly_summary_enabled ?? false,
+    managerSummaryEnabled: settings?.manager_summary_enabled ?? false,
     recipientConfigured: Boolean(settings?.recipient_email?.trim()),
     lastDailyBriefStatus: status("Daily Brief"),
     lastWeeklySummaryStatus: status("Weekly Summary"),
+    lastManagerSummaryStatus: status("Manager Summary"),
     lastEmailSentTimestamp: ordered[0]?.sent_at ?? null,
   };
 }

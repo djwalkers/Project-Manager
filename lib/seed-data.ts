@@ -328,6 +328,7 @@ export const email_settings: EmailSettings[] = [{
   id: "99999999-9999-4999-8999-999999999999",
   daily_brief_enabled: false,
   weekly_summary_enabled: false,
+  manager_summary_enabled: false,
   recipient_email: "Andrew.Walker@bluestonex.com",
   created_at: now,
   updated_at: now,

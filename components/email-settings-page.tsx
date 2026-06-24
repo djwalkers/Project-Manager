@@ -14,6 +14,7 @@ import { useProjectData } from "@/lib/use-project-data";
 const fallbackSettings: Omit<EmailSettings, "id" | "created_at" | "updated_at"> = {
   daily_brief_enabled: false,
   weekly_summary_enabled: false,
+  manager_summary_enabled: false,
   recipient_email: "Andrew.Walker@bluestonex.com",
 };
 
@@ -43,7 +44,12 @@ export function EmailSettingsPage() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    if (stored) setForm({ daily_brief_enabled: stored.daily_brief_enabled, weekly_summary_enabled: stored.weekly_summary_enabled, recipient_email: stored.recipient_email });
+    if (stored) setForm({
+      daily_brief_enabled: stored.daily_brief_enabled,
+      weekly_summary_enabled: stored.weekly_summary_enabled,
+      manager_summary_enabled: stored.manager_summary_enabled ?? false,
+      recipient_email: stored.recipient_email,
+    });
   }, [stored]);
 
   const activity = useMemo(() => [...(data?.email_activity_log ?? [])].sort((a, b) => b.sent_at.localeCompare(a.sent_at)), [data]);
@@ -108,6 +114,7 @@ export function EmailSettingsPage() {
           <div className="mt-5 space-y-3">
             <SettingToggle id="daily-brief-enabled" title="Enable Daily Brief" description="Send Monday to Friday at 07:00." checked={form.daily_brief_enabled} onChange={(value) => setForm((current) => ({ ...current, daily_brief_enabled: value }))} />
             <SettingToggle id="weekly-summary-enabled" title="Enable Weekly Summary" description="Send every Monday at 07:00." checked={form.weekly_summary_enabled} onChange={(value) => setForm((current) => ({ ...current, weekly_summary_enabled: value }))} />
+            <SettingToggle id="manager-summary-enabled" title="Enable Manager Exception Report" description="Send every Friday at 16:00 — exceptions only, no KPIs." checked={form.manager_summary_enabled ?? false} onChange={(value) => setForm((current) => ({ ...current, manager_summary_enabled: value }))} />
           </div>
           <div className="mt-5"><label htmlFor="recipient-email" className="text-sm font-medium">Recipient email</label><Input id="recipient-email" type="email" autoComplete="email" className="mt-2" value={form.recipient_email} onChange={(event) => setForm((current) => ({ ...current, recipient_email: event.target.value }))} /><p className="mt-2 text-xs text-muted-foreground">Used by test, manual, and scheduled delivery.</p></div>
         </section>
@@ -118,6 +125,7 @@ export function EmailSettingsPage() {
             <Button variant="outline" className="min-h-11 justify-start" disabled={Boolean(busy)} onClick={() => send("/api/email/test", "Test email")}><Mail className="h-4 w-4" aria-hidden="true" />{busy === "/api/email/test" ? "Sending test…" : "Send Test Email"}</Button>
             <Button variant="outline" className="min-h-11 justify-start" disabled={Boolean(busy)} onClick={() => send("/api/email/daily-brief", "Daily Brief")}><Send className="h-4 w-4" aria-hidden="true" />{busy === "/api/email/daily-brief" ? "Sending Daily Brief…" : "Send Daily Brief Now"}</Button>
             <Button variant="outline" className="min-h-11 justify-start" disabled={Boolean(busy)} onClick={() => send("/api/email/weekly-summary", "Weekly Summary")}><Send className="h-4 w-4" aria-hidden="true" />{busy === "/api/email/weekly-summary" ? "Sending Weekly Summary…" : "Send Weekly Summary Now"}</Button>
+            <Button variant="outline" className="min-h-11 justify-start" disabled={Boolean(busy)} onClick={() => send("/api/email/manager-summary", "Manager Summary")}><Send className="h-4 w-4" aria-hidden="true" />{busy === "/api/email/manager-summary" ? "Sending Manager Summary…" : "Send Manager Summary Now"}</Button>
           </div>
           <div className="mt-5 rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">The Resend API key remains server-side. A missing key or recipient produces a visible, logged failure without interrupting the app.</div>
         </section>

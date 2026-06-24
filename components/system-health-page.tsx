@@ -128,8 +128,10 @@ export function SystemHealthPage() {
           <MetricCard label="Recipient Configured" value={report.email.recipientConfigured ? "Yes" : "No"} state={report.email.recipientConfigured} />
           <MetricCard label="Daily Brief Enabled" value={report.email.dailyBriefEnabled ? "Yes" : "No"} state={report.email.dailyBriefEnabled} />
           <MetricCard label="Weekly Summary Enabled" value={report.email.weeklySummaryEnabled ? "Yes" : "No"} state={report.email.weeklySummaryEnabled} />
+          <MetricCard label="Manager Summary Enabled" value={report.email.managerSummaryEnabled ? "Yes" : "No"} state={report.email.managerSummaryEnabled} />
           <MetricCard label="Last Daily Brief" value={report.email.lastDailyBriefStatus} state={report.email.lastDailyBriefStatus === "Never" ? undefined : report.email.lastDailyBriefStatus === "Sent"} />
           <MetricCard label="Last Weekly Summary" value={report.email.lastWeeklySummaryStatus} state={report.email.lastWeeklySummaryStatus === "Never" ? undefined : report.email.lastWeeklySummaryStatus === "Sent"} />
+          <MetricCard label="Last Manager Summary" value={report.email.lastManagerSummaryStatus} state={report.email.lastManagerSummaryStatus === "Never" ? undefined : report.email.lastManagerSummaryStatus === "Sent"} />
           <div className="sm:col-span-2"><MetricCard label="Last Email Sent" value={report.email.lastEmailSentTimestamp ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(new Date(report.email.lastEmailSentTimestamp)) : "Never"} /></div>
         </div>
       </section>

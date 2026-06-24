@@ -14,6 +14,7 @@ import {
   ChevronDown,
   CircleHelp,
   ClipboardCheck,
+  ClipboardList,
   FileText,
   Flag,
   GitBranch,
@@ -56,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/project-intelligence", label: "Intelligence", icon: BrainCircuit },
       { href: "/project-trends", label: "Trends", icon: TrendingUp },
       { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
+      { href: "/manager-summary", label: "Manager Summary", icon: ClipboardList },
     ],
   },
   {

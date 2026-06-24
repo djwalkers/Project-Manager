@@ -92,6 +92,7 @@ export type EmailSettings = {
   id: string;
   daily_brief_enabled: boolean;
   weekly_summary_enabled: boolean;
+  manager_summary_enabled: boolean;
   recipient_email: string;
   created_at: string;
   updated_at: string;
@@ -99,7 +100,7 @@ export type EmailSettings = {
 
 export type EmailActivity = {
   id: string;
-  email_type: "Test" | "Daily Brief" | "Weekly Summary";
+  email_type: "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary";
   recipient: string;
   sent_at: string;
   success: boolean;

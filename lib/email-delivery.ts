@@ -1,13 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { DataStore } from "@/lib/data-store";
-import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildTestEmail, type EmailContent } from "@/lib/email-content";
+import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildManagerSummaryEmail, buildTestEmail, type EmailContent } from "@/lib/email-content";
 import { getChangesSince } from "@/lib/audit";
 import { selectCanonicalProjects } from "@/lib/project-scope";
 import { schemaTables } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
 import type { EmailActivity, EmailSettings } from "@/lib/types";
 
-export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary";
+export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary";
 export type TriggerType = "Manual" | "Scheduled";
 export type EmailRequestPayload = { data?: DataStore; recipient?: string; settings?: Partial<EmailSettings> };
 export type EmailExecutionResult = { ok: boolean; skipped?: boolean; message: string; activity?: EmailActivity };
@@ -34,7 +34,9 @@ export function isScheduledLondonSlot(kind: Exclude<EmailKind, "Test">, date = n
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(date);
   const weekday = parts.find((part) => part.type === "weekday")?.value;
   const hour = Number(parts.find((part) => part.type === "hour")?.value);
-  return hour === 7 && (kind === "Weekly Summary" ? weekday === "Mon" : ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday ?? ""));
+  if (kind === "Manager Summary") return hour === 16 && weekday === "Fri";
+  if (kind === "Weekly Summary") return hour === 7 && weekday === "Mon";
+  return hour === 7 && ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday ?? "");
 }
 
 export function isAuthorisedCron(authorization: string | null) {
@@ -52,6 +54,7 @@ async function loadSettings(client: SupabaseClient | null): Promise<EmailSetting
     id: settingsId,
     daily_brief_enabled: false,
     weekly_summary_enabled: false,
+    manager_summary_enabled: false,
     recipient_email: process.env.DAILY_BRIEF_RECIPIENT || defaultRecipient,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -110,7 +113,11 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
   try {
     const stored = await loadSettings(client);
     recipient = payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
-    const enabled = kind === "Daily Brief" ? (payload.settings?.daily_brief_enabled ?? stored.daily_brief_enabled) : (payload.settings?.weekly_summary_enabled ?? stored.weekly_summary_enabled);
+    const enabled = kind === "Daily Brief"
+      ? (payload.settings?.daily_brief_enabled ?? stored.daily_brief_enabled)
+      : kind === "Manager Summary"
+        ? (payload.settings?.manager_summary_enabled ?? stored.manager_summary_enabled)
+        : (payload.settings?.weekly_summary_enabled ?? stored.weekly_summary_enabled);
     if (trigger === "Scheduled" && kind !== "Test" && !enabled) return { ok: true, skipped: true, message: `${kind} is disabled.` };
     if (trigger === "Scheduled" && !client) throw new Error("Supabase is required for scheduled email data and activity logging.");
     if (!recipient || !validEmail(recipient)) throw new Error("A valid recipient email is not configured.");
@@ -120,7 +127,11 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
     const projectIds = selectCanonicalProjects(data).map((p) => p.id);
     const recentAuditChanges = kind === "Daily Brief" ? await getChangesSince(24, projectIds).catch(() => []) : [];
     const weeklyAuditChanges = kind === "Weekly Summary" ? await getChangesSince(168, projectIds).catch(() => []) : [];
-    const content = kind === "Test" ? buildTestEmail(now) : kind === "Daily Brief" ? buildAutomatedDailyBrief(data, now, recentAuditChanges) : buildAutomatedWeeklySummary(data, now, weeklyAuditChanges);
+    const content =
+      kind === "Test" ? buildTestEmail(now)
+      : kind === "Daily Brief" ? buildAutomatedDailyBrief(data, now, recentAuditChanges)
+      : kind === "Manager Summary" ? buildManagerSummaryEmail(data, now)
+      : buildAutomatedWeeklySummary(data, now, weeklyAuditChanges);
     await sendWithResend(recipient, content);
     const sentAt = new Date().toISOString();
     const activity = await logActivity(client, { id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt, success: true, failure_reason: null, duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt });
@@ -151,8 +162,10 @@ export async function getEmailDeliveryHealth() {
     recipientConfigured: Boolean((settings?.recipient_email || process.env.DAILY_BRIEF_RECIPIENT)?.trim()),
     dailyBriefEnabled: settings?.daily_brief_enabled ?? false,
     weeklySummaryEnabled: settings?.weekly_summary_enabled ?? false,
+    managerSummaryEnabled: settings?.manager_summary_enabled ?? false,
     lastDailyBriefStatus: activity.find((item) => item.email_type === "Daily Brief") ?? null,
     lastWeeklySummaryStatus: activity.find((item) => item.email_type === "Weekly Summary") ?? null,
+    lastManagerSummaryStatus: activity.find((item) => item.email_type === "Manager Summary") ?? null,
     lastEmailSentTimestamp: activity[0]?.sent_at ?? null,
   };
 }
