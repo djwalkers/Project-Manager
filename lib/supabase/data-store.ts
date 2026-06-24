@@ -40,7 +40,7 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
     ...(table === "documents"
       ? { uploaded_at: existing?.uploaded_at ?? record.uploaded_at ?? now }
       : { created_at: existing?.created_at ?? record.created_at ?? now }),
-    ...(!["documents", "activity_log"].includes(table) ? { updated_at: now } : {}),
+    ...(!["documents", "activity_log", "project_snapshots"].includes(table) ? { updated_at: now } : {}),
   };
 }
 
@@ -110,6 +110,24 @@ export async function saveRecord<K extends EntityName>(table: K, record: RecordV
   return record.id
     ? updateRecord(table, record as RecordValue & { id: string })
     : createRecord(table, record);
+}
+
+export async function upsertRecord<K extends EntityName>(table: K, record: RecordValue, conflictColumns: string[]): Promise<EntityMap[K]> {
+  if (!supabase) {
+    const data = loadLocalData();
+    const existing = (data[table] as RecordValue[]).find((item) => conflictColumns.every((column) => item[column] === record[column]));
+    return existing?.id
+      ? updateRecord(table, { ...record, id: String(existing.id) })
+      : createRecord(table, record);
+  }
+
+  const { data, error } = await supabase
+    .from(table)
+    .upsert(cleanRecord(table, record), { onConflict: conflictColumns.join(",") })
+    .select()
+    .single();
+  if (error) throw errorMessage(`Failed to upsert ${table}`, error);
+  return data as EntityMap[K];
 }
 
 export async function deleteRecord<K extends EntityName>(table: K, id: string) {

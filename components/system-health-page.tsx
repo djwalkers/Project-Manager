@@ -64,13 +64,14 @@ export function SystemHealthPage() {
         <MetricCard label="Local Mode Active" value={report.localMode ? "Yes" : "No"} state={report.localMode} />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
         <MetricCard label="Project Count" value={report.counts.projects} />
         <MetricCard label="Requirements Count" value={report.counts.requirements} />
         <MetricCard label="Risks Count" value={report.counts.risks} />
         <MetricCard label="Actions Count" value={report.counts.actions} />
         <MetricCard label="Decision Count" value={report.counts.decisions} />
         <MetricCard label="Timeline Count" value={report.counts.timeline_items} />
+        <MetricCard label="Snapshot Count" value={report.counts.project_snapshots} />
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">

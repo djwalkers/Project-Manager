@@ -1,6 +1,6 @@
 # CR028 schema authority
 
-The application schema version is `004_timeline_visibility_and_project_reconciliation`. The executable contract is defined in `lib/schema.ts`; migration 003 adds the editable schedule and migration 004 repairs development visibility and CR028 phase ownership.
+The application schema version is `005_project_snapshots`. The executable contract is defined in `lib/schema.ts`; migration 005 adds daily project history for trends and management comparisons.
 
 `Required` means the canonical database definition is `NOT NULL`. All child-table `project_id` columns reference `projects.id` with `ON DELETE CASCADE`.
 
@@ -150,6 +150,27 @@ The application schema version is `004_timeline_visibility_and_project_reconcili
 | created_at | timestamptz | Yes | — |
 | updated_at | timestamptz | Yes | — |
 
+### project_snapshots
+
+| Column | PostgreSQL type | Required | Foreign key |
+| --- | --- | --- | --- |
+| id | uuid | Yes | — |
+| project_id | uuid | Yes | projects.id |
+| snapshot_date | date | Yes | — |
+| project_health | text | Yes | — |
+| schedule_health | text | Yes | — |
+| progress_percent | numeric | Yes | — |
+| schedule_variance | numeric | Yes | — |
+| open_risks | integer | Yes | — |
+| open_actions | integer | Yes | — |
+| overdue_actions | integer | Yes | — |
+| open_decisions | integer | Yes | — |
+| overdue_decisions | integer | Yes | — |
+| open_questions | integer | Yes | — |
+| active_milestone | text | No | — |
+| active_phase | text | No | — |
+| created_at | timestamptz | Yes | — |
+
 ### test_cases
 
 | Column | PostgreSQL type | Required | Foreign key |
@@ -212,7 +233,7 @@ The application schema version is `004_timeline_visibility_and_project_reconcili
 
 ## Relationships
 
-`projects` is the parent aggregate. Requirements, risks, decisions, actions, dependencies, discovery questions, milestones, timeline items, test cases, meetings, documents, and activity entries each belong to one project through `project_id`. Deleting a project cascades to its children in a database created from the authoritative migration.
+`projects` is the parent aggregate. Requirements, risks, decisions, actions, dependencies, discovery questions, milestones, timeline items, project snapshots, test cases, meetings, documents, and activity entries each belong to one project through `project_id`. Deleting a project cascades to its children in a database created from the authoritative migration.
 
 ## Seed strategy
 
@@ -224,8 +245,9 @@ Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 proj
 2. Run `002_schema_alignment.sql` to align the original control tables.
 3. Run `003_timeline_schedule.sql` to add project planned dates and `timeline_items`. It uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and never drops columns or rows.
 4. Run `004_timeline_visibility_and_project_reconciliation.sql`. While authentication is absent, it disables RLS for `timeline_items`, grants development CRUD access to the anon client, and reparents stranded phases to the CR028 project with the strongest control-data ownership without deleting duplicate projects.
-5. Run `seed_full_cr028.sql` after migration 004.
-6. Use the System Health page to verify table accessibility, expected column presence, connection mode, record counts, duplicate CR028 projects, and timeline visibility.
+5. Run `005_project_snapshots.sql` to add the idempotent daily snapshot table, unique project/day key, indexes, and temporary development grants.
+6. Run `seed_full_cr028.sql` after migration 005.
+7. Use the System Health page to verify table accessibility, expected column presence, connection mode, record counts, duplicate CR028 projects, and timeline visibility.
 
 Because PostgreSQL cannot safely infer how to repair arbitrary legacy data, additive migrations do not coerce existing column types, remove obsolete columns, or force new nullable legacy columns to `NOT NULL`. Likewise, a unique index cannot be created if an older database already contains duplicate natural keys. Those cases require a reviewed data-cleanup migration. The browser-side Supabase client can detect missing/inaccessible tables and columns, but not inspect constraints, exact types, foreign keys, or applied migration history through the anonymous API.
 

@@ -16,6 +16,7 @@ import {
   Settings,
   ShieldQuestion,
   Stethoscope,
+  TrendingUp,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import type { EntityName } from "@/lib/types";
@@ -36,6 +37,7 @@ export type ModuleConfig = {
 export const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
+  { href: "/project-trends", label: "Project Trends", icon: TrendingUp },
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
   { href: "/requirements", label: "Requirements", icon: ListChecks },
   { href: "/risks", label: "Risks", icon: AlertTriangle },

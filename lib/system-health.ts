@@ -22,7 +22,7 @@ export type SystemHealthReport = {
   localMode: boolean;
   tables: TableHealth[];
   mismatches: string[];
-  counts: Record<"projects" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items", number>;
+  counts: Record<"projects" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items" | "project_snapshots", number>;
 };
 
 function staticMismatches() {
@@ -60,6 +60,7 @@ function requestedCounts(values: Partial<Record<EntityName, number | null>>) {
     actions: values.actions ?? 0,
     decisions: values.decisions ?? 0,
     timeline_items: values.timeline_items ?? 0,
+    project_snapshots: values.project_snapshots ?? 0,
   };
 }
 

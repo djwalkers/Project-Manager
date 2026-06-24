@@ -1,5 +1,5 @@
 -- Full, idempotent CR028 seed for the aligned schema.
--- Run migrations through 004_timeline_visibility_and_project_reconciliation.sql before this file.
+-- Run migrations through 005_project_snapshots.sql before this file.
 
 begin;
 
@@ -135,5 +135,15 @@ values
 on conflict (project_id, phase_ref) do update set
   phase_name = excluded.phase_name, start_date = excluded.start_date, end_date = excluded.end_date,
   owner = excluded.owner, status = excluded.status, progress_percent = excluded.progress_percent, notes = excluded.notes;
+
+insert into public.project_snapshots (project_id, snapshot_date, project_health, schedule_health, progress_percent, schedule_variance, open_risks, open_actions, overdue_actions, open_decisions, overdue_decisions, open_questions, active_milestone, active_phase)
+values ((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), '2026-06-23', 'Amber', 'Amber', 0, -4.6, 5, 5, 0, 4, 0, 6, 'Discovery Complete', 'Functional Analysis')
+on conflict (project_id, snapshot_date) do update set
+  project_health = excluded.project_health, schedule_health = excluded.schedule_health,
+  progress_percent = excluded.progress_percent, schedule_variance = excluded.schedule_variance,
+  open_risks = excluded.open_risks, open_actions = excluded.open_actions,
+  overdue_actions = excluded.overdue_actions, open_decisions = excluded.open_decisions,
+  overdue_decisions = excluded.overdue_decisions, open_questions = excluded.open_questions,
+  active_milestone = excluded.active_milestone, active_phase = excluded.active_phase;
 
 commit;

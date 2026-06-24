@@ -1,6 +1,6 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "004_timeline_visibility_and_project_reconciliation";
+export const schemaVersion = "005_project_snapshots";
 
 export type SchemaColumn = {
   name: string;
@@ -157,6 +157,27 @@ export const schemaTables: SchemaTable[] = [
       { name: "progress_percent", type: "integer", required: true },
       { name: "notes", type: "text", required: false },
       createdAt, updatedAt,
+    ],
+  },
+  {
+    name: "project_snapshots",
+    seedKey: ["project_id", "snapshot_date"],
+    columns: [
+      id, projectId,
+      { name: "snapshot_date", type: "date", required: true },
+      { name: "project_health", type: "text", required: true },
+      { name: "schedule_health", type: "text", required: true },
+      { name: "progress_percent", type: "numeric", required: true },
+      { name: "schedule_variance", type: "numeric", required: true },
+      { name: "open_risks", type: "integer", required: true },
+      { name: "open_actions", type: "integer", required: true },
+      { name: "overdue_actions", type: "integer", required: true },
+      { name: "open_decisions", type: "integer", required: true },
+      { name: "overdue_decisions", type: "integer", required: true },
+      { name: "open_questions", type: "integer", required: true },
+      { name: "active_milestone", type: "text", required: false },
+      { name: "active_phase", type: "text", required: false },
+      createdAt,
     ],
   },
   {

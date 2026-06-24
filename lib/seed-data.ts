@@ -12,6 +12,7 @@ import type {
   Risk,
   TestCase,
   TimelineItem,
+  ProjectSnapshot,
 } from "@/lib/types";
 
 export const projectId = "11111111-1111-4111-8111-111111111111";
@@ -268,6 +269,27 @@ export const timeline_items: TimelineItem[] = [
   updated_at: now,
 }));
 
+export const project_snapshots: ProjectSnapshot[] = [
+  {
+    id: "eeeeeeee-eeee-4eee-8eee-000000000001",
+    project_id: projectId,
+    snapshot_date: "2026-06-23",
+    project_health: "Amber",
+    schedule_health: "Amber",
+    progress_percent: 0,
+    schedule_variance: -4.6,
+    open_risks: 5,
+    open_actions: 5,
+    overdue_actions: 0,
+    open_decisions: 4,
+    overdue_decisions: 0,
+    open_questions: 6,
+    active_milestone: "Discovery Complete",
+    active_phase: "Functional Analysis",
+    created_at: "2026-06-23T17:00:00.000Z",
+  },
+];
+
 export const seedData = {
   projects,
   requirements,
@@ -282,4 +304,5 @@ export const seedData = {
   discovery_questions,
   milestones,
   timeline_items,
+  project_snapshots,
 };

@@ -47,6 +47,25 @@ export type TimelineItem = {
   updated_at: string;
 };
 
+export type ProjectSnapshot = {
+  id: string;
+  project_id: string;
+  snapshot_date: string;
+  project_health: ProjectHealth;
+  schedule_health: ProjectHealth | "Review";
+  progress_percent: number;
+  schedule_variance: number;
+  open_risks: number;
+  open_actions: number;
+  overdue_actions: number;
+  open_decisions: number;
+  overdue_decisions: number;
+  open_questions: number;
+  active_milestone: string | null;
+  active_phase: string | null;
+  created_at: string;
+};
+
 export type Requirement = {
   id: string;
   project_id: string;
@@ -201,6 +220,7 @@ export type EntityMap = {
   discovery_questions: DiscoveryQuestion;
   milestones: Milestone;
   timeline_items: TimelineItem;
+  project_snapshots: ProjectSnapshot;
 };
 
 export type EntityName = keyof EntityMap;

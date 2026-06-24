@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Code2, Eye, FileText, Mail, X } from "lucide-react";
+import { CalendarClock, Code2, Eye, FileText, GitCompareArrows, Mail, TrendingUp, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -73,6 +73,15 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function SummaryList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return (
+    <div className="rounded-md border bg-muted/30 p-4">
+      <h4 className="text-sm font-semibold">{title}</h4>
+      {items.length ? <ul className="mt-3 space-y-2 text-sm text-muted-foreground">{items.map((item) => <li key={item} className="border-l-2 border-primary/40 pl-3">{item}</li>)}</ul> : <p className="mt-3 text-sm text-muted-foreground">{empty}</p>}
+    </div>
+  );
+}
+
 export function DailyBriefPage() {
   const { data, error, reload } = useProjectData();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -102,6 +111,28 @@ export function DailyBriefPage() {
             <h3 id="executive-summary-title" className="font-semibold">Executive Summary</h3>
             <p className="mt-2 max-w-5xl text-sm leading-6 text-muted-foreground">{brief.executiveSummary}</p>
           </div>
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="since-yesterday-title">
+        <div className="flex items-center gap-2"><GitCompareArrows className="h-5 w-5 text-primary" aria-hidden="true" /><h3 id="since-yesterday-title" className="font-semibold">Since Yesterday</h3></div>
+        <p className="mt-1 text-sm text-muted-foreground">Changes between the two most recent daily snapshots.</p>
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          {brief.sinceYesterday.map((item) => (
+            <article key={item.projectId} className="rounded-md border bg-muted/30 p-4">
+              <h4 className="font-medium">{item.projectName}</h4>
+              {item.available ? (
+                <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Metric label="Progress changed" value={`${item.progressChange > 0 ? "+" : ""}${item.progressChange}%`} />
+                  <Metric label="New / closed risks" value={`${item.newRisks} / ${item.closedRisks}`} />
+                  <Metric label="New / completed actions" value={`${item.newActions} / ${item.completedActions}`} />
+                  <Metric label="Health change" value={item.healthChange ?? "No change"} />
+                  {item.milestoneChange ? <div className="col-span-2 rounded-md bg-muted/60 p-3 sm:col-span-4"><dt className="text-xs font-semibold uppercase text-muted-foreground">Milestone change</dt><dd className="mt-1 text-sm font-medium">{item.milestoneChange}</dd></div> : null}
+                </dl>
+              ) : <p className="mt-3 text-sm text-muted-foreground">Create another daily snapshot to unlock day-over-day comparison.</p>}
+            </article>
+          ))}
+          {!brief.sinceYesterday.length ? <p className="text-sm text-muted-foreground">Snapshot history is still building.</p> : null}
         </div>
       </section>
 
@@ -148,6 +179,17 @@ export function DailyBriefPage() {
         <InsightPanel title="Attention Required" description="Cross-project blockers and overdue items, ordered by severity." items={brief.attention} emptyMessage="No items require management attention." />
         <InsightPanel title="Upcoming This Week" description="Actions, decisions and milestones due in the next seven days." items={brief.upcoming} emptyMessage="No items are due in the next seven days." />
       </div>
+
+      <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="weekly-summary-title">
+        <div className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-primary" aria-hidden="true" /><h3 id="weekly-summary-title" className="font-semibold">Weekly Executive Summary</h3></div>
+        <p className="mt-1 text-sm text-muted-foreground">Seven-day movement and forward delivery outlook from snapshot history.</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <SummaryList title="What improved" items={brief.weeklySummary.improved} empty="No measured improvements yet." />
+          <SummaryList title="What worsened" items={brief.weeklySummary.worsened} empty="No measured deterioration." />
+          <SummaryList title="Upcoming milestones" items={brief.weeklySummary.upcomingMilestones} empty="No milestones scheduled." />
+          <SummaryList title="Projects requiring attention" items={brief.weeklySummary.projectsRequiringAttention} empty="No projects require attention." />
+        </div>
+      </section>
 
       {previewOpen ? <EmailPreview brief={brief} onClose={() => setPreviewOpen(false)} /> : null}
     </AppShell>
