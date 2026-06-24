@@ -330,11 +330,15 @@ export const email_settings: EmailSettings[] = [{
   weekly_summary_enabled: false,
   manager_summary_enabled: false,
   recipient_email: "Andrew.Walker@bluestonex.com",
+  manager_recipient_email: null,
   created_at: now,
   updated_at: now,
 }];
 
 export const email_activity_log: EmailActivity[] = [];
+
+export const go_live_checklists: import("@/lib/types").GoLiveChecklist[] = [];
+export const cutover_plan: import("@/lib/types").CutoverStep[] = [];
 
 export const seedData = {
   projects,
@@ -354,4 +358,6 @@ export const seedData = {
   project_snapshots,
   email_settings,
   email_activity_log,
+  go_live_checklists,
+  cutover_plan,
 };

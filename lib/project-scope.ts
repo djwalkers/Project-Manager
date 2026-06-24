@@ -107,5 +107,7 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
     project_snapshots: belongsToProject(data.project_snapshots),
     email_settings: data.email_settings,
     email_activity_log: data.email_activity_log,
+    go_live_checklists: belongsToProject(data.go_live_checklists ?? []),
+    cutover_plan: belongsToProject(data.cutover_plan ?? []),
   };
 }

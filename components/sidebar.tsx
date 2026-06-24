@@ -8,6 +8,7 @@ import {
   BookOpenCheck,
   Boxes,
   BrainCircuit,
+  Rocket,
   BriefcaseBusiness,
   CalendarDays,
   CalendarRange,
@@ -65,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Delivery",
     items: [
       { href: "/deliverables", label: "Deliverables", icon: PackageCheck },
+      { href: "/go-live-readiness", label: "Go-Live Readiness", icon: Rocket },
       { href: "/timeline", label: "Timeline", icon: CalendarRange },
       { href: "/milestones", label: "Milestones", icon: Flag },
       { href: "/testing", label: "Testing", icon: BookOpenCheck },

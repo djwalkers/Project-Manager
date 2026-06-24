@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BrainCircuit,
   CalendarClock,
+  CheckCircle2,
   CircleAlert,
   CircleHelp,
   ClipboardCheck,
@@ -17,9 +18,11 @@ import {
   PackageCheck,
   Pencil,
   Plus,
+  Rocket,
   ShieldAlert,
   ShieldQuestion,
   Users,
+  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -37,6 +40,7 @@ import { moduleByKey, type ModuleConfig } from "@/lib/modules";
 import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
+import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
 import { buildProjectWorkspace, type WorkspaceActionColumn } from "@/lib/project-workspace";
 import { RecentChangesPanel } from "@/components/recent-changes-panel";
 import { formatScheduleDate } from "@/lib/schedule";
@@ -75,6 +79,44 @@ function recordLabel(table: EntityName, record: Row) {
     deliverables: ["deliverable_ref", "title"],
   };
   return fields[table]?.map((field) => String(record[field] ?? "")).find(Boolean) ?? "record";
+}
+
+function GoLiveWorkspaceCard({ data, projectId }: { data: DataStore; projectId: string }) {
+  const project = data.projects.find((p) => p.id === projectId) ?? data.projects[0];
+  if (!project) return null;
+  const dashboard = buildGoLiveDashboard(data, project);
+  if (dashboard.readinessPercent === 0 && dashboard.totalItems === 0) return null;
+
+  const statusColor = dashboard.status === "Green" ? "text-emerald-600" : dashboard.status === "Amber" ? "text-amber-600" : "text-red-600";
+  const StatusIcon = dashboard.status === "Green" ? CheckCircle2 : dashboard.status === "Amber" ? AlertTriangle : XCircle;
+  const bgColor = dashboard.status === "Green" ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20" : dashboard.status === "Amber" ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20" : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20";
+
+  return (
+    <section className={`mt-5 rounded-lg border p-4 shadow-operational ${bgColor}`} aria-labelledby="workspace-golive">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Rocket className="h-4 w-4 text-primary" aria-hidden="true" />
+          <h3 id="workspace-golive" className="font-semibold">Go-Live Readiness</h3>
+        </div>
+        <Link href="/go-live-readiness" className="inline-flex min-h-8 items-center rounded-md border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted">View details</Link>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <StatusIcon className={`h-5 w-5 shrink-0 ${statusColor}`} aria-hidden="true" />
+          <span className={`font-semibold ${statusColor}`}>{dashboard.status === "Green" ? "Go" : dashboard.status === "Amber" ? "Caution" : "No Go"}</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="tabular-nums font-semibold">{dashboard.readinessPercent}% ready</span>
+          <span className="text-muted-foreground">({dashboard.completedItems}/{dashboard.totalItems})</span>
+        </div>
+        {dashboard.blockerCount > 0 && <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-400">{dashboard.blockerCount} blocker{dashboard.blockerCount !== 1 ? "s" : ""}</span>}
+        {dashboard.daysToGoLive !== null && (
+          <span className={`rounded px-2 py-0.5 text-xs font-semibold ${dashboard.daysToGoLive < 0 ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400" : dashboard.daysToGoLive <= 7 ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" : "bg-muted text-muted-foreground"}`}>
+            {dashboard.daysToGoLive < 0 ? `${Math.abs(dashboard.daysToGoLive)}d overdue` : `${dashboard.daysToGoLive}d to go-live`}
+          </span>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function displayDate(value?: string | null) {
@@ -241,6 +283,8 @@ export function ProjectWorkspacePage() {
           <div className="rounded-md border bg-primary/[0.04] p-4"><div className="flex items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"><Gauge className="h-5 w-5" aria-hidden="true" /></span><div><p className="text-sm leading-7">{workspace.narrative}</p><div className="mt-4 flex flex-wrap gap-2"><StatusBadge value={workspace.projectHealth} /><StatusBadge value={workspace.scheduleHealth} />{workspace.schedule.projectComplete ? <StatusBadge value="Complete" /> : null}</div></div></div></div>
         </WorkspaceSection>
       </div>
+
+      <GoLiveWorkspaceCard data={data} projectId={project.id} />
 
       <div className="mt-5">
         <RecentChangesPanel projectId={project.id} limit={10} />

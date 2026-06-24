@@ -56,6 +56,7 @@ async function loadSettings(client: SupabaseClient | null): Promise<EmailSetting
     weekly_summary_enabled: false,
     manager_summary_enabled: false,
     recipient_email: process.env.DAILY_BRIEF_RECIPIENT || defaultRecipient,
+    manager_recipient_email: process.env.MANAGER_BRIEF_RECIPIENT || null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -112,7 +113,12 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
   let recipient = payload.recipient?.trim() || process.env.DAILY_BRIEF_RECIPIENT?.trim() || defaultRecipient;
   try {
     const stored = await loadSettings(client);
-    recipient = payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
+    if (kind === "Manager Summary") {
+      const managerRecipient = payload.settings?.manager_recipient_email?.trim() || stored.manager_recipient_email?.trim();
+      recipient = managerRecipient || payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
+    } else {
+      recipient = payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
+    }
     const enabled = kind === "Daily Brief"
       ? (payload.settings?.daily_brief_enabled ?? stored.daily_brief_enabled)
       : kind === "Manager Summary"

@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "010_manager_summary";
-export const latestMigration = "010_manager_summary";
+export const schemaVersion = "012_go_live_readiness";
+export const latestMigration = "012_go_live_readiness";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -13,6 +13,8 @@ export const allMigrations = [
   "008_auth_rls",
   "009_audit_trail",
   "010_manager_summary",
+  "011_manager_recipient",
+  "012_go_live_readiness",
 ] as const;
 
 export type SchemaColumn = {
@@ -272,7 +274,9 @@ export const schemaTables: SchemaTable[] = [
       id,
       { name: "daily_brief_enabled", type: "boolean", required: true },
       { name: "weekly_summary_enabled", type: "boolean", required: true },
+      { name: "manager_summary_enabled", type: "boolean", required: true },
       { name: "recipient_email", type: "text", required: true },
+      { name: "manager_recipient_email", type: "text", required: false },
       createdAt,
       updatedAt,
     ],
@@ -289,6 +293,38 @@ export const schemaTables: SchemaTable[] = [
       { name: "duration_ms", type: "integer", required: true },
       { name: "trigger_type", type: "text", required: true },
       createdAt,
+    ],
+  },
+  {
+    name: "go_live_checklists",
+    columns: [
+      id,
+      { name: "project_id", type: "uuid", required: true, foreignKey: "projects" },
+      { name: "category", type: "text", required: true },
+      { name: "item", type: "text", required: true },
+      { name: "owner", type: "text", required: false },
+      { name: "status", type: "text", required: true },
+      { name: "due_date", type: "date", required: false },
+      { name: "completed_date", type: "date", required: false },
+      { name: "notes", type: "text", required: false },
+      createdAt,
+      updatedAt,
+    ],
+  },
+  {
+    name: "cutover_plan",
+    columns: [
+      id,
+      { name: "project_id", type: "uuid", required: true, foreignKey: "projects" },
+      { name: "step_number", type: "integer", required: true },
+      { name: "activity", type: "text", required: true },
+      { name: "owner", type: "text", required: false },
+      { name: "planned_time", type: "text", required: false },
+      { name: "actual_time", type: "text", required: false },
+      { name: "status", type: "text", required: true },
+      { name: "notes", type: "text", required: false },
+      createdAt,
+      updatedAt,
     ],
   },
 ];

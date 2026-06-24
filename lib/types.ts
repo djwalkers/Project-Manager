@@ -88,12 +88,49 @@ export type Deliverable = {
   updated_at: string;
 };
 
+export type GoLiveChecklistCategory =
+  | "Requirements" | "Development" | "SIT" | "UAT" | "Data"
+  | "Training" | "Deployment" | "Hypercare" | "Rollback" | "Support" | "Customer Approval";
+
+export type GoLiveChecklistStatus = "Not Started" | "In Progress" | "Complete" | "Blocked" | "Waived";
+
+export type GoLiveChecklist = {
+  id: string;
+  project_id: string;
+  category: GoLiveChecklistCategory;
+  item: string;
+  owner: string | null;
+  status: GoLiveChecklistStatus;
+  due_date: string | null;
+  completed_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CutoverStepStatus = "Not Started" | "In Progress" | "Complete" | "Blocked" | "Skipped";
+
+export type CutoverStep = {
+  id: string;
+  project_id: string;
+  step_number: number;
+  activity: string;
+  owner: string | null;
+  planned_time: string | null;
+  actual_time: string | null;
+  status: CutoverStepStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EmailSettings = {
   id: string;
   daily_brief_enabled: boolean;
   weekly_summary_enabled: boolean;
   manager_summary_enabled: boolean;
   recipient_email: string;
+  manager_recipient_email: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -305,6 +342,8 @@ export type EntityMap = {
   project_snapshots: ProjectSnapshot;
   email_settings: EmailSettings;
   email_activity_log: EmailActivity;
+  go_live_checklists: GoLiveChecklist;
+  cutover_plan: CutoverStep;
 };
 
 export type EntityName = keyof EntityMap;

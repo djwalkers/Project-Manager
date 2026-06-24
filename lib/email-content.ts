@@ -2,6 +2,7 @@ import { buildDailyBrief } from "@/lib/daily-brief";
 import type { DataStore } from "@/lib/data-store";
 import type { AuditLog } from "@/lib/types";
 import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/manager-summary";
+import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
 import { calculateDeliveryReadiness } from "@/lib/delivery";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
@@ -45,15 +46,32 @@ function readinessLines(data: DataStore) {
   });
 }
 
+function goLiveAttentionLines(data: DataStore, now: Date) {
+  return selectCanonicalProjects(data).flatMap((project) => {
+    const dashboard = buildGoLiveDashboard(data, project, now);
+    if (dashboard.status === "Green") return [];
+    const lines: string[] = [];
+    if (dashboard.status === "Red") lines.push(`${project.name}: GO-LIVE RED — Readiness ${dashboard.readinessPercent}%, ${dashboard.blockerCount} blocker${dashboard.blockerCount !== 1 ? "s" : ""}.`);
+    else lines.push(`${project.name}: Go-Live Amber — Readiness ${dashboard.readinessPercent}%.`);
+    if (dashboard.daysToGoLive !== null && dashboard.daysToGoLive <= 14) lines.push(`  ↳ Go-live in ${dashboard.daysToGoLive} day${dashboard.daysToGoLive !== 1 ? "s" : ""} — immediate attention required.`);
+    return lines;
+  });
+}
+
 export function buildAutomatedDailyBrief(data: DataStore, now = new Date(), recentAuditChanges: AuditLog[] = []): EmailContent {
   const brief = buildDailyBrief(data, now, recentAuditChanges);
   const intelligence = intelligenceLines(data, now);
   const readiness = readinessLines(data);
-  const additions = `${section("Project Intelligence Findings", listHtml(intelligence, "No critical or warning findings."))}${section("Delivery Readiness KPI", listHtml(readiness, "No deliverables are available."))}`;
+  const goLive = goLiveAttentionLines(data, now);
+  const additions = [
+    section("Project Intelligence Findings", listHtml(intelligence, "No critical or warning findings.")),
+    section("Delivery Readiness KPI", listHtml(readiness, "No deliverables are available.")),
+    ...(goLive.length ? [section("Go-Live Attention Required", listHtml(goLive, ""))] : []),
+  ].join("");
   return {
     subject: `[Project Manager] Daily Brief - ${subjectDate(now)}`,
     html: brief.html.replace("</body>", `${additions}</body>`),
-    text: `${brief.plainText}\n\n${plainList("Project Intelligence Findings", intelligence, "No critical or warning findings.")}\n\n${plainList("Delivery Readiness KPI", readiness, "No deliverables are available.")}`,
+    text: `${brief.plainText}\n\n${plainList("Project Intelligence Findings", intelligence, "No critical or warning findings.")}\n\n${plainList("Delivery Readiness KPI", readiness, "No deliverables are available.")}${goLive.length ? `\n\n${plainList("Go-Live Attention Required", goLive, "")}` : ""}`,
   };
 }
 
@@ -160,6 +178,17 @@ function projectBlockText(p: ManagerProjectSummary): string {
 export function buildManagerSummaryEmail(data: DataStore, now = new Date()): EmailContent {
   const report = buildManagerExceptionReport(data, now);
 
+  // Go-live alerts: only RED readiness, delayed go-live, missing approvals, critical blockers
+  const goLiveAlerts = selectCanonicalProjects(data).flatMap((project) => {
+    const dashboard = buildGoLiveDashboard(data, project, now);
+    const alerts: string[] = [];
+    if (dashboard.status === "Red") alerts.push(`${project.name}: Go-live readiness is RED (${dashboard.readinessPercent}%).`);
+    if (dashboard.daysToGoLive !== null && dashboard.daysToGoLive < 0) alerts.push(`${project.name}: Go-live date has passed — delayed.`);
+    if (dashboard.wmsChecks.some((c) => c.id === "customer_approval" && !c.complete && !c.waived)) alerts.push(`${project.name}: Customer approval is missing.`);
+    if (dashboard.openCriticalRisks > 0 && dashboard.daysToGoLive !== null && dashboard.daysToGoLive <= 14) alerts.push(`${project.name}: ${dashboard.openCriticalRisks} critical risk${dashboard.openCriticalRisks > 1 ? "s" : ""} open within ${dashboard.daysToGoLive} days of go-live.`);
+    return alerts;
+  });
+
   const redCount = report.projects.filter((p) => p.status === "Red").length;
   const amberCount = report.projects.filter((p) => p.status === "Amber").length;
   const actionCount = report.requiresAction.length;
@@ -169,6 +198,8 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
     : actionCount > 0
       ? `${actionCount} ${actionCount === 1 ? "project requires" : "projects require"} management action. ${redCount > 0 ? `${redCount} Red. ` : ""}${amberCount > 0 ? `${amberCount} Amber.` : ""}`.trim()
       : "All projects are on track. No management action is required.";
+
+  const goLiveHtml = goLiveAlerts.length ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:14px 16px;margin-bottom:16px"><p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:0.05em">Go-Live Alerts</p><ul style="margin:0;padding-left:20px">${goLiveAlerts.map((a) => `<li style="font-size:13px;color:#7f1d1d;margin-bottom:4px">${escapeHtml(a)}</li>`).join("")}</ul></div>` : "";
 
   const projectHtml = report.projects.map(projectBlock).join("");
   const projectText = report.projects.map(projectBlockText).join("\n\n---\n\n");
@@ -185,13 +216,14 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
     <p style="margin:0;font-size:15px;line-height:1.6">${escapeHtml(intro)}</p>
   </div>
   <div style="padding:16px 0">
-    ${projectHtml || `<p style="color:#64748b;font-size:14px">No projects to report.</p>`}
+    ${goLiveHtml}${projectHtml || `<p style="color:#64748b;font-size:14px">No projects to report.</p>`}
   </div>
   <p style="margin:0;text-align:center;color:#94a3b8;font-size:11px">Prepared by Project Manager / Control Centre — exceptions only</p>
 </div>
 </body></html>`;
 
-  const text = `MANAGER EXCEPTION REPORT — ${subjectDate(now).toUpperCase()}\n\n${intro}\n\n${"=".repeat(60)}\n\n${projectText || "No projects to report."}`;
+  const goLiveText = goLiveAlerts.length ? `\n\nGO-LIVE ALERTS\n${goLiveAlerts.map((a) => `• ${a}`).join("\n")}` : "";
+  const text = `MANAGER EXCEPTION REPORT — ${subjectDate(now).toUpperCase()}\n\n${intro}${goLiveText}\n\n${"=".repeat(60)}\n\n${projectText || "No projects to report."}`;
 
   return {
     subject: `[Manager] Exception Report — ${subjectDate(now)}`,

@@ -37,7 +37,7 @@ export type IntelligenceReport = {
 
 export type IntelligenceRuleDefinition = { id: string; category: IntelligenceCategory; sources: string[] };
 
-export const INTELLIGENCE_SOURCES = ["requirements", "risks", "decisions", "actions", "discovery_questions", "milestones", "timeline_items", "deliverables", "test_cases", "project_snapshots", "activity_log", "meetings"] as const;
+export const INTELLIGENCE_SOURCES = ["requirements", "risks", "decisions", "actions", "discovery_questions", "milestones", "timeline_items", "deliverables", "test_cases", "project_snapshots", "activity_log", "meetings", "go_live_checklists"] as const;
 
 export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "SCH-001", category: "Schedule", sources: ["timeline_items"] },
@@ -70,6 +70,12 @@ export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "POS-GOV", category: "Governance", sources: ["requirements"] },
   { id: "POS-STK", category: "Stakeholder", sources: ["activity_log"] },
   { id: "POS-TST", category: "Testing", sources: ["test_cases"] },
+  { id: "GLR-001", category: "Delivery", sources: ["go_live_checklists", "milestones"] },
+  { id: "GLR-002", category: "Delivery", sources: ["go_live_checklists"] },
+  { id: "GLR-003", category: "Delivery", sources: ["go_live_checklists"] },
+  { id: "GLR-004", category: "Delivery", sources: ["go_live_checklists"] },
+  { id: "GLR-005", category: "Risk", sources: ["go_live_checklists", "risks"] },
+  { id: "GLR-006", category: "Delivery", sources: ["go_live_checklists"] },
 ];
 
 const DAY_MS = 86_400_000;
@@ -179,6 +185,73 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (scoped.requirements.length && scoped.requirements.every((item) => Boolean(item.owner?.trim()))) add(project, "POS-GOV", "Governance", "Info", "All requirements have owners", `${scoped.requirements.length} requirements have accountable owners.`, "Requirement ownership coverage is 100%.", 100, null);
   if (newestActivity && (ageInDays(newestActivity.created_at, now) ?? 99) < 7) add(project, "POS-STK", "Stakeholder", "Info", "Project activity is current", "A project update has been recorded within the last 7 days.", `${newestActivity.activity_type}: ${newestActivity.description}`, 96, null);
   if (scoped.test_cases.some((item) => item.status === "Passed")) add(project, "POS-TST", "Testing", "Info", "Test execution has produced passed cases", `${scoped.test_cases.filter((item) => item.status === "Passed").length} test cases have passed.`, "Testing progress is evidenced in the test inventory.", 100, null);
+
+  // ── Go-Live Readiness rules ───────────────────────────────────────────────────
+  const goLiveChecklists = (data.go_live_checklists ?? []).filter((c) => c.project_id === project.id);
+  if (goLiveChecklists.length > 0) {
+    const goLiveMilestone = scoped.milestones.find((m) => /go.?live/i.test(m.title));
+    const goLiveDate = goLiveMilestone?.target_date ?? project.planned_end_date;
+    const daysToGoLive = daysUntil(goLiveDate, now);
+
+    // GLR-001: UAT incomplete within 7 days of go-live
+    const uatItems = goLiveChecklists.filter((c) => c.category === "UAT" || /uat/i.test(c.item));
+    const uatIncomplete = uatItems.some((c) => !["Complete", "Waived"].includes(c.status));
+    if (uatIncomplete && daysToGoLive !== null && daysToGoLive <= 7 && daysToGoLive >= 0) {
+      add(project, "GLR-001", "Delivery", "Critical", "UAT is incomplete within 7 days of go-live",
+        `Go-live is in ${daysToGoLive} day${daysToGoLive === 1 ? "" : "s"} and UAT has not been signed off.`,
+        `UAT checklist items: ${uatItems.map((c) => c.item).join(", ") || "none recorded"}.`,
+        100, "Complete UAT sign-off or escalate to delay go-live.");
+    }
+
+    // GLR-002: Rollback plan missing
+    const rollbackItems = goLiveChecklists.filter((c) => c.category === "Rollback" || /rollback/i.test(c.item));
+    const rollbackMissing = rollbackItems.length === 0 || rollbackItems.every((c) => c.status === "Not Started");
+    if (rollbackMissing) {
+      add(project, "GLR-002", "Delivery", "Critical", "No rollback plan has been recorded",
+        "Go-live readiness requires an approved rollback plan. None has been recorded.",
+        `${goLiveChecklists.length} checklist items exist; none are categorised as Rollback.`,
+        97, "Create and approve a rollback plan before go-live.");
+    }
+
+    // GLR-003: Hypercare owner missing
+    const hypercareItems = goLiveChecklists.filter((c) => c.category === "Hypercare" || /hypercare/i.test(c.item));
+    const hypercareMissing = hypercareItems.length === 0 || hypercareItems.some((c) => !c.owner?.trim() && c.status !== "Waived");
+    if (hypercareMissing) {
+      add(project, "GLR-003", "Delivery", "Warning", "Hypercare owner has not been assigned",
+        "A named hypercare owner is required before go-live to ensure post-deployment support.",
+        "Hypercare checklist items have no owner recorded.",
+        95, "Assign a named hypercare owner and confirm coverage hours.");
+    }
+
+    // GLR-004: Customer approval missing
+    const approvalItems = goLiveChecklists.filter((c) => c.category === "Customer Approval" || /customer.*approval|approval.*customer/i.test(c.item));
+    const approvalMissing = approvalItems.length === 0 || approvalItems.every((c) => !["Complete", "Waived"].includes(c.status));
+    if (approvalMissing) {
+      add(project, "GLR-004", "Delivery", "Critical", "Customer approval has not been completed",
+        "Go-live should not proceed without documented customer sign-off.",
+        `${approvalItems.length} customer approval items recorded; none are Complete or Waived.`,
+        100, "Obtain customer sign-off or formally document a waiver.");
+    }
+
+    // GLR-005: Critical risk open before go-live (cross-reference with risk register)
+    const openCriticalRisks = scoped.risks.filter((r) => !["Complete", "Closed"].includes(r.status) && r.impact === "Critical");
+    if (openCriticalRisks.length > 0 && daysToGoLive !== null && daysToGoLive <= 14) {
+      add(project, "GLR-005", "Risk", "Critical", `${openCriticalRisks.length} critical risk${openCriticalRisks.length > 1 ? "s" : ""} open within ${daysToGoLive} days of go-live`,
+        "Critical risks must be mitigated or accepted before go-live proceeds.",
+        openCriticalRisks.slice(0, 3).map((r) => `${r.risk_ref}: ${r.description}`).join("; "),
+        100, "Resolve or formally accept all critical risks with management sign-off.");
+    }
+
+    // GLR-006: Training incomplete
+    const trainingItems = goLiveChecklists.filter((c) => c.category === "Training" || /training/i.test(c.item));
+    const trainingIncomplete = trainingItems.length === 0 || trainingItems.some((c) => !["Complete", "Waived"].includes(c.status));
+    if (trainingIncomplete && daysToGoLive !== null && daysToGoLive <= 14) {
+      add(project, "GLR-006", "Delivery", "Warning", "Training is incomplete within 14 days of go-live",
+        "Warehouse and user training must be complete before go-live to ensure operational readiness.",
+        `${trainingItems.filter((c) => !["Complete", "Waived"].includes(c.status)).length} training items outstanding.`,
+        93, "Complete outstanding training or confirm a waiver with the business.");
+    }
+  }
 
   // ── Audit-based intelligence rules ───────────────────────────────────────────
   if (auditEntries.length) {

@@ -234,9 +234,11 @@ export function SystemHealthPage() {
           <MetricCard label="Daily Brief Enabled" value={report.email.dailyBriefEnabled ? "Yes" : "No"} state={report.email.dailyBriefEnabled} />
           <MetricCard label="Weekly Summary Enabled" value={report.email.weeklySummaryEnabled ? "Yes" : "No"} state={report.email.weeklySummaryEnabled} />
           <MetricCard label="Manager Summary Enabled" value={report.email.managerSummaryEnabled ? "Yes" : "No"} state={report.email.managerSummaryEnabled} />
+          <MetricCard label="Manager Recipient Configured" value={report.email.managerRecipientConfigured ? "Yes" : "No"} state={report.email.managerRecipientConfigured} />
           <MetricCard label="Last Daily Brief" value={report.email.lastDailyBriefStatus} state={report.email.lastDailyBriefStatus === "Never" ? undefined : report.email.lastDailyBriefStatus === "Sent"} />
           <MetricCard label="Last Weekly Summary" value={report.email.lastWeeklySummaryStatus} state={report.email.lastWeeklySummaryStatus === "Never" ? undefined : report.email.lastWeeklySummaryStatus === "Sent"} />
           <MetricCard label="Last Manager Summary" value={report.email.lastManagerSummaryStatus} state={report.email.lastManagerSummaryStatus === "Never" ? undefined : report.email.lastManagerSummaryStatus === "Sent"} />
+          <MetricCard label="Next Manager Summary" value={report.email.nextManagerSummary} />
           <div className="sm:col-span-2 xl:col-span-4">
             <MetricCard
               label="Last Email Sent"

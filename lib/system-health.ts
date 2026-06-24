@@ -14,10 +14,12 @@ export type EmailHealth = {
   weeklySummaryEnabled: boolean;
   managerSummaryEnabled: boolean;
   recipientConfigured: boolean;
+  managerRecipientConfigured: boolean;
   lastDailyBriefStatus: "Sent" | "Failed" | "Never";
   lastWeeklySummaryStatus: "Sent" | "Failed" | "Never";
   lastManagerSummaryStatus: "Sent" | "Failed" | "Never";
   lastEmailSentTimestamp: string | null;
+  nextManagerSummary: string;
 };
 
 export type TableHealth = {
@@ -55,7 +57,22 @@ export type SystemHealthReport = {
   audit: AuditHealth;
 };
 
-function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; manager_summary_enabled?: boolean; recipient_email: string } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
+function nextManagerSummaryLabel(): string {
+  // Next Friday 16:00 Europe/London
+  const now = new Date();
+  const londonNow = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London", weekday: "short", hour: "numeric", hour12: false,
+  }).formatToParts(now);
+  const dayPart = londonNow.find((p) => p.type === "weekday")?.value;
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const todayIdx = days.indexOf(dayPart ?? "Mon");
+  const daysUntilFriday = ((4 - todayIdx) + 7) % 7 || 7;
+  const nextFriday = new Date(now);
+  nextFriday.setDate(nextFriday.getDate() + daysUntilFriday);
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "Europe/London" }).format(nextFriday) + " at 16:00";
+}
+
+function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; manager_summary_enabled?: boolean; recipient_email: string; manager_recipient_email?: string | null } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
   const ordered = [...activity].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
   const status = (type: string): "Sent" | "Failed" | "Never" => {
     const item = ordered.find((row) => row.email_type === type);
@@ -66,10 +83,12 @@ function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_en
     weeklySummaryEnabled: settings?.weekly_summary_enabled ?? false,
     managerSummaryEnabled: settings?.manager_summary_enabled ?? false,
     recipientConfigured: Boolean(settings?.recipient_email?.trim()),
+    managerRecipientConfigured: Boolean(settings?.manager_recipient_email?.trim()),
     lastDailyBriefStatus: status("Daily Brief"),
     lastWeeklySummaryStatus: status("Weekly Summary"),
     lastManagerSummaryStatus: status("Manager Summary"),
     lastEmailSentTimestamp: ordered[0]?.sent_at ?? null,
+    nextManagerSummary: nextManagerSummaryLabel(),
   };
 }
 
@@ -182,7 +201,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
   const [{ data: projectRows }, { data: timelineRows }, { data: emailSettings }, { data: emailActivity }] = await Promise.all([
     client.from("projects").select("id,name"),
     client.from("timeline_items").select("project_id,phase_ref"),
-    client.from("email_settings").select("daily_brief_enabled,weekly_summary_enabled,recipient_email").limit(1),
+    client.from("email_settings").select("daily_brief_enabled,weekly_summary_enabled,manager_summary_enabled,recipient_email,manager_recipient_email").limit(1),
     client.from("email_activity_log").select("email_type,success,sent_at").order("sent_at", { ascending: false }).limit(50),
   ]);
   const cr028Projects = (projectRows ?? []).filter((project) => String(project.name).toLowerCase().includes("cr028"));
