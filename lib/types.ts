@@ -14,6 +14,7 @@ export type Probability = "Low" | "Medium" | "High";
 export type ProjectHealth = "Green" | "Amber" | "Red";
 export type RequirementCategory = "Business Rule" | "Database" | "Backend" | "UI" | "Performance" | "Testing";
 export type TestStatus = "Pending" | "In Progress" | "Passed" | "Failed" | "Blocked";
+export type DeliverableStatus = "Not Started" | "In Analysis" | "In Development" | "Ready for SIT" | "SIT Complete" | "Ready for UAT" | "UAT Complete" | "Ready for Deployment" | "Deployed" | "Blocked";
 
 export type Project = {
   id: string;
@@ -64,6 +65,27 @@ export type ProjectSnapshot = {
   active_milestone: string | null;
   active_phase: string | null;
   created_at: string;
+};
+
+export type Deliverable = {
+  id: string;
+  project_id: string;
+  deliverable_ref: string;
+  title: string;
+  description: string | null;
+  workstream: string;
+  owner: string | null;
+  priority: Priority;
+  status: DeliverableStatus;
+  planned_completion_date: string | null;
+  actual_completion_date: string | null;
+  development_status: string;
+  sit_status: string;
+  uat_status: string;
+  deployment_status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Requirement = {
@@ -208,6 +230,7 @@ export type Milestone = {
 
 export type EntityMap = {
   projects: Project;
+  deliverables: Deliverable;
   requirements: Requirement;
   risks: Risk;
   decisions: Decision;

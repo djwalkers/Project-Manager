@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { selectCanonicalProjects } from "@/lib/project-scope";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
+import { buildDeliverableCompletionTrend, calculateDeliveryReadiness } from "@/lib/delivery";
 import { buildTrendAnalysis, type TrendChange } from "@/lib/project-trends";
 import { formatScheduleDate } from "@/lib/schedule";
 import { saveDailySnapshots } from "@/lib/snapshot-service";
@@ -39,6 +40,12 @@ export function ProjectTrendsPage() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null;
   const trend = useMemo(() => selectedProject && data ? buildTrendAnalysis(selectedProject, data.project_snapshots) : null, [data, selectedProject]);
   const intelligence = useMemo(() => selectedProject && data ? buildProjectIntelligence(data, selectedProject) : null, [data, selectedProject]);
+  const delivery = useMemo(() => {
+    if (!selectedProject || !data) return null;
+    const deliverables = data.deliverables.filter((item) => item.project_id === selectedProject.id);
+    const snapshots = data.project_snapshots.filter((item) => item.project_id === selectedProject.id);
+    return { readiness: calculateDeliveryReadiness(deliverables), points: buildDeliverableCompletionTrend(deliverables, snapshots) };
+  }, [data, selectedProject]);
 
   async function takeSnapshot() {
     if (!data) return;
@@ -57,7 +64,7 @@ export function ProjectTrendsPage() {
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
-  if (!projects.length || !selectedProject || !trend || !intelligence) return <AppShell><EmptyState title="No projects found" description="Add a project before creating snapshot history." icon={BriefcaseBusiness} /></AppShell>;
+  if (!projects.length || !selectedProject || !trend || !intelligence || !delivery) return <AppShell><EmptyState title="No projects found" description="Add a project before creating snapshot history." icon={BriefcaseBusiness} /></AppShell>;
 
   const points = <K extends "progress_percent" | "open_risks" | "open_actions" | "open_decisions" | "schedule_variance">(field: K) => trend.snapshots.map((snapshot) => ({ date: snapshot.snapshot_date, value: Number(snapshot[field]) }));
 
@@ -73,11 +80,12 @@ export function ProjectTrendsPage() {
 
       {message ? <div className="mt-4 rounded-md border bg-card p-3 text-sm" role="status">{message}</div> : null}
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <ChangeCard label="Progress Change (7 days)" change={trend.progressChange} suffix="%" />
         <ChangeCard label="Risk Change (7 days)" change={trend.riskChange} inverse />
         <ChangeCard label="Action Change (7 days)" change={trend.actionChange} inverse />
         <ChangeCard label="Decision Change (7 days)" change={trend.decisionChange} inverse />
+        <section className="rounded-lg border bg-card p-4 shadow-operational"><p className="text-sm font-medium text-muted-foreground">Delivery Readiness</p><p className="mt-2 text-3xl font-semibold tabular-nums">{delivery.readiness.percent}%</p><p className="mt-2 text-xs text-muted-foreground">{delivery.readiness.completed} of {delivery.readiness.total} deliverables deployed</p></section>
       </div>
 
       <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="project-trend-narrative">
@@ -94,6 +102,7 @@ export function ProjectTrendsPage() {
         <TrendChart title="Action Trend" description="Open actions over time." points={points("open_actions")} color="#0891b2" />
         <TrendChart title="Decision Trend" description="Open decisions over time." points={points("open_decisions")} color="#7c3aed" />
         <div className="min-w-0 xl:col-span-2"><TrendChart title="Schedule Variance Trend" description="Actual progress minus planned progress." points={points("schedule_variance")} color="#d97706" suffix="%" /></div>
+        <div className="min-w-0 xl:col-span-2"><TrendChart title="Deliverable Completion Trend" description="Cumulative deployed deliverables across snapshot dates." points={delivery.points} color="#059669" /></div>
       </div>
 
       <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="health-timeline-title">

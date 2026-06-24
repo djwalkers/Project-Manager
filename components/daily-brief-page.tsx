@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CalendarClock, Code2, Eye, FileText, GitCompareArrows, Lightbulb, Mail, TrendingUp, X } from "lucide-react";
+import { ArrowRight, CalendarClock, Code2, Eye, FileText, GitCompareArrows, Lightbulb, Mail, PackageCheck, TrendingUp, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -121,6 +121,12 @@ export function DailyBriefPage() {
         <div className="flex items-center gap-2"><Lightbulb className="h-5 w-5 text-primary" aria-hidden="true" /><h3 id="daily-recommendations-title" className="font-semibold">Today’s Recommendations</h3></div>
         <p className="mt-1 text-sm text-muted-foreground">Highest-priority deterministic management actions across all projects.</p>
         {brief.todaysRecommendations.length ? <div className="mt-4 grid gap-3 xl:grid-cols-2">{brief.todaysRecommendations.map((item) => <div key={item.finding.id}><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">{item.projectName}</p><IntelligenceFindingCard finding={item.finding} compact /></div>)}</div> : <div className="mt-4 rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">No management recommendations today.</div>}
+      </section>
+
+      <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="daily-deliverables-title">
+        <div className="flex items-center gap-2"><PackageCheck className="h-5 w-5 text-primary" aria-hidden="true" /><h3 id="daily-deliverables-title" className="font-semibold">Today’s Deliverables Requiring Attention</h3></div>
+        <p className="mt-1 text-sm text-muted-foreground">Blocked, overdue and near-date solution deliverables across all projects.</p>
+        {brief.todaysDeliverables.length ? <div className="mt-4 grid gap-3 xl:grid-cols-2">{brief.todaysDeliverables.map((item) => <article key={`${item.projectName}-${item.attention.id}`} className="rounded-md border bg-muted/30 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-primary">{item.projectName} · {item.attention.deliverable.deliverable_ref}</p><StatusBadge value={item.attention.severity} /></div><h4 className="mt-2 text-sm font-semibold">{item.attention.deliverable.title}</h4><p className="mt-1 text-sm text-muted-foreground">{item.attention.reason}</p><p className="mt-2 text-xs">{item.attention.recommendation}</p></article>)}</div> : <div className="mt-4 rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">No deliverables require attention today.</div>}
       </section>
 
       <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="since-yesterday-title">

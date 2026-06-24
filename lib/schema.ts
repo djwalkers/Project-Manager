@@ -1,6 +1,6 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "005_project_snapshots";
+export const schemaVersion = "006_delivery_management";
 
 export type SchemaColumn = {
   name: string;
@@ -53,6 +53,28 @@ export const schemaTables: SchemaTable[] = [
       { name: "status", type: "text", required: true },
       { name: "owner", type: "text", required: false },
       { name: "source", type: "text", required: false },
+      { name: "notes", type: "text", required: false },
+      createdAt, updatedAt,
+    ],
+  },
+  {
+    name: "deliverables",
+    seedKey: ["project_id", "deliverable_ref"],
+    columns: [
+      id, projectId,
+      { name: "deliverable_ref", type: "text", required: true },
+      { name: "title", type: "text", required: true },
+      { name: "description", type: "text", required: false },
+      { name: "workstream", type: "text", required: true },
+      { name: "owner", type: "text", required: false },
+      { name: "priority", type: "text", required: true },
+      { name: "status", type: "text", required: true },
+      { name: "planned_completion_date", type: "date", required: false },
+      { name: "actual_completion_date", type: "date", required: false },
+      { name: "development_status", type: "text", required: true },
+      { name: "sit_status", type: "text", required: true },
+      { name: "uat_status", type: "text", required: true },
+      { name: "deployment_status", type: "text", required: true },
       { name: "notes", type: "text", required: false },
       createdAt, updatedAt,
     ],

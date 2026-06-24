@@ -1,6 +1,6 @@
 # CR028 schema authority
 
-The application schema version is `005_project_snapshots`. The executable contract is defined in `lib/schema.ts`; migration 005 adds daily project history for trends and management comparisons.
+The application schema version is `006_delivery_management`. The executable contract is defined in `lib/schema.ts`; migration 006 adds solution deliverables and delivery-stage tracking.
 
 `Required` means the canonical database definition is `NOT NULL`. All child-table `project_id` columns reference `projects.id` with `ON DELETE CASCADE`.
 
@@ -37,6 +37,29 @@ The application schema version is `005_project_snapshots`. The executable contra
 | status | text | Yes | — |
 | owner | text | No | — |
 | source | text | No | — |
+| notes | text | No | — |
+| created_at | timestamptz | Yes | — |
+| updated_at | timestamptz | Yes | — |
+
+### deliverables
+
+| Column | PostgreSQL type | Required | Foreign key |
+| --- | --- | --- | --- |
+| id | uuid | Yes | — |
+| project_id | uuid | Yes | projects.id |
+| deliverable_ref | text | Yes | — |
+| title | text | Yes | — |
+| description | text | No | — |
+| workstream | text | Yes | — |
+| owner | text | No | — |
+| priority | text | Yes | — |
+| status | text | Yes | — |
+| planned_completion_date | date | No | — |
+| actual_completion_date | date | No | — |
+| development_status | text | Yes | — |
+| sit_status | text | Yes | — |
+| uat_status | text | Yes | — |
+| deployment_status | text | Yes | — |
 | notes | text | No | — |
 | created_at | timestamptz | Yes | — |
 | updated_at | timestamptz | Yes | — |
@@ -233,11 +256,11 @@ The application schema version is `005_project_snapshots`. The executable contra
 
 ## Relationships
 
-`projects` is the parent aggregate. Requirements, risks, decisions, actions, dependencies, discovery questions, milestones, timeline items, project snapshots, test cases, meetings, documents, and activity entries each belong to one project through `project_id`. Deleting a project cascades to its children in a database created from the authoritative migration.
+`projects` is the parent aggregate. Deliverables, requirements, risks, decisions, actions, dependencies, discovery questions, milestones, timeline items, project snapshots, test cases, meetings, documents, and activity entries each belong to one project through `project_id`. Deleting a project cascades to its children in a database created from the authoritative migration.
 
 ## Seed strategy
 
-Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 project plus requirements, risks, decisions, discovery questions, actions, dependencies, milestones, timeline items, and test cases. Timeline seed dates are editable starting values, not calculation constants. Stable natural references are protected by unique indexes and used by `ON CONFLICT` upserts, so rerunning the seed updates CR028 rather than duplicating it. Meetings, document metadata, and activity history are intentionally excluded from the full baseline seed.
+Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 project plus deliverables, requirements, risks, decisions, discovery questions, actions, dependencies, milestones, timeline items, and test cases. Timeline and deliverable seed dates are editable starting values, not calculation constants. Stable natural references are protected by unique indexes and used by `ON CONFLICT` upserts, so rerunning the seed updates CR028 rather than duplicating it. Meetings, document metadata, and activity history are intentionally excluded from the full baseline seed.
 
 ## Migration strategy
 
@@ -246,8 +269,9 @@ Run `supabase/seed_full_cr028.sql` after the migrations. It seeds the CR028 proj
 3. Run `003_timeline_schedule.sql` to add project planned dates and `timeline_items`. It uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and never drops columns or rows.
 4. Run `004_timeline_visibility_and_project_reconciliation.sql`. While authentication is absent, it disables RLS for `timeline_items`, grants development CRUD access to the anon client, and reparents stranded phases to the CR028 project with the strongest control-data ownership without deleting duplicate projects.
 5. Run `005_project_snapshots.sql` to add the idempotent daily snapshot table, unique project/day key, indexes, and temporary development grants.
-6. Run `seed_full_cr028.sql` after migration 005.
-7. Use the System Health page to verify table accessibility, expected column presence, connection mode, record counts, duplicate CR028 projects, and timeline visibility.
+6. Run `006_delivery_management.sql` to add idempotent deliverable tracking, indexes, the stable project/reference key, and temporary development grants.
+7. Run `seed_full_cr028.sql` after migration 006.
+8. Use the System Health page to verify table accessibility, expected column presence, connection mode, record counts, duplicate CR028 projects, and timeline visibility.
 
 Because PostgreSQL cannot safely infer how to repair arbitrary legacy data, additive migrations do not coerce existing column types, remove obsolete columns, or force new nullable legacy columns to `NOT NULL`. Likewise, a unique index cannot be created if an older database already contains duplicate natural keys. Those cases require a reviewed data-cleanup migration. The browser-side Supabase client can detect missing/inaccessible tables and columns, but not inspect constraints, exact types, foreign keys, or applied migration history through the anonymous API.
 

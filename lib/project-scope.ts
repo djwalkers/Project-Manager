@@ -3,6 +3,7 @@ import type { Project, TimelineItem } from "@/lib/types";
 
 const coreProjectTables = [
   "requirements",
+  "deliverables",
   "risks",
   "decisions",
   "actions",
@@ -91,6 +92,7 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
   return {
     projects: [project],
     requirements: belongsToProject(data.requirements),
+    deliverables: belongsToProject(data.deliverables),
     risks: belongsToProject(data.risks),
     decisions: belongsToProject(data.decisions),
     actions: belongsToProject(data.actions),

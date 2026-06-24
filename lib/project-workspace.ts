@@ -6,6 +6,7 @@ import {
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
+import { calculateDeliveryReadiness, deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 import type { ActionItem, Milestone, Project } from "@/lib/types";
@@ -32,6 +33,8 @@ export type WorkspaceModel = {
   highRisks: DataStore["risks"];
   upcomingMilestones: Milestone[];
   recentActivity: DataStore["activity_log"];
+  deliveryReadiness: ReturnType<typeof calculateDeliveryReadiness>;
+  deliverableAttention: DeliverableAttention[];
   warnings: string[];
   narrative: string;
 };
@@ -106,6 +109,7 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
     !scoped.decisions.length ? "No decisions" : null,
     !scoped.actions.length ? "No actions" : null,
     !scoped.discovery_questions.length ? "No discovery questions" : null,
+    !scoped.deliverables.length ? "No deliverables" : null,
   ].filter((item): item is string => Boolean(item));
 
   const base = {
@@ -125,9 +129,10 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
     highRisks: scoped.risks.filter((item) => ["High", "Critical"].includes(item.impact) && !["Complete", "Closed"].includes(item.status)),
     upcomingMilestones,
     recentActivity: [...scoped.activity_log].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 10),
+    deliveryReadiness: calculateDeliveryReadiness(scoped.deliverables),
+    deliverableAttention: deliverablesRequiringAttention(scoped.deliverables, now),
     warnings,
   };
 
   return { ...base, narrative: buildNarrative(base) };
 }
-

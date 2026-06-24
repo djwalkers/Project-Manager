@@ -65,8 +65,9 @@ export function SystemHealthPage() {
         <MetricCard label="Intelligence Engine" value={report.intelligence.valid ? "Healthy" : "Review"} state={report.intelligence.valid} />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-8">
         <MetricCard label="Project Count" value={report.counts.projects} />
+        <MetricCard label="Deliverables Count" value={report.counts.deliverables} />
         <MetricCard label="Requirements Count" value={report.counts.requirements} />
         <MetricCard label="Risks Count" value={report.counts.risks} />
         <MetricCard label="Actions Count" value={report.counts.actions} />

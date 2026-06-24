@@ -11,6 +11,7 @@ import {
   Flag,
   Gauge,
   HeartPulse,
+  PackageCheck,
   Target,
   Timer,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import {
   calculateProjectHealth,
 } from "@/lib/control-tower";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
+import { calculateDeliveryReadiness, deliverablesRequiringAttention } from "@/lib/delivery";
 import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
@@ -79,6 +81,7 @@ export default function DashboardPage() {
     const health = calculateProjectHealth(overdueItems, blockedMilestones, scheduleVariance);
     const scheduleHealth = schedule.health;
     const progress = calculateProgress(data, scheduleVariance);
+    const projectDeliverables = data.deliverables.filter((item) => item.project_id === project.id);
 
     return {
       project,
@@ -90,6 +93,8 @@ export default function DashboardPage() {
       health,
       scheduleHealth,
       progress,
+      deliveryReadiness: calculateDeliveryReadiness(projectDeliverables),
+      deliverableAttention: deliverablesRequiringAttention(projectDeliverables),
       schedule,
       needsAttention: buildNeedsAttention(data),
       upcomingThisWeek: buildUpcomingThisWeek(data),
@@ -172,6 +177,7 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} />
           <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} />
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
+          <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
@@ -245,7 +251,7 @@ export default function DashboardPage() {
             <Timer className="h-4 w-4 text-primary" aria-hidden="true" />
             <h2 className="text-lg font-semibold">Operational Detail</h2>
           </div>
-          <div className="grid gap-5 xl:grid-cols-3">
+          <div className="grid gap-5 xl:grid-cols-4">
             <Panel title="Recent Activity">
               <ListPanel items={tower.recentActivity} render={(item) => (
                 <>
@@ -272,7 +278,11 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Planned tests</span><strong>{data.test_cases.length}</strong></div>
                 <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Discovery questions</span><strong>{data.discovery_questions.length}</strong></div>
                 <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Milestones</span><strong>{data.milestones.length}</strong></div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Deliverables</span><strong>{data.deliverables.length}</strong></div>
               </div>
+            </Panel>
+            <Panel title="Delivery Watch">
+              {tower.deliverableAttention.length ? <div className="space-y-3">{tower.deliverableAttention.slice(0, 5).map((item) => <div key={item.id} className="rounded-md border bg-muted/40 p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-muted-foreground">{item.deliverable.deliverable_ref}</p><StatusBadge value={item.severity} /></div><p className="mt-2 text-sm font-medium">{item.deliverable.title}</p><p className="mt-1 text-xs text-muted-foreground">{item.reason}</p></div>)}</div> : <p className="text-sm text-muted-foreground">No deliverables require attention.</p>}
             </Panel>
           </div>
         </div>

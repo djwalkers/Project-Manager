@@ -14,6 +14,7 @@ import {
   GitPullRequestArrow,
   ListChecks,
   MessageSquareText,
+  PackageCheck,
   Pencil,
   Plus,
   ShieldAlert,
@@ -46,7 +47,8 @@ import { cn, isOverdue } from "@/lib/utils";
 type Row = Record<string, unknown>;
 type WorkspaceDialog = { config: ModuleConfig; record: Row } | null;
 
-const quickActions: Array<{ key: "actions" | "decisions" | "discovery_questions" | "risks" | "requirements"; label: string; icon: typeof Plus; defaults: Row }> = [
+const quickActions: Array<{ key: "actions" | "decisions" | "discovery_questions" | "risks" | "requirements" | "deliverables"; label: string; icon: typeof Plus; defaults: Row }> = [
+  { key: "deliverables", label: "Add Deliverable", icon: PackageCheck, defaults: { status: "Not Started", priority: "Medium", development_status: "Not Started", sit_status: "Not Started", uat_status: "Not Started", deployment_status: "Not Started" } },
   { key: "actions", label: "Add Action", icon: ClipboardCheck, defaults: { status: "Open" } },
   { key: "decisions", label: "Add Decision", icon: ShieldQuestion, defaults: { status: "Open" } },
   { key: "discovery_questions", label: "Add Discovery Question", icon: CircleHelp, defaults: { status: "Open", category: "Business Rule" } },
@@ -69,6 +71,7 @@ function recordLabel(table: EntityName, record: Row) {
     discovery_questions: ["question_ref", "question"],
     risks: ["risk_ref", "description"],
     requirements: ["requirement_ref", "title"],
+    deliverables: ["deliverable_ref", "title"],
   };
   return fields[table]?.map((field) => String(record[field] ?? "")).find(Boolean) ?? "record";
 }
@@ -190,6 +193,10 @@ export function ProjectWorkspacePage() {
 
       <WorkspaceSection id="workspace-intelligence" title="Project Intelligence" description="Top deterministic findings from the current project control data." icon={BrainCircuit} className="mt-5" action={<Link href="/project-intelligence" className="inline-flex min-h-10 items-center rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View intelligence</Link>}>
         {topFindings.length ? <div className="grid gap-3 lg:grid-cols-3">{topFindings.map((item) => <IntelligenceFindingCard key={item.id} finding={item} compact />)}</div> : <WorkspaceEmpty>No critical or warning findings detected.</WorkspaceEmpty>}
+      </WorkspaceSection>
+
+      <WorkspaceSection id="workspace-delivery" title="Delivery Readiness" description="Solution deliverables moving through development, SIT, UAT and deployment." icon={PackageCheck} className="mt-5" action={<Link href="/deliverables" className="inline-flex min-h-10 items-center rounded-md border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Manage deliverables</Link>}>
+        <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]"><div className="rounded-md border bg-muted/30 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Completed Deliverables</p><p className="mt-2 text-3xl font-semibold tabular-nums">{workspace.deliveryReadiness.completed} / {workspace.deliveryReadiness.total}</p><div className="mt-3 h-3 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Delivery readiness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={workspace.deliveryReadiness.percent}><div className="h-full rounded-full bg-primary" style={{ width: `${workspace.deliveryReadiness.percent}%` }} /></div><p className="mt-2 text-sm font-medium">{workspace.deliveryReadiness.percent}% ready</p></div><div>{workspace.deliverableAttention.length ? <div className="grid gap-3 md:grid-cols-2">{workspace.deliverableAttention.slice(0, 6).map((item) => <article key={item.id} className="rounded-md border bg-card p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-muted-foreground">{item.deliverable.deliverable_ref}</p><StatusBadge value={item.severity} /></div><p className="mt-2 text-sm font-semibold">{item.deliverable.title}</p><p className="mt-1 text-sm text-muted-foreground">{item.reason}</p><p className="mt-2 text-xs">{item.recommendation}</p></article>)}</div> : <WorkspaceEmpty>No deliverables currently require attention.</WorkspaceEmpty>}</div></div>
       </WorkspaceSection>
 
       <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-2">

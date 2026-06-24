@@ -1,5 +1,5 @@
 -- Full, idempotent CR028 seed for the aligned schema.
--- Run migrations through 005_project_snapshots.sql before this file.
+-- Run migrations through 006_delivery_management.sql before this file.
 
 begin;
 
@@ -145,5 +145,23 @@ on conflict (project_id, snapshot_date) do update set
   overdue_actions = excluded.overdue_actions, open_decisions = excluded.open_decisions,
   overdue_decisions = excluded.overdue_decisions, open_questions = excluded.open_questions,
   active_milestone = excluded.active_milestone, active_phase = excluded.active_phase;
+
+insert into public.deliverables (project_id, deliverable_ref, title, description, workstream, owner, priority, status, planned_completion_date, actual_completion_date, development_status, sit_status, uat_status, deployment_status, notes)
+values
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-001', 'ReleasedNotReleasedView', 'ReleasedNotReleasedView delivery scope for CR028 Replenishment.', 'UI / Development', 'Development Team', 'High', 'In Analysis', '2026-06-30', null, 'In Analysis', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-002', 'InProgressView', 'InProgressView delivery scope for CR028 Replenishment.', 'UI / Development', 'Development Team', 'High', 'In Analysis', '2026-06-30', null, 'In Analysis', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-003', 'SalesOrderDetails', 'SalesOrderDetails delivery scope for CR028 Replenishment.', 'UI / Development', 'Development Team', 'Medium', 'Not Started', '2026-07-03', null, 'Not Started', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-004', 'DeliveryDetailsView', 'DeliveryDetailsView delivery scope for CR028 Replenishment.', 'UI / Development', 'Development Team', 'Medium', 'Not Started', '2026-07-03', null, 'Not Started', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-005', '_createTransferRequirement()', '_createTransferRequirement() delivery scope for CR028 Replenishment.', 'Backend', 'Development Team', 'Critical', 'In Analysis', '2026-07-10', null, 'In Analysis', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-006', 'Replenishment Rules', 'Replenishment Rules delivery scope for CR028 Replenishment.', 'Business Rules', 'Andrew Walker', 'Critical', 'In Analysis', '2026-07-08', null, 'In Analysis', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-007', 'Load Balancing Validation', 'Load Balancing Validation delivery scope for CR028 Replenishment.', 'Performance', 'Solution Architect', 'High', 'Not Started', '2026-07-14', null, 'Not Started', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-008', 'SIT Execution', 'SIT Execution delivery scope for CR028 Replenishment.', 'Testing', 'QA Lead', 'High', 'Not Started', '2026-07-17', null, 'Not Started', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.'),
+((select id from public.projects where name = 'CR028 - Delivery Date Range' order by created_at asc limit 1), 'DEL-009', 'UAT Sign-off', 'UAT Sign-off delivery scope for CR028 Replenishment.', 'Testing', 'Sysco', 'High', 'Not Started', '2026-07-24', null, 'Not Started', 'Not Started', 'Not Started', 'Not Started', 'Tracked through development, SIT, UAT and deployment readiness.')
+on conflict (project_id, deliverable_ref) do update set
+  title = excluded.title, description = excluded.description, workstream = excluded.workstream,
+  owner = excluded.owner, priority = excluded.priority, status = excluded.status,
+  planned_completion_date = excluded.planned_completion_date, actual_completion_date = excluded.actual_completion_date,
+  development_status = excluded.development_status, sit_status = excluded.sit_status,
+  uat_status = excluded.uat_status, deployment_status = excluded.deployment_status, notes = excluded.notes;
 
 commit;

@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { deliverablesRequiringAttention } from "@/lib/delivery";
 import type { Project } from "@/lib/types";
 import { formatScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 
@@ -123,6 +124,9 @@ export function buildNeedsAttention(data: DataStore): InsightItem[] {
   });
   data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status) && new Date(item.created_at).getTime() < olderThanSevenDays).forEach((item) => {
     items.push({ id: `question-${item.id}`, severity: "Medium", kind: "Aged discovery question", title: item.question, meta: `${item.question_ref} · Open more than 7 days · ${item.owner}`, date: item.due_date });
+  });
+  deliverablesRequiringAttention(data.deliverables).forEach((item) => {
+    items.push({ id: `deliverable-${item.id}`, severity: item.severity === "Critical" ? "Critical" : "High", kind: "Deliverable", title: item.deliverable.title, meta: `${item.deliverable.deliverable_ref} · ${item.reason} · ${item.deliverable.owner || "Unassigned"}`, date: item.deliverable.planned_completion_date });
   });
 
   const severityOrder: Record<InsightSeverity, number> = { Critical: 3, High: 2, Medium: 1 };

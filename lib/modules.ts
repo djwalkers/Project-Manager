@@ -14,6 +14,7 @@ import {
   ListChecks,
   MessageSquareText,
   Newspaper,
+  PackageCheck,
   PanelsTopLeft,
   Settings,
   ShieldQuestion,
@@ -43,6 +44,7 @@ export const navItems = [
   { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
   { href: "/project-trends", label: "Project Trends", icon: TrendingUp },
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
+  { href: "/deliverables", label: "Deliverables", icon: PackageCheck },
   { href: "/requirements", label: "Requirements", icon: ListChecks },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/decisions", label: "Decisions", icon: ShieldQuestion },
@@ -66,6 +68,10 @@ const discoveryCategoryOptions = ["Business Rule", "Replenishment Logic", "Datab
 const milestoneStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
 const timelineStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
 const testStatusOptions = ["Pending", "In Progress", "Passed", "Failed", "Blocked"];
+const deliverableStatusOptions = ["Not Started", "In Analysis", "In Development", "Ready for SIT", "SIT Complete", "Ready for UAT", "UAT Complete", "Ready for Deployment", "Deployed", "Blocked"];
+const developmentStatusOptions = ["Not Started", "In Analysis", "In Development", "Complete", "Blocked"];
+const assuranceStatusOptions = ["Not Started", "Ready", "In Progress", "Passed", "Failed", "Blocked"];
+const deploymentStatusOptions = ["Not Started", "Ready", "Scheduled", "Deployed", "Blocked"];
 
 export const modules: ModuleConfig[] = [
   {
@@ -92,6 +98,40 @@ export const modules: ModuleConfig[] = [
       { key: "planned_start_date", label: "Planned start date", type: "date" },
       { key: "planned_end_date", label: "Planned end date", type: "date" },
       { key: "description", label: "Description", type: "textarea" },
+    ],
+  },
+  {
+    key: "deliverables",
+    slug: "deliverables",
+    title: "Deliverables",
+    singular: "Deliverable",
+    description: "Track solution scope through development, SIT, UAT and deployment.",
+    icon: PackageCheck,
+    searchFields: ["deliverable_ref", "title", "workstream", "owner", "priority", "status"],
+    columns: [
+      { key: "deliverable_ref", label: "Ref" },
+      { key: "title", label: "Deliverable" },
+      { key: "workstream", label: "Workstream" },
+      { key: "priority", label: "Priority", type: "priority" },
+      { key: "status", label: "Status", type: "status" },
+      { key: "planned_completion_date", label: "Planned", type: "date" },
+      { key: "owner", label: "Owner" },
+    ],
+    fields: [
+      { key: "deliverable_ref", label: "Deliverable ref", required: true },
+      { key: "title", label: "Title", required: true },
+      { key: "description", label: "Description", type: "textarea" },
+      { key: "workstream", label: "Workstream", required: true },
+      { key: "owner", label: "Owner" },
+      { key: "priority", label: "Priority", type: "select", options: priorityOptions, required: true },
+      { key: "status", label: "Status", type: "select", options: deliverableStatusOptions, required: true },
+      { key: "planned_completion_date", label: "Planned completion date", type: "date" },
+      { key: "actual_completion_date", label: "Actual completion date", type: "date" },
+      { key: "development_status", label: "Development status", type: "select", options: developmentStatusOptions, required: true },
+      { key: "sit_status", label: "SIT status", type: "select", options: assuranceStatusOptions, required: true },
+      { key: "uat_status", label: "UAT status", type: "select", options: assuranceStatusOptions, required: true },
+      { key: "deployment_status", label: "Deployment status", type: "select", options: deploymentStatusOptions, required: true },
+      { key: "notes", label: "Notes", type: "textarea" },
     ],
   },
   {

@@ -18,14 +18,14 @@ Info findings are displayed as positive signals. Warning and Critical findings f
 
 ## Analysed sources
 
-The engine analyses requirements, risks, decisions, actions, discovery questions, milestones, timeline phases, test cases, project snapshots, activity log entries, and meetings. System Health validates that every required source is covered and that rule IDs are unique.
+The engine analyses requirements, risks, decisions, actions, discovery questions, milestones, timeline phases, deliverables, test cases, project snapshots, activity log entries, and meetings. System Health validates that every required source is covered and that rule IDs are unique.
 
 ## Rule categories
 
 - Schedule: active phase, stalled progress, approaching end date, and variance deterioration.
 - Risk: missing mitigation, stale high risks, and increasing risk count.
 - Governance: stale decisions, overdue discovery questions, and missing ownership.
-- Delivery: development readiness, testing readiness, and approaching milestones.
+- Delivery: development readiness, approaching milestones, deliverable target dates, blockers, and deployment readiness.
 - Testing: missing tests, pending-test concentration, and UAT entry readiness.
 - Stakeholder: recent activity and meeting cadence.
 
@@ -45,4 +45,3 @@ Finding direction uses the two latest project snapshots. A deterministic deliver
 - System Health validates the rule registry and source coverage.
 
 The engine adds no database tables and requires no migration.
-

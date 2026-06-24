@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { deliverableDaysUntil, isDeliverableComplete, isDevelopmentComplete, isSitComplete, isUatComplete } from "@/lib/delivery";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
 import type { Project, ProjectSnapshot } from "@/lib/types";
@@ -36,7 +37,7 @@ export type IntelligenceReport = {
 
 export type IntelligenceRuleDefinition = { id: string; category: IntelligenceCategory; sources: string[] };
 
-export const INTELLIGENCE_SOURCES = ["requirements", "risks", "decisions", "actions", "discovery_questions", "milestones", "timeline_items", "test_cases", "project_snapshots", "activity_log", "meetings"] as const;
+export const INTELLIGENCE_SOURCES = ["requirements", "risks", "decisions", "actions", "discovery_questions", "milestones", "timeline_items", "deliverables", "test_cases", "project_snapshots", "activity_log", "meetings"] as const;
 
 export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "SCH-001", category: "Schedule", sources: ["timeline_items"] },
@@ -54,6 +55,11 @@ export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "DEL-002", category: "Delivery", sources: ["timeline_items", "test_cases"] },
   { id: "DEL-003", category: "Delivery", sources: ["milestones"] },
   { id: "DEL-004", category: "Delivery", sources: ["actions"] },
+  { id: "DLM-001", category: "Delivery", sources: ["deliverables"] },
+  { id: "DLM-002", category: "Delivery", sources: ["deliverables"] },
+  { id: "DLM-003", category: "Testing", sources: ["deliverables"] },
+  { id: "DLM-004", category: "Testing", sources: ["deliverables"] },
+  { id: "DLM-005", category: "Delivery", sources: ["deliverables"] },
   { id: "TST-001", category: "Testing", sources: ["test_cases"] },
   { id: "TST-002", category: "Testing", sources: ["test_cases"] },
   { id: "TST-003", category: "Testing", sources: ["milestones", "test_cases"] },
@@ -146,6 +152,16 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   scoped.milestones.filter((item) => item.status === "Not Started" && (daysUntil(item.target_date, now) ?? 99) >= 0 && (daysUntil(item.target_date, now) ?? 99) <= 7).forEach((item) => add(project, "DEL-003", "Delivery", "Warning", `${item.milestone_ref} is approaching without progress`, `${item.title} is still Not Started.`, `Target date ${formatScheduleDate(item.target_date)}.`, 100, `Confirm readiness and next actions for ${item.milestone_ref}.`));
   const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status));
   if (overdueActions.length) add(project, "DEL-004", "Delivery", overdueActions.length >= 3 ? "Critical" : "Warning", "Delivery actions are overdue", `${overdueActions.length} ${overdueActions.length === 1 ? "action is" : "actions are"} past the agreed due date.`, overdueActions.map((item) => `${item.action_ref} (${formatScheduleDate(item.due_date)})`).join(", "), 100, `Complete or replan ${overdueActions[0].action_ref}${overdueActions.length > 1 ? " and the remaining overdue actions" : ""}.`);
+
+  scoped.deliverables.filter((item) => !isDeliverableComplete(item) && (deliverableDaysUntil(item.planned_completion_date, now) ?? 99) >= 0 && (deliverableDaysUntil(item.planned_completion_date, now) ?? 99) <= 7).forEach((item) => add(project, "DLM-001", "Delivery", "Warning", `${item.deliverable_ref} is approaching its target date`, `${item.title} is due ${formatScheduleDate(item.planned_completion_date)} and is currently ${item.status}.`, `${deliverableDaysUntil(item.planned_completion_date, now)} days remain; owner ${item.owner || "unassigned"}.`, 100, `Confirm the completion plan and dependencies for ${item.deliverable_ref}.`));
+  scoped.deliverables.filter((item) => item.status === "Blocked" || [item.development_status, item.sit_status, item.uat_status, item.deployment_status].includes("Blocked")).forEach((item) => add(project, "DLM-002", "Delivery", "Critical", `${item.deliverable_ref} is blocked`, item.title, `Overall ${item.status}; development ${item.development_status}; SIT ${item.sit_status}; UAT ${item.uat_status}; deployment ${item.deployment_status}.`, 100, `Resolve and record the blocker for ${item.deliverable_ref}.`));
+  scoped.deliverables.filter((item) => (["Ready for SIT", "SIT Complete"].includes(item.status) || ["Ready", "In Progress", "Passed"].includes(item.sit_status)) && !isDevelopmentComplete(item)).forEach((item) => add(project, "DLM-003", "Testing", "Critical", `${item.deliverable_ref} is entering SIT before development is complete`, item.title, `Development status is ${item.development_status}; SIT status is ${item.sit_status}.`, 100, `Complete development evidence before ${item.deliverable_ref} enters SIT.`));
+  scoped.deliverables.filter((item) => (["Ready for UAT", "UAT Complete"].includes(item.status) || ["Ready", "In Progress", "Passed"].includes(item.uat_status)) && !isSitComplete(item)).forEach((item) => add(project, "DLM-004", "Testing", "Critical", `${item.deliverable_ref} is entering UAT before SIT is complete`, item.title, `SIT status is ${item.sit_status}; UAT status is ${item.uat_status}.`, 100, `Complete SIT evidence before ${item.deliverable_ref} enters UAT.`));
+  scoped.deliverables.filter((item) => {
+    const approachingWithoutReadiness = !isDeliverableComplete(item) && (deliverableDaysUntil(item.planned_completion_date, now) ?? 99) <= 7 && !["Ready for Deployment", "Deployed"].includes(item.status);
+    const deploymentWithoutUat = ["Ready", "Scheduled", "Deployed"].includes(item.deployment_status) && !isUatComplete(item);
+    return approachingWithoutReadiness || deploymentWithoutUat;
+  }).forEach((item) => add(project, "DLM-005", "Delivery", "Warning", `${item.deliverable_ref} is not deployment ready`, `${item.title} is approaching completion but remains ${item.status}.`, `UAT ${item.uat_status}; deployment ${item.deployment_status}.`, 96, `Confirm UAT and deployment readiness for ${item.deliverable_ref}.`));
 
   if (!scoped.test_cases.length) add(project, "TST-001", "Testing", "Critical", "No tests have been created", "The project has no test cases recorded.", "Test case count is 0.", 100, "Create a minimum test inventory covering the accepted requirements.");
   const pendingTests = scoped.test_cases.filter((item) => ["Pending", "In Progress"].includes(item.status));

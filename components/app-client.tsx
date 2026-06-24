@@ -12,6 +12,7 @@ import { loadSelectedProjectId } from "@/lib/project-selection";
 import { selectProjectById, selectTimelineItems } from "@/lib/project-scope";
 import {
   deleteRecord,
+  createRecord,
   hasSupabaseConfig,
   loadData,
   saveRecord,
@@ -40,16 +41,24 @@ export function ModulePageClient({ section }: { section: string }) {
       ...record,
       ...(config.key === "projects" ? {} : { project_id: record.project_id ?? activeProject?.id }),
     });
+    const activity = config.key === "deliverables" && activeProject
+      ? await createRecord("activity_log", {
+        project_id: activeProject.id,
+        activity_type: record.id ? "Deliverable updated" : "Deliverable added",
+        description: `${String((saved as Row).deliverable_ref)} ${String((saved as Row).title)} is ${String((saved as Row).status)}.`,
+      }).catch(() => null)
+      : null;
     setData((current) => {
       if (!current) return current;
       const rows = current[config.key] as Row[];
       const exists = rows.some((row) => row.id === (saved as Row).id);
-      return {
+      const next = {
         ...current,
         [config.key]: exists
           ? rows.map((row) => (row.id === (saved as Row).id ? saved : row))
           : [saved, ...rows],
       } as DataStore;
+      return activity ? { ...next, activity_log: [activity, ...next.activity_log] } : next;
     });
     return saved as Row;
   }

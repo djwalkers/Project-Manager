@@ -2,6 +2,7 @@ import type {
   ActionItem,
   ActivityLog,
   Decision,
+  Deliverable,
   Dependency,
   DiscoveryQuestion,
   DocumentRecord,
@@ -59,6 +60,37 @@ export const requirements: Requirement[] = [
   owner: index < 6 ? "Development Team" : "Andrew Walker",
   source: "CR028 Replenishment discovery",
   notes: index > 7 ? "Needs Sysco confirmation before build sign-off." : "",
+  created_at: now,
+  updated_at: now,
+}));
+
+export const deliverables: Deliverable[] = [
+  ["DEL-001", "ReleasedNotReleasedView", "UI / Development", "Development Team", "High", "In Analysis", "2026-06-30"],
+  ["DEL-002", "InProgressView", "UI / Development", "Development Team", "High", "In Analysis", "2026-06-30"],
+  ["DEL-003", "SalesOrderDetails", "UI / Development", "Development Team", "Medium", "Not Started", "2026-07-03"],
+  ["DEL-004", "DeliveryDetailsView", "UI / Development", "Development Team", "Medium", "Not Started", "2026-07-03"],
+  ["DEL-005", "_createTransferRequirement()", "Backend", "Development Team", "Critical", "In Analysis", "2026-07-10"],
+  ["DEL-006", "Replenishment Rules", "Business Rules", "Andrew Walker", "Critical", "In Analysis", "2026-07-08"],
+  ["DEL-007", "Load Balancing Validation", "Performance", "Solution Architect", "High", "Not Started", "2026-07-14"],
+  ["DEL-008", "SIT Execution", "Testing", "QA Lead", "High", "Not Started", "2026-07-17"],
+  ["DEL-009", "UAT Sign-off", "Testing", "Sysco", "High", "Not Started", "2026-07-24"],
+].map(([deliverable_ref, title, workstream, owner, priority, status, planned_completion_date], index) => ({
+  id: `f0f0f0f0-f0f0-4f0f-8f0f-${String(index + 1).padStart(12, "0")}`,
+  project_id: projectId,
+  deliverable_ref,
+  title,
+  description: `${title} delivery scope for CR028 Replenishment.`,
+  workstream,
+  owner,
+  priority: priority as Deliverable["priority"],
+  status: status as Deliverable["status"],
+  planned_completion_date,
+  actual_completion_date: null,
+  development_status: status === "In Analysis" ? "In Analysis" : "Not Started",
+  sit_status: "Not Started",
+  uat_status: "Not Started",
+  deployment_status: "Not Started",
+  notes: "Tracked through development, SIT, UAT and deployment readiness.",
   created_at: now,
   updated_at: now,
 }));
@@ -292,6 +324,7 @@ export const project_snapshots: ProjectSnapshot[] = [
 
 export const seedData = {
   projects,
+  deliverables,
   requirements,
   risks,
   decisions,

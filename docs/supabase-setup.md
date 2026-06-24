@@ -30,6 +30,7 @@ Run these files in order:
 3. `supabase/migrations/003_timeline_schedule.sql`
 4. `supabase/migrations/004_timeline_visibility_and_project_reconciliation.sql`
 5. `supabase/migrations/005_project_snapshots.sql`
+6. `supabase/migrations/006_delivery_management.sql`
 
 The migration creates the project-control tables, indexes, update triggers, and stable unique keys used by the seed script.
 
@@ -61,9 +62,12 @@ Open the dashboard and confirm that the local-mode banner is gone. The seeded da
 - 6 open discovery questions
 - 6 milestones
 - 6 timeline phases
+- 9 deliverables
 
 Create or edit one record, refresh the page, and confirm that the change remains visible. The same change should also appear in the matching table in Supabase.
 
 The Project Workspace uses the existing project delivery tables and requires no additional migration. Its quick-create, quick-edit, action status, and activity updates automatically use Supabase whenever the environment variables above are configured.
 
 Project Intelligence is read-only and uses those existing tables plus snapshots, activity, meetings, and testing data. It requires no additional migration or API credentials.
+
+Delivery Management requires migration 006. Deliverable CRUD then follows the same Supabase/local fallback behavior as the other control modules.

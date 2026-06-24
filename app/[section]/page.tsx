@@ -10,6 +10,7 @@ import { moduleBySlug } from "@/lib/modules";
 export function generateStaticParams() {
   return [
     "projects",
+    "deliverables",
     "daily-brief",
     "project-trends",
     "project-workspace",

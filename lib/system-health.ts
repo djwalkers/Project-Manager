@@ -23,7 +23,7 @@ export type SystemHealthReport = {
   localMode: boolean;
   tables: TableHealth[];
   mismatches: string[];
-  counts: Record<"projects" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items" | "project_snapshots", number>;
+  counts: Record<"projects" | "deliverables" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items" | "project_snapshots", number>;
   intelligence: ReturnType<typeof intelligenceEngineValidation>;
 };
 
@@ -57,6 +57,7 @@ function staticMismatches() {
 function requestedCounts(values: Partial<Record<EntityName, number | null>>) {
   return {
     projects: values.projects ?? 0,
+    deliverables: values.deliverables ?? 0,
     requirements: values.requirements ?? 0,
     risks: values.risks ?? 0,
     actions: values.actions ?? 0,
