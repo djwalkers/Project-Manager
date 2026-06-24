@@ -29,13 +29,29 @@ function projectScore(data: DataStore, project: Project) {
   return coreRecords * 100 + timelineRecords * 10 + dated;
 }
 
-export function selectActiveProject(data: DataStore): Project | null {
-  const cr028Projects = data.projects.filter((project) => normalizedProjectName(project.name).includes("cr028"));
-  const candidates = cr028Projects.length ? cr028Projects : data.projects;
-  return [...candidates].sort((a, b) => {
+function strongestProject(data: DataStore, projects: Project[]) {
+  return [...projects].sort((a, b) => {
     const scoreDifference = projectScore(data, b) - projectScore(data, a);
     return scoreDifference || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
   })[0] ?? null;
+}
+
+export function selectActiveProject(data: DataStore): Project | null {
+  const cr028Projects = data.projects.filter((project) => normalizedProjectName(project.name).includes("cr028"));
+  const candidates = cr028Projects.length ? cr028Projects : data.projects;
+  return strongestProject(data, candidates);
+}
+
+export function selectCanonicalProjects(data: DataStore): Project[] {
+  const groups = new Map<string, Project[]>();
+  data.projects.forEach((project) => {
+    const key = normalizedProjectName(project.name);
+    groups.set(key, [...(groups.get(key) ?? []), project]);
+  });
+  return Array.from(groups.values())
+    .map((projects) => strongestProject(data, projects))
+    .filter((project): project is Project => Boolean(project))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type TimelineScope = {

@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import { ModulePageClient, SettingsPageClient } from "@/components/app-client";
+import { DailyBriefPage } from "@/components/daily-brief-page";
 import { SystemHealthPage } from "@/components/system-health-page";
 import { moduleBySlug } from "@/lib/modules";
 
 export function generateStaticParams() {
   return [
     "projects",
+    "daily-brief",
     "requirements",
     "risks",
     "decisions",
@@ -26,6 +28,7 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
   const { section } = await params;
   if (section === "settings") return <SettingsPageClient />;
   if (section === "system-health") return <SystemHealthPage />;
+  if (section === "daily-brief") return <DailyBriefPage />;
   const moduleConfig = moduleBySlug.get(section);
   if (!moduleConfig) notFound();
   return <ModulePageClient section={section} />;
