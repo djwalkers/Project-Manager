@@ -88,6 +88,27 @@ export type Deliverable = {
   updated_at: string;
 };
 
+export type EmailSettings = {
+  id: string;
+  daily_brief_enabled: boolean;
+  weekly_summary_enabled: boolean;
+  recipient_email: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EmailActivity = {
+  id: string;
+  email_type: "Test" | "Daily Brief" | "Weekly Summary";
+  recipient: string;
+  sent_at: string;
+  success: boolean;
+  failure_reason: string | null;
+  duration_ms: number;
+  trigger_type: "Manual" | "Scheduled";
+  created_at: string;
+};
+
 export type Requirement = {
   id: string;
   project_id: string;
@@ -244,6 +265,8 @@ export type EntityMap = {
   milestones: Milestone;
   timeline_items: TimelineItem;
   project_snapshots: ProjectSnapshot;
+  email_settings: EmailSettings;
+  email_activity_log: EmailActivity;
 };
 
 export type EntityName = keyof EntityMap;

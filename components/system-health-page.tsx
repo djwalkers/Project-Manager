@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, Database, Server, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, MailCheck, Server, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
@@ -23,11 +23,19 @@ function MetricCard({ label, value, state }: { label: string; value: string | nu
 
 export function SystemHealthPage() {
   const [report, setReport] = useState<SystemHealthReport | null>(null);
+  const [resendConfigured, setResendConfigured] = useState(false);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     let active = true;
-    getSystemHealth().then((value) => active && setReport(value)).catch(() => active && setError(true));
+    Promise.all([
+      getSystemHealth(),
+      fetch("/api/email/status").then((response) => response.json()).catch(() => ({ resendConfigured: false })),
+    ]).then(([value, email]) => {
+      if (!active) return;
+      setReport(value);
+      setResendConfigured(Boolean(email.resendConfigured));
+    }).catch(() => active && setError(true));
     return () => {
       active = false;
     };
@@ -75,6 +83,19 @@ export function SystemHealthPage() {
         <MetricCard label="Timeline Count" value={report.counts.timeline_items} />
         <MetricCard label="Snapshot Count" value={report.counts.project_snapshots} />
       </div>
+
+      <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="email-health-title">
+        <div className="flex items-start gap-3"><span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><MailCheck className="h-5 w-5" aria-hidden="true" /></span><div><h3 id="email-health-title" className="font-semibold">Email Delivery Health</h3><p className="mt-1 text-sm text-muted-foreground">Server configuration, schedule preferences, and latest outcomes.</p></div></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Resend Configured" value={resendConfigured ? "Yes" : "No"} state={resendConfigured} />
+          <MetricCard label="Recipient Configured" value={report.email.recipientConfigured ? "Yes" : "No"} state={report.email.recipientConfigured} />
+          <MetricCard label="Daily Brief Enabled" value={report.email.dailyBriefEnabled ? "Yes" : "No"} state={report.email.dailyBriefEnabled} />
+          <MetricCard label="Weekly Summary Enabled" value={report.email.weeklySummaryEnabled ? "Yes" : "No"} state={report.email.weeklySummaryEnabled} />
+          <MetricCard label="Last Daily Brief" value={report.email.lastDailyBriefStatus} state={report.email.lastDailyBriefStatus === "Never" ? undefined : report.email.lastDailyBriefStatus === "Sent"} />
+          <MetricCard label="Last Weekly Summary" value={report.email.lastWeeklySummaryStatus} state={report.email.lastWeeklySummaryStatus === "Never" ? undefined : report.email.lastWeeklySummaryStatus === "Sent"} />
+          <div className="sm:col-span-2"><MetricCard label="Last Email Sent" value={report.email.lastEmailSentTimestamp ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" }).format(new Date(report.email.lastEmailSentTimestamp)) : "Never"} /></div>
+        </div>
+      </section>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
         <section className="min-w-0 rounded-lg border bg-card shadow-operational">

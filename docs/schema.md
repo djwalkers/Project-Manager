@@ -1,10 +1,35 @@
 # CR028 schema authority
 
-The application schema version is `006_delivery_management`. The executable contract is defined in `lib/schema.ts`; migration 006 adds solution deliverables and delivery-stage tracking.
+The application schema version is `007_email_delivery`. The executable contract is defined in `lib/schema.ts`; migration 007 adds automated email preferences and auditable delivery attempts.
 
 `Required` means the canonical database definition is `NOT NULL`. All child-table `project_id` columns reference `projects.id` with `ON DELETE CASCADE`.
 
 ## Tables
+
+### email_settings
+
+| Column | PostgreSQL type | Required | Foreign key |
+| --- | --- | --- | --- |
+| id | uuid | Yes | — |
+| daily_brief_enabled | boolean | Yes | — |
+| weekly_summary_enabled | boolean | Yes | — |
+| recipient_email | text | Yes | — |
+| created_at | timestamptz | Yes | — |
+| updated_at | timestamptz | Yes | — |
+
+### email_activity_log
+
+| Column | PostgreSQL type | Required | Foreign key |
+| --- | --- | --- | --- |
+| id | uuid | Yes | — |
+| email_type | text | Yes | — |
+| recipient | text | Yes | — |
+| sent_at | timestamptz | Yes | — |
+| success | boolean | Yes | — |
+| failure_reason | text | No | — |
+| duration_ms | integer | Yes | — |
+| trigger_type | text | Yes | — |
+| created_at | timestamptz | Yes | — |
 
 ### projects
 

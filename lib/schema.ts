@@ -1,10 +1,10 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "006_delivery_management";
+export const schemaVersion = "007_email_delivery";
 
 export type SchemaColumn = {
   name: string;
-  type: "uuid" | "text" | "integer" | "numeric" | "date" | "timestamptz";
+  type: "uuid" | "text" | "integer" | "numeric" | "date" | "timestamptz" | "boolean";
   required: boolean;
   managed?: boolean;
   foreignKey?: string;
@@ -249,6 +249,32 @@ export const schemaTables: SchemaTable[] = [
       id, projectId,
       { name: "activity_type", type: "text", required: true },
       { name: "description", type: "text", required: true },
+      createdAt,
+    ],
+  },
+  {
+    name: "email_settings",
+    seedKey: ["id"],
+    columns: [
+      id,
+      { name: "daily_brief_enabled", type: "boolean", required: true },
+      { name: "weekly_summary_enabled", type: "boolean", required: true },
+      { name: "recipient_email", type: "text", required: true },
+      createdAt,
+      updatedAt,
+    ],
+  },
+  {
+    name: "email_activity_log",
+    columns: [
+      id,
+      { name: "email_type", type: "text", required: true },
+      { name: "recipient", type: "text", required: true },
+      { name: "sent_at", type: "timestamptz", required: true },
+      { name: "success", type: "boolean", required: true },
+      { name: "failure_reason", type: "text", required: false },
+      { name: "duration_ms", type: "integer", required: true },
+      { name: "trigger_type", type: "text", required: true },
       createdAt,
     ],
   },

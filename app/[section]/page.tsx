@@ -5,6 +5,7 @@ import { ProjectTrendsPage } from "@/components/project-trends-page";
 import { ProjectIntelligencePage } from "@/components/project-intelligence-page";
 import { ProjectWorkspacePage } from "@/components/project-workspace-page";
 import { SystemHealthPage } from "@/components/system-health-page";
+import { EmailSettingsPage } from "@/components/email-settings-page";
 import { moduleBySlug } from "@/lib/modules";
 
 export function generateStaticParams() {
@@ -28,12 +29,14 @@ export function generateStaticParams() {
     "documents",
     "system-health",
     "settings",
+    "email-settings",
   ].map((section) => ({ section }));
 }
 
 export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
   if (section === "settings") return <SettingsPageClient />;
+  if (section === "email-settings") return <EmailSettingsPage />;
   if (section === "system-health") return <SystemHealthPage />;
   if (section === "daily-brief") return <DailyBriefPage />;
   if (section === "project-trends") return <ProjectTrendsPage />;

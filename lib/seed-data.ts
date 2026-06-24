@@ -14,6 +14,8 @@ import type {
   TestCase,
   TimelineItem,
   ProjectSnapshot,
+  EmailSettings,
+  EmailActivity,
 } from "@/lib/types";
 
 export const projectId = "11111111-1111-4111-8111-111111111111";
@@ -322,6 +324,17 @@ export const project_snapshots: ProjectSnapshot[] = [
   },
 ];
 
+export const email_settings: EmailSettings[] = [{
+  id: "99999999-9999-4999-8999-999999999999",
+  daily_brief_enabled: false,
+  weekly_summary_enabled: false,
+  recipient_email: "Andrew.Walker@bluestonex.com",
+  created_at: now,
+  updated_at: now,
+}];
+
+export const email_activity_log: EmailActivity[] = [];
+
 export const seedData = {
   projects,
   deliverables,
@@ -338,4 +351,6 @@ export const seedData = {
   milestones,
   timeline_items,
   project_snapshots,
+  email_settings,
+  email_activity_log,
 };

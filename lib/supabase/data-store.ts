@@ -32,15 +32,16 @@ function cleanRecord(table: EntityName, record: RecordValue) {
 
 function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: RecordValue) {
   const now = new Date().toISOString();
+  const globalTables: EntityName[] = ["email_settings", "email_activity_log"];
   return {
     ...existing,
     ...record,
     id: existing?.id ?? record.id ?? createId(),
-    ...(table === "projects" ? {} : { project_id: record.project_id ?? existing?.project_id ?? projectId }),
+    ...(table === "projects" || globalTables.includes(table) ? {} : { project_id: record.project_id ?? existing?.project_id ?? projectId }),
     ...(table === "documents"
       ? { uploaded_at: existing?.uploaded_at ?? record.uploaded_at ?? now }
       : { created_at: existing?.created_at ?? record.created_at ?? now }),
-    ...(!["documents", "activity_log", "project_snapshots"].includes(table) ? { updated_at: now } : {}),
+    ...(!["documents", "activity_log", "project_snapshots", "email_activity_log"].includes(table) ? { updated_at: now } : {}),
   };
 }
 

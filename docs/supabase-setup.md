@@ -31,6 +31,7 @@ Run these files in order:
 4. `supabase/migrations/004_timeline_visibility_and_project_reconciliation.sql`
 5. `supabase/migrations/005_project_snapshots.sql`
 6. `supabase/migrations/006_delivery_management.sql`
+7. `supabase/migrations/007_email_delivery.sql`
 
 The migration creates the project-control tables, indexes, update triggers, and stable unique keys used by the seed script.
 
@@ -71,3 +72,5 @@ The Project Workspace uses the existing project delivery tables and requires no 
 Project Intelligence is read-only and uses those existing tables plus snapshots, activity, meetings, and testing data. It requires no additional migration or API credentials.
 
 Delivery Management requires migration 006. Deliverable CRUD then follows the same Supabase/local fallback behavior as the other control modules.
+
+Automated email settings and delivery history require migration 007. See `docs/email-delivery.md` for Resend and Vercel Cron setup.

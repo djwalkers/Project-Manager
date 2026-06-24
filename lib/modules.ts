@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   ListChecks,
   MessageSquareText,
+  Mail,
   Newspaper,
   PackageCheck,
   PanelsTopLeft,
@@ -57,6 +58,7 @@ export const navItems = [
   { href: "/meetings", label: "Meetings", icon: CalendarDays },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/system-health", label: "System Health", icon: Stethoscope },
+  { href: "/email-settings", label: "Email Settings", icon: Mail },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

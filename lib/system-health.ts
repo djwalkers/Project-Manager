@@ -8,6 +8,15 @@ import { seedData } from "@/lib/seed-data";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
 import type { EntityName } from "@/lib/types";
 
+export type EmailHealth = {
+  dailyBriefEnabled: boolean;
+  weeklySummaryEnabled: boolean;
+  recipientConfigured: boolean;
+  lastDailyBriefStatus: "Sent" | "Failed" | "Never";
+  lastWeeklySummaryStatus: "Sent" | "Failed" | "Never";
+  lastEmailSentTimestamp: string | null;
+};
+
 export type TableHealth = {
   name: EntityName;
   columnCount: number;
@@ -25,7 +34,24 @@ export type SystemHealthReport = {
   mismatches: string[];
   counts: Record<"projects" | "deliverables" | "requirements" | "risks" | "actions" | "decisions" | "timeline_items" | "project_snapshots", number>;
   intelligence: ReturnType<typeof intelligenceEngineValidation>;
+  email: EmailHealth;
 };
+
+function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; recipient_email: string } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
+  const ordered = [...activity].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
+  const status = (type: string) => {
+    const item = ordered.find((row) => row.email_type === type);
+    return item ? (item.success ? "Sent" : "Failed") : "Never";
+  };
+  return {
+    dailyBriefEnabled: settings?.daily_brief_enabled ?? false,
+    weeklySummaryEnabled: settings?.weekly_summary_enabled ?? false,
+    recipientConfigured: Boolean(settings?.recipient_email?.trim()),
+    lastDailyBriefStatus: status("Daily Brief"),
+    lastWeeklySummaryStatus: status("Weekly Summary"),
+    lastEmailSentTimestamp: ordered[0]?.sent_at ?? null,
+  };
+}
 
 function staticMismatches() {
   const mismatches: string[] = [];
@@ -84,6 +110,7 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
       mismatches,
       counts: requestedCounts(localCounts),
       intelligence,
+      email: emailHealth(data.email_settings[0], data.email_activity_log),
       tables: schemaTables.map((table) => ({
         name: table.name,
         columnCount: table.columns.length,
@@ -117,9 +144,11 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     mismatches.push("timeline_items: the anon client can see 0 rows although the CR028 seed defines 6; check RLS/table grants and run migration 004");
   }
 
-  const [{ data: projectRows }, { data: timelineRows }] = await Promise.all([
+  const [{ data: projectRows }, { data: timelineRows }, { data: emailSettings }, { data: emailActivity }] = await Promise.all([
     client.from("projects").select("id,name"),
     client.from("timeline_items").select("project_id,phase_ref"),
+    client.from("email_settings").select("daily_brief_enabled,weekly_summary_enabled,recipient_email").limit(1),
+    client.from("email_activity_log").select("email_type,success,sent_at").order("sent_at", { ascending: false }).limit(50),
   ]);
   const cr028Projects = (projectRows ?? []).filter((project) => String(project.name).toLowerCase().includes("cr028"));
   if (cr028Projects.length > 1) {
@@ -141,5 +170,6 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     mismatches,
     counts: requestedCounts(databaseCounts),
     intelligence,
+    email: emailHealth(emailSettings?.[0], emailActivity ?? []),
   };
 }
