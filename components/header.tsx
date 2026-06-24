@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, User } from "lucide-react";
+import { LogOut, Menu, User } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import { ROLE_COLORS } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-export function Header() {
+export function Header({ onMenuOpen }: { onMenuOpen?: () => void }) {
   const [showLocalMode, setShowLocalMode] = useState(false);
   const { user, signOut } = useAuth();
   const router = useRouter();
@@ -31,9 +31,20 @@ export function Header() {
         </div>
       )}
       <header className="flex min-h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">Sysco / Replenishment</p>
-          <h1 className="text-xl font-semibold">CR028 - Delivery Date Range</h1>
+        <div className="flex items-center gap-3">
+          {onMenuOpen && (
+            <button
+              onClick={onMenuOpen}
+              aria-label="Open navigation menu"
+              className="flex h-9 w-9 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+            >
+              <Menu className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Sysco / Replenishment</p>
+            <h1 className="text-xl font-semibold">CR028 - Delivery Date Range</h1>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
