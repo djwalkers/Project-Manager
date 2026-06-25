@@ -3,11 +3,15 @@
   "crons": [
     {
       "path": "/api/email/daily-brief",
-      "schedule": "0 6,7 * * 1-5"
+      "schedule": "0 7 * * 1-5"
     },
     {
       "path": "/api/email/weekly-summary",
-      "schedule": "0 6,7 * * 1"
+      "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/email/manager-summary",
+      "schedule": "0 16 * * 5"
     }
   ]
 }

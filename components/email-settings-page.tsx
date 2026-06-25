@@ -112,11 +112,11 @@ export function EmailSettingsPage() {
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
         <section className="rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="delivery-preferences-title">
-          <div className="flex items-center gap-3"><span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary"><Mail className="h-5 w-5" aria-hidden="true" /></span><div><h3 id="delivery-preferences-title" className="font-semibold">Delivery Preferences</h3><p className="text-sm text-muted-foreground">Schedules run at 07:00 Europe/London.</p></div></div>
+          <div className="flex items-center gap-3"><span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary"><Mail className="h-5 w-5" aria-hidden="true" /></span><div><h3 id="delivery-preferences-title" className="font-semibold">Delivery Preferences</h3><p className="text-sm text-muted-foreground">Schedules run at 07:00 UTC — 07:00 GMT in winter, 08:00 BST in summer.</p></div></div>
           <div className="mt-5 space-y-3">
-            <SettingToggle id="daily-brief-enabled" title="Enable Daily Brief" description="Send Monday to Friday at 07:00." checked={form.daily_brief_enabled} onChange={(value) => setForm((current) => ({ ...current, daily_brief_enabled: value }))} />
-            <SettingToggle id="weekly-summary-enabled" title="Enable Weekly Summary" description="Send every Monday at 07:00." checked={form.weekly_summary_enabled} onChange={(value) => setForm((current) => ({ ...current, weekly_summary_enabled: value }))} />
-            <SettingToggle id="manager-summary-enabled" title="Enable Manager Exception Report" description="Send every Friday at 16:00 — exceptions only, no KPIs." checked={form.manager_summary_enabled ?? false} onChange={(value) => setForm((current) => ({ ...current, manager_summary_enabled: value }))} />
+            <SettingToggle id="daily-brief-enabled" title="Enable Daily Brief" description="Send Monday–Friday at 07:00 UTC (07:00 GMT / 08:00 BST)." checked={form.daily_brief_enabled} onChange={(value) => setForm((current) => ({ ...current, daily_brief_enabled: value }))} />
+            <SettingToggle id="weekly-summary-enabled" title="Enable Weekly Summary" description="Send every Monday at 07:00 UTC (07:00 GMT / 08:00 BST)." checked={form.weekly_summary_enabled} onChange={(value) => setForm((current) => ({ ...current, weekly_summary_enabled: value }))} />
+            <SettingToggle id="manager-summary-enabled" title="Enable Manager Exception Report" description="Send every Friday at 16:00 UTC (16:00 GMT / 17:00 BST) — exceptions only, no KPIs." checked={form.manager_summary_enabled ?? false} onChange={(value) => setForm((current) => ({ ...current, manager_summary_enabled: value }))} />
           </div>
           <div className="mt-5 space-y-4">
             <div>

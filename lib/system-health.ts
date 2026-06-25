@@ -69,7 +69,7 @@ function nextManagerSummaryLabel(): string {
   const daysUntilFriday = ((4 - todayIdx) + 7) % 7 || 7;
   const nextFriday = new Date(now);
   nextFriday.setDate(nextFriday.getDate() + daysUntilFriday);
-  return new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "Europe/London" }).format(nextFriday) + " at 16:00";
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "Europe/London" }).format(nextFriday) + " at 16:00 UTC (16:00 GMT / 17:00 BST)";
 }
 
 function emailHealth(settings: { daily_brief_enabled: boolean; weekly_summary_enabled: boolean; manager_summary_enabled?: boolean; recipient_email: string; manager_recipient_email?: string | null } | undefined, activity: Array<{ email_type: string; success: boolean; sent_at: string }>): EmailHealth {
