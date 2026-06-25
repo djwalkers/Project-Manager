@@ -1,10 +1,10 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, ClipboardCopy, Database, History, MailCheck, Server, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, ClipboardCopy, Cloud, Database, History, MailCheck, Server, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
-import { getSystemHealth, type SystemHealthReport } from "@/lib/system-health";
+import { getSystemHealth, type MicrosoftHealth, type SystemHealthReport } from "@/lib/system-health";
 import { useAuth } from "@/contexts/auth-context";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 
@@ -91,6 +91,7 @@ function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementTyp
 export function SystemHealthPage() {
   const [report, setReport] = useState<SystemHealthReport | null>(null);
   const [resendConfigured, setResendConfigured] = useState(false);
+  const [microsoftStatus, setMicrosoftStatus] = useState<MicrosoftHealth | null>(null);
   const [error, setError] = useState(false);
   const { user } = useAuth();
 
@@ -99,10 +100,20 @@ export function SystemHealthPage() {
     Promise.all([
       getSystemHealth(),
       fetch("/api/email/status").then((r) => r.json()).catch(() => ({ resendConfigured: false })),
-    ]).then(([value, email]) => {
+      fetch("/api/microsoft/status").then((r) => r.json()).catch(() => null),
+    ]).then(([value, email, ms]) => {
       if (!active) return;
       setReport(value);
       setResendConfigured(Boolean(email.resendConfigured));
+      if (ms) {
+        setMicrosoftStatus({
+          clientIdConfigured: Boolean(ms.configured),
+          redirectUriConfigured: Boolean(ms.redirectUri),
+          tokenSecretConfigured: Boolean(ms.tokenSecret),
+          connected: Boolean(ms.connected),
+          connectedEmail: ms.email ?? null,
+        });
+      }
     }).catch(() => active && setError(true));
     return () => { active = false; };
   }, []);
@@ -249,6 +260,20 @@ export function SystemHealthPage() {
               }
             />
           </div>
+        </div>
+      </section>
+
+      {/* Microsoft 365 */}
+      <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="microsoft-health-title">
+        <SectionHeader icon={Cloud} title="Microsoft 365 Integration" subtitle="OAuth connection for sending project queries via Outlook." />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Client ID Configured" value={microsoftStatus?.clientIdConfigured ? "Yes" : "Not set"} state={microsoftStatus?.clientIdConfigured} />
+          <MetricCard label="Redirect URI Configured" value={microsoftStatus?.redirectUriConfigured ? "Yes" : "Not set"} state={microsoftStatus?.redirectUriConfigured} />
+          <MetricCard label="Token Secret Configured" value={microsoftStatus?.tokenSecretConfigured ? "Yes" : "Not set"} state={microsoftStatus?.tokenSecretConfigured} />
+          <MetricCard label="Account Connected" value={microsoftStatus?.connected ? "Yes" : "Not connected"} state={microsoftStatus?.connected} />
+          {microsoftStatus?.connectedEmail && (
+            <MetricCard label="Connected Account" value={microsoftStatus.connectedEmail} />
+          )}
         </div>
       </section>
 

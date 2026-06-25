@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "012_go_live_readiness";
-export const latestMigration = "012_go_live_readiness";
+export const schemaVersion = "013_microsoft_integration";
+export const latestMigration = "013_microsoft_integration";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -15,6 +15,7 @@ export const allMigrations = [
   "010_manager_summary",
   "011_manager_recipient",
   "012_go_live_readiness",
+  "013_microsoft_integration",
 ] as const;
 
 export type SchemaColumn = {
@@ -163,6 +164,11 @@ export const schemaTables: SchemaTable[] = [
       { name: "due_date", type: "date", required: false },
       { name: "answer", type: "text", required: false },
       { name: "notes", type: "text", required: false },
+      { name: "raised_to", type: "text", required: false },
+      { name: "raised_date", type: "timestamptz", required: false },
+      { name: "response", type: "text", required: false },
+      { name: "answered_by", type: "text", required: false },
+      { name: "answered_date", type: "timestamptz", required: false },
       createdAt, updatedAt,
     ],
   },

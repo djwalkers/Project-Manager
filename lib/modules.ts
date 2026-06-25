@@ -67,7 +67,7 @@ export const navItems = [
 const statusOptions = ["Discovery", "Open", "In Progress", "Pending", "Blocked", "Approved", "Complete", "Closed"];
 const priorityOptions = ["Low", "Medium", "High", "Critical"];
 const requirementCategoryOptions = ["Business Rule", "Database", "Backend", "UI", "Performance", "Testing"];
-const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Answered", "Closed"];
+const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Awaiting Response", "Answered", "Closed"];
 const discoveryCategoryOptions = ["Business Rule", "Replenishment Logic", "Database", "Performance", "Testing", "UI"];
 const milestoneStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
 const timelineStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
@@ -241,6 +241,11 @@ export const modules: ModuleConfig[] = [
       { key: "due_date", label: "Due date", type: "date" },
       { key: "answer", label: "Answer", type: "textarea" },
       { key: "notes", label: "Notes", type: "textarea" },
+      { key: "raised_to", label: "Raised to (email)" },
+      { key: "raised_date", label: "Raised date", type: "date" },
+      { key: "response", label: "Response", type: "textarea" },
+      { key: "answered_by", label: "Answered by" },
+      { key: "answered_date", label: "Answered date", type: "date" },
     ],
   },
   {

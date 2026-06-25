@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ModulePageClient, SettingsPageClient } from "@/components/app-client";
 import { DailyBriefPage } from "@/components/daily-brief-page";
+import { DiscoveryQuestionsPage } from "@/components/discovery-questions-page";
 import { ProjectTrendsPage } from "@/components/project-trends-page";
 import { ProjectIntelligencePage } from "@/components/project-intelligence-page";
 import { ProjectWorkspacePage } from "@/components/project-workspace-page";
@@ -42,6 +43,7 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
   if (section === "project-trends") return <ProjectTrendsPage />;
   if (section === "project-workspace") return <ProjectWorkspacePage />;
   if (section === "project-intelligence") return <ProjectIntelligencePage />;
+  if (section === "discovery-questions") return <DiscoveryQuestionsPage />;
   const moduleConfig = moduleBySlug.get(section);
   if (!moduleConfig) notFound();
   return <ModulePageClient section={section} />;

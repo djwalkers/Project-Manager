@@ -25,12 +25,18 @@ export function DataTable({
   onSaveRecord,
   onDeleteRecord,
   defaultValues,
+  selectable,
+  onSelectionChange,
+  selectionActions,
 }: {
   config: ModuleConfig;
   data: DataStore;
   onSaveRecord: (record: Row) => Promise<Row>;
   onDeleteRecord: (record: Row) => Promise<void>;
   defaultValues?: Row;
+  selectable?: boolean;
+  onSelectionChange?: (rows: Row[]) => void;
+  selectionActions?: React.ReactNode;
 }) {
   const Icon = config.icon;
   const rows = data[config.key] as Row[];
@@ -39,6 +45,7 @@ export function DataTable({
   const [editing, setEditing] = useState<Row | null>(null);
   const [newDefaults, setNewDefaults] = useState<Row>({});
   const [selected, setSelected] = useState<Row | null>(rows[0] ?? null);
+  const [checkedIds, setCheckedIds] = useState(new Set<string>());
   const [formOpen, setFormOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
 
@@ -57,6 +64,24 @@ export function DataTable({
       return matchesStatus && matchesQuery;
     });
   }, [config.searchFields, query, rows, status]);
+
+  function toggleCheck(id: string, allFiltered: Row[]) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      onSelectionChange?.(allFiltered.filter((r) => next.has(String(r.id))));
+      return next;
+    });
+  }
+
+  function toggleAll(allFiltered: Row[]) {
+    setCheckedIds((prev) => {
+      const allChecked = allFiltered.every((r) => prev.has(String(r.id)));
+      const next = allChecked ? new Set<string>() : new Set(allFiltered.map((r) => String(r.id)));
+      onSelectionChange?.(allChecked ? [] : allFiltered);
+      return next;
+    });
+  }
 
   function openNew() {
     setEditing(null);
@@ -121,10 +146,13 @@ export function DataTable({
               </Select>
             </label>
           </div>
-          <Button onClick={openNew}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Add {config.singular}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {selectable && checkedIds.size > 0 && selectionActions}
+            <Button onClick={openNew}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add {config.singular}
+            </Button>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
@@ -136,6 +164,17 @@ export function DataTable({
             <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead className="bg-muted/70 text-left text-xs uppercase text-muted-foreground">
                 <tr>
+                  {selectable && (
+                    <th className="w-10 px-3 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all"
+                        checked={filtered.length > 0 && filtered.every((r) => checkedIds.has(String(r.id)))}
+                        onChange={() => toggleAll(filtered)}
+                        className="h-4 w-4 rounded border-muted-foreground/40"
+                      />
+                    </th>
+                  )}
                   {config.columns.map((column) => (
                     <th key={column.key} className="px-4 py-3 font-semibold">
                       {column.label}
@@ -152,8 +191,20 @@ export function DataTable({
                       "border-t transition-colors hover:bg-muted/50",
                       selected?.id === row.id && "bg-secondary/50",
                       isOverdue(String(row.due_date ?? ""), String(row.status ?? "")) && "bg-red-50/70 dark:bg-red-950/20",
+                      selectable && checkedIds.has(String(row.id)) && "bg-primary/5",
                     )}
                   >
+                    {selectable && (
+                      <td className="w-10 px-3 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select row ${String(row.id)}`}
+                          checked={checkedIds.has(String(row.id))}
+                          onChange={() => toggleCheck(String(row.id), filtered)}
+                          className="h-4 w-4 rounded border-muted-foreground/40"
+                        />
+                      </td>
+                    )}
                     {config.columns.map((column) => (
                       <td key={column.key} className="max-w-[360px] px-4 py-3 align-top">
                         {column.type === "status" ? (

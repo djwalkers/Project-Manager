@@ -266,10 +266,15 @@ export type DiscoveryQuestion = {
   question: string;
   owner: string | null;
   category: "Business Rule" | "Replenishment Logic" | "Database" | "Performance" | "Testing" | "UI";
-  status: "Open" | "Awaiting Business" | "Awaiting Development" | "Answered" | "Closed";
+  status: "Open" | "Awaiting Business" | "Awaiting Development" | "Awaiting Response" | "Answered" | "Closed";
   due_date: string | null;
   answer: string | null;
   notes: string | null;
+  raised_to: string | null;
+  raised_date: string | null;
+  response: string | null;
+  answered_by: string | null;
+  answered_date: string | null;
   created_at: string;
   updated_at: string;
 };

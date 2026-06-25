@@ -257,6 +257,11 @@ export const discovery_questions: DiscoveryQuestion[] = [
   due_date,
   answer: "",
   notes: "",
+  raised_to: null,
+  raised_date: null,
+  response: null,
+  answered_by: null,
+  answered_date: null,
   created_at: now,
   updated_at: now,
 }));
