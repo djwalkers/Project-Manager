@@ -287,7 +287,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           </span>
           <div>
             <p className="text-xs font-semibold uppercase text-muted-foreground">Project Manager</p>
-            <p className="text-xs text-muted-foreground">CR028 Control Centre</p>
+            <p className="text-xs text-muted-foreground">Control Centre</p>
           </div>
         </div>
         {onClose && (
