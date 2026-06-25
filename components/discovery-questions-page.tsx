@@ -21,17 +21,39 @@ function toQuestion(row: Row): DiscoveryQuestion {
   return row as unknown as DiscoveryQuestion;
 }
 
-function buildEmailBody(questions: DiscoveryQuestion[]): string {
-  const lines = questions
+// Sort by the trailing number in a ref like "QUE-006"; non-matching refs sort last.
+function sortByRef(questions: DiscoveryQuestion[]): DiscoveryQuestion[] {
+  return [...questions].sort((a, b) => {
+    const num = (ref: string) => {
+      const m = /(\d+)$/.exec(ref);
+      return m ? parseInt(m[1], 10) : Infinity;
+    };
+    return num(a.question_ref) - num(b.question_ref);
+  });
+}
+
+// Derive a safe subject prefix from the project name.
+// "CR028 Multi Delivery Dates" → "CR028 - Multi Delivery Dates - Replenishment Queries"
+// Falls back to "Project Name - Replenishment Queries" if no leading code is detected.
+function buildSubject(projectName: string): string {
+  const m = /^([A-Z]{1,6}\d{1,6})\s+(.+)$/.exec(projectName.trim());
+  if (m) return `${m[1]} - ${m[2]} - Replenishment Queries`;
+  return `${projectName} - Replenishment Queries`;
+}
+
+function buildEmailBody(questions: DiscoveryQuestion[], displayName: string): string {
+  const sorted = sortByRef(questions);
+  const lines = sorted
     .map((q, i) => `${i + 1}.\n${q.question}`)
     .join("\n\n");
-  return `Hi,\n\nAs I'm getting up to speed with the current Replenishment solution before implementing the Delivery Date Range enhancement, I'd really appreciate your help with a few questions.\n\nCould you please clarify the following:\n\n${lines}\n\nMany thanks,\nAndy`;
+  const signOff = displayName.trim() || "Andy";
+  return `Hi,\n\nAs I'm getting up to speed with the current Replenishment solution before implementing the Delivery Date Range enhancement, I'd really appreciate your help with a few questions.\n\nCould you please clarify the following:\n\n${lines}\n\nMany thanks,\n${signOff}`;
 }
 
 function buildOutlookUrl(to: string, cc: string, subject: string, body: string): string {
-  // Use encodeURIComponent (RFC 3986 percent-encoding) so spaces become %20, not +.
-  // URLSearchParams uses application/x-www-form-urlencoded which encodes spaces as +,
-  // causing Outlook Web to display literal '+' characters.
+  // encodeURIComponent gives RFC 3986 percent-encoding (%20 for spaces).
+  // URLSearchParams would use application/x-www-form-urlencoded (+) which Outlook
+  // renders as literal '+' characters in the compose window.
   const parts: string[] = [];
   if (to) parts.push(`to=${encodeURIComponent(to)}`);
   if (cc) parts.push(`cc=${encodeURIComponent(cc)}`);
@@ -58,7 +80,7 @@ function ConfirmRaisedDialog({
       <div className="w-full max-w-sm rounded-xl border bg-background p-6 shadow-2xl">
         <h2 className="text-base font-semibold">Mark questions as raised?</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Update {count} question{count !== 1 ? "s" : ""} to <strong>Awaiting Response</strong> and record that they were raised to <strong>{recipients || "the recipients"}</strong>?
+          Update {count} question{count !== 1 ? "s" : ""} to <strong>Awaiting Answer</strong> and record that they were raised to <strong>{recipients || "the recipients"}</strong>?
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onSkip}>Skip</Button>
@@ -74,18 +96,21 @@ function ConfirmRaisedDialog({
 function EmailModal({
   questions,
   projectName,
+  displayName,
   onClose,
   onOpened,
 }: {
   questions: DiscoveryQuestion[];
   projectName: string;
+  displayName: string;
   onClose: () => void;
   onOpened: (to: string, cc: string) => void;
 }) {
+  const sorted = sortByRef(questions);
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState(`${projectName} - Replenishment Queries`);
-  const [body, setBody] = useState(() => buildEmailBody(questions));
+  const [subject, setSubject] = useState(() => buildSubject(projectName));
+  const [body, setBody] = useState(() => buildEmailBody(sorted, displayName));
   const [error, setError] = useState<string | null>(null);
 
   function openInOutlook(event: React.FormEvent) {
@@ -111,14 +136,14 @@ function EmailModal({
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
 
           <div className="rounded-md border bg-muted/30 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{questions.length} question{questions.length !== 1 ? "s" : ""} selected</p>
-            <ul className="mt-2 space-y-1">
-              {questions.map((q) => (
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{sorted.length} question{sorted.length !== 1 ? "s" : ""} selected</p>
+            <ol className="mt-2 space-y-1 list-decimal list-inside">
+              {sorted.map((q) => (
                 <li key={q.id} className="text-sm text-muted-foreground">
-                  <span className="font-semibold text-foreground">{q.question_ref}</span> — {q.question.length > 80 ? `${q.question.slice(0, 80)}…` : q.question}
+                  {q.question.length > 90 ? `${q.question.slice(0, 90)}…` : q.question}
                 </li>
               ))}
-            </ul>
+            </ol>
           </div>
 
           <label className="block space-y-2 text-sm font-medium">
@@ -238,7 +263,9 @@ export function DiscoveryQuestionsPage() {
     setConfirmRaised(null);
     const now = new Date().toISOString();
     const recipients = [to, cc].filter(Boolean).join(", ");
-    const noteAppend = `Raised by Outlook email to ${recipients} on ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(now))}.`;
+    const raisedLabel = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(now));
+    const noteAppend = `Raised by Outlook compose on ${raisedLabel} to ${recipients}.`;
+    const refs = sortByRef(selectedQuestions).map((q) => q.question_ref).join(", ");
 
     const updated: DiscoveryQuestion[] = [];
     for (const q of selectedQuestions) {
@@ -265,13 +292,13 @@ export function DiscoveryQuestionsPage() {
       });
     }
 
-    // Audit log + activity
+    // Activity log — references included internally, full body excluded
     if (activeProject) {
       try {
         const activity = await createRecord("activity_log", {
           project_id: activeProject.id,
-          activity_type: "Queries raised",
-          description: `${selectedQuestions.length} discovery question${selectedQuestions.length !== 1 ? "s" : ""} prepared for Outlook email to ${recipients}.`,
+          activity_type: "Project queries prepared for Outlook",
+          description: `${selectedQuestions.length} question${selectedQuestions.length !== 1 ? "s" : ""} (${refs}) raised via Outlook compose to ${recipients} by ${user?.fullName ?? user?.email ?? "unknown"}.`,
         });
         setData((current) =>
           current ? { ...current, activity_log: [activity, ...current.activity_log] } : current,
@@ -339,6 +366,7 @@ export function DiscoveryQuestionsPage() {
         <EmailModal
           questions={selectedQuestions}
           projectName={activeProject.name}
+          displayName={user?.fullName ?? ""}
           onClose={() => setEmailModalOpen(false)}
           onOpened={handleOpened}
         />
