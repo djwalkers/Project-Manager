@@ -21,20 +21,23 @@ function toQuestion(row: Row): DiscoveryQuestion {
   return row as unknown as DiscoveryQuestion;
 }
 
-function buildEmailBody(questions: DiscoveryQuestion[], projectName: string): string {
+function buildEmailBody(questions: DiscoveryQuestion[]): string {
   const lines = questions
-    .map((q, i) => `${i + 1}. [${q.question_ref}] ${q.question}`)
+    .map((q, i) => `${i + 1}.\n${q.question}`)
     .join("\n\n");
-  return `Hi,\n\nCould you please clarify the following questions relating to the ${projectName} Replenishment workstream.\n\n${lines}\n\nMany thanks,\nAndy`;
+  return `Hi,\n\nAs I'm getting up to speed with the current Replenishment solution before implementing the Delivery Date Range enhancement, I'd really appreciate your help with a few questions.\n\nCould you please clarify the following:\n\n${lines}\n\nMany thanks,\nAndy`;
 }
 
 function buildOutlookUrl(to: string, cc: string, subject: string, body: string): string {
-  const params = new URLSearchParams();
-  if (to) params.set("to", to);
-  if (cc) params.set("cc", cc);
-  params.set("subject", subject);
-  params.set("body", body);
-  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
+  // Use encodeURIComponent (RFC 3986 percent-encoding) so spaces become %20, not +.
+  // URLSearchParams uses application/x-www-form-urlencoded which encodes spaces as +,
+  // causing Outlook Web to display literal '+' characters.
+  const parts: string[] = [];
+  if (to) parts.push(`to=${encodeURIComponent(to)}`);
+  if (cc) parts.push(`cc=${encodeURIComponent(cc)}`);
+  parts.push(`subject=${encodeURIComponent(subject)}`);
+  parts.push(`body=${encodeURIComponent(body)}`);
+  return `https://outlook.office.com/mail/deeplink/compose?${parts.join("&")}`;
 }
 
 // ── Confirm raised dialog ─────────────────────────────────────────────────────
@@ -82,7 +85,7 @@ function EmailModal({
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(`${projectName} - Replenishment Queries`);
-  const [body, setBody] = useState(() => buildEmailBody(questions, projectName));
+  const [body, setBody] = useState(() => buildEmailBody(questions));
   const [error, setError] = useState<string | null>(null);
 
   function openInOutlook(event: React.FormEvent) {
