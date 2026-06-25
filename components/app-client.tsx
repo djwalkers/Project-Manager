@@ -8,6 +8,7 @@ import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
 import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
+import { useAuth } from "@/contexts/auth-context";
 import { loadSelectedProjectId } from "@/lib/project-selection";
 import { selectProjectById, selectTimelineItems } from "@/lib/project-scope";
 import {
@@ -23,6 +24,7 @@ type Row = Record<string, unknown>;
 
 export function ModulePageClient({ section }: { section: string }) {
   const { data, setData, error, reload } = useProjectData();
+  const { user } = useAuth();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const config = moduleBySlug.get(section);
   const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
@@ -104,7 +106,7 @@ export function ModulePageClient({ section }: { section: string }) {
       {config.key === "timeline_items" && activeProject && timelineScope ? (
         <TimelineSchedule project={activeProject} items={timelineScope.items} />
       ) : null}
-      <DataTable config={config} data={pageData} onSaveRecord={persistRecord} onDeleteRecord={removeRecord} />
+      <DataTable config={config} data={pageData} onSaveRecord={persistRecord} onDeleteRecord={removeRecord} defaultValues={user?.fullName ? { owner: user.fullName } : undefined} />
     </AppShell>
   );
 }

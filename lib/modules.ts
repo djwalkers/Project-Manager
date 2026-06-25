@@ -36,7 +36,7 @@ export type ModuleConfig = {
   statusField?: string;
   searchFields: string[];
   columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" }[];
-  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number }[];
+  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string }[];
 };
 
 export const navItems = [
@@ -122,7 +122,7 @@ export const modules: ModuleConfig[] = [
       { key: "owner", label: "Owner" },
     ],
     fields: [
-      { key: "deliverable_ref", label: "Deliverable ref", required: true },
+      { key: "deliverable_ref", label: "Deliverable ref", required: true, refPrefix: "DEL" },
       { key: "title", label: "Title", required: true },
       { key: "description", label: "Description", type: "textarea" },
       { key: "workstream", label: "Workstream", required: true },
@@ -155,7 +155,7 @@ export const modules: ModuleConfig[] = [
       { key: "owner", label: "Owner" },
     ],
     fields: [
-      { key: "requirement_ref", label: "Reference" },
+      { key: "requirement_ref", label: "Reference", refPrefix: "REP" },
       { key: "title", label: "Title" },
       { key: "description", label: "Description", type: "textarea" },
       { key: "priority", label: "Priority", type: "select", options: priorityOptions },
@@ -182,7 +182,7 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
-      { key: "risk_ref", label: "Reference" },
+      { key: "risk_ref", label: "Reference", refPrefix: "RSK" },
       { key: "description", label: "Description", type: "textarea" },
       { key: "impact", label: "Impact", type: "select", options: priorityOptions },
       { key: "probability", label: "Probability", type: "select", options: ["Low", "Medium", "High"] },
@@ -207,7 +207,7 @@ export const modules: ModuleConfig[] = [
       { key: "due_date", label: "Due", type: "date" },
     ],
     fields: [
-      { key: "decision_ref", label: "Reference" },
+      { key: "decision_ref", label: "Reference", refPrefix: "DEC" },
       { key: "question", label: "Question", type: "textarea" },
       { key: "decision", label: "Decision", type: "textarea" },
       { key: "owner", label: "Owner" },
@@ -233,7 +233,7 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
-      { key: "question_ref", label: "Reference" },
+      { key: "question_ref", label: "Reference", refPrefix: "QUE" },
       { key: "question", label: "Question", type: "textarea" },
       { key: "owner", label: "Owner" },
       { key: "category", label: "Category", type: "select", options: discoveryCategoryOptions },
@@ -259,7 +259,7 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
-      { key: "action_ref", label: "Reference" },
+      { key: "action_ref", label: "Reference", refPrefix: "ACT" },
       { key: "description", label: "Description", type: "textarea" },
       { key: "owner", label: "Owner" },
       { key: "due_date", label: "Due date", type: "date" },
@@ -283,7 +283,7 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
-      { key: "milestone_ref", label: "Reference" },
+      { key: "milestone_ref", label: "Reference", refPrefix: "MIL" },
       { key: "title", label: "Title" },
       { key: "target_date", label: "Target date", type: "date" },
       { key: "status", label: "Status", type: "select", options: milestoneStatusOptions },
@@ -309,7 +309,7 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
-      { key: "phase_ref", label: "Phase reference", required: true },
+      { key: "phase_ref", label: "Phase reference", required: true, refPrefix: "PHS" },
       { key: "phase_name", label: "Phase name", required: true },
       { key: "start_date", label: "Start date", type: "date", required: true },
       { key: "end_date", label: "End date", type: "date", required: true },
@@ -355,7 +355,7 @@ export const modules: ModuleConfig[] = [
       { key: "owner", label: "Owner" },
     ],
     fields: [
-      { key: "test_ref", label: "Reference" },
+      { key: "test_ref", label: "Reference", refPrefix: "TST" },
       { key: "scenario", label: "Scenario", type: "textarea" },
       { key: "expected_result", label: "Expected result", type: "textarea" },
       { key: "actual_result", label: "Actual result", type: "textarea" },

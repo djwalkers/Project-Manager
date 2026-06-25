@@ -37,7 +37,8 @@ import { formatScheduleDate } from "@/lib/schedule";
 import { createRecord, saveRecord } from "@/lib/supabase/data-store";
 import type { ActionItem, ActivityLog, EntityMap, EntityName } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
-import { cn, isOverdue } from "@/lib/utils";
+import { cn, isOverdue, nextRef } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth-context";
 
 type Row = Record<string, unknown>;
 type WorkspaceDialog = { config: ModuleConfig; record: Row } | null;
@@ -128,6 +129,7 @@ function GoLiveStrip({ data, projectId }: { data: DataStore; projectId: string }
 
 export function ProjectWorkspacePage() {
   const { data, setData, error, reload } = useProjectData();
+  const { user } = useAuth();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<WorkspaceDialog>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
@@ -152,9 +154,16 @@ export function ProjectWorkspacePage() {
   }
 
   function openCreate(action: typeof quickActions[number]) {
-    if (!project) return;
+    if (!project || !data) return;
     const config = moduleByKey.get(action.key);
-    if (config) setDialog({ config, record: { ...action.defaults, project_id: project.id } });
+    if (!config) return;
+    const projectRecords = (data[action.key] as Row[]).filter((r) => r.project_id === project.id);
+    const autoRefs: Row = {};
+    for (const field of config.fields) {
+      if (field.refPrefix) autoRefs[field.key] = nextRef(projectRecords, field.key, field.refPrefix);
+    }
+    const ownerDefault = user?.fullName ? { owner: user.fullName } : {};
+    setDialog({ config, record: { ...action.defaults, ...ownerDefault, ...autoRefs, project_id: project.id } });
   }
 
   async function persistWorkspaceRecord(table: EntityName, record: Row, activityType?: string) {
@@ -326,7 +335,14 @@ export function ProjectWorkspacePage() {
         <SignalChip href="/discovery-questions" icon={CircleHelp} label="Open questions" count={workspace.openQuestions.length} />
       </nav>
 
-      <FormDialog config={dialog?.config ?? moduleByKey.get("actions")!} record={dialog?.record ?? null} open={Boolean(dialog)} onClose={() => setDialog(null)} onSave={saveDialogRecord} />
+      <FormDialog
+        config={dialog?.config ?? moduleByKey.get("actions")!}
+        record={dialog?.record ?? null}
+        open={Boolean(dialog)}
+        onClose={() => setDialog(null)}
+        onSave={saveDialogRecord}
+        existingRecords={dialog ? (data[dialog.config.key] as Row[]).filter((r) => r.project_id === project.id) : undefined}
+      />
     </AppShell>
   );
 }

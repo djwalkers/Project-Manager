@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import type { DataStore } from "@/lib/data-store";
 import type { ModuleConfig } from "@/lib/modules";
-import { cn, isOverdue } from "@/lib/utils";
+import { cn, isOverdue, nextRef } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
 
@@ -24,17 +24,20 @@ export function DataTable({
   data,
   onSaveRecord,
   onDeleteRecord,
+  defaultValues,
 }: {
   config: ModuleConfig;
   data: DataStore;
   onSaveRecord: (record: Row) => Promise<Row>;
   onDeleteRecord: (record: Row) => Promise<void>;
+  defaultValues?: Row;
 }) {
   const Icon = config.icon;
   const rows = data[config.key] as Row[];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
   const [editing, setEditing] = useState<Row | null>(null);
+  const [newDefaults, setNewDefaults] = useState<Row>({});
   const [selected, setSelected] = useState<Row | null>(rows[0] ?? null);
   const [formOpen, setFormOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -57,6 +60,13 @@ export function DataTable({
 
   function openNew() {
     setEditing(null);
+    const autoRefs: Row = {};
+    for (const field of config.fields) {
+      if (field.refPrefix) {
+        autoRefs[field.key] = nextRef(rows, field.key, field.refPrefix);
+      }
+    }
+    setNewDefaults({ ...defaultValues, ...autoRefs });
     setFormOpen(true);
   }
 
@@ -203,7 +213,7 @@ export function DataTable({
         )}
       </aside>
 
-      <FormDialog config={config} record={editing} open={formOpen} onClose={() => setFormOpen(false)} onSave={saveRecord} />
+      <FormDialog config={config} record={editing ?? (formOpen && !editing ? newDefaults : null)} open={formOpen} onClose={() => setFormOpen(false)} onSave={saveRecord} existingRecords={rows} />
     </div>
   );
 }
