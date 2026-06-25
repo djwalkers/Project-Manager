@@ -43,14 +43,6 @@ export type MigrationHealth = {
   outstandingMigrations: string[];
 };
 
-export type MicrosoftHealth = {
-  clientIdConfigured: boolean;
-  redirectUriConfigured: boolean;
-  tokenSecretConfigured: boolean;
-  connected: boolean;
-  connectedEmail: string | null;
-};
-
 export type SystemHealthReport = {
   schemaVersion: string;
   migration: MigrationHealth;
@@ -63,7 +55,6 @@ export type SystemHealthReport = {
   intelligence: ReturnType<typeof intelligenceEngineValidation>;
   email: EmailHealth;
   audit: AuditHealth;
-  microsoft: MicrosoftHealth;
 };
 
 function nextManagerSummaryLabel(): string {
@@ -160,14 +151,6 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
   intelligence.missingSources.forEach((source) => mismatches.push(`intelligence: missing source coverage for ${source}`));
   intelligence.duplicateRuleIds.forEach((ruleId) => mismatches.push(`intelligence: duplicate rule id ${ruleId}`));
 
-  const microsoftPlaceholder: MicrosoftHealth = {
-    clientIdConfigured: false,
-    redirectUriConfigured: false,
-    tokenSecretConfigured: false,
-    connected: false,
-    connectedEmail: null,
-  };
-
   if (!supabase) {
     const data = loadLocalData();
     const localCounts = Object.fromEntries(schemaTables.map((table) => [table.name, data[table.name].length]));
@@ -182,7 +165,6 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
       intelligence,
       email: emailHealth(data.email_settings[0], data.email_activity_log),
       audit: { enabled: false, recordCount: 0 },
-      microsoft: microsoftPlaceholder,
       tables: schemaTables.map((table) => ({
         name: table.name,
         columnCount: table.columns.length,
@@ -254,6 +236,5 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     intelligence,
     email: emailHealth(emailSettings?.[0], emailActivity ?? []),
     audit: { enabled: true, recordCount: auditRecordCount },
-    microsoft: microsoftPlaceholder, // live connection status fetched separately via /api/microsoft/status
   };
 }

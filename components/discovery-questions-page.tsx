@@ -1,6 +1,6 @@
 "use client";
 
-import { Mail, Send, X } from "lucide-react";
+import { ExternalLink, Mail, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -28,17 +28,42 @@ function buildEmailBody(questions: DiscoveryQuestion[], projectName: string): st
   return `Hi,\n\nCould you please clarify the following questions relating to the ${projectName} Replenishment workstream.\n\n${lines}\n\nMany thanks,\nAndy`;
 }
 
-function buildHtmlBody(plainText: string): string {
-  return `<div style="font-family: Arial, sans-serif; font-size: 14px; color: #1a1a1a; line-height: 1.6;">${
-    plainText
-      .split("\n\n")
-      .map((para) =>
-        para.startsWith("1.") || /^\d+\./.test(para)
-          ? `<p style="margin: 8px 0;">${para.replace(/\n/g, "<br/>")}</p>`
-          : `<p style="margin: 8px 0;">${para}</p>`,
-      )
-      .join("")
-  }</div>`;
+function buildOutlookUrl(to: string, cc: string, subject: string, body: string): string {
+  const params = new URLSearchParams();
+  if (to) params.set("to", to);
+  if (cc) params.set("cc", cc);
+  params.set("subject", subject);
+  params.set("body", body);
+  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
+}
+
+// ── Confirm raised dialog ─────────────────────────────────────────────────────
+
+function ConfirmRaisedDialog({
+  count,
+  recipients,
+  onConfirm,
+  onSkip,
+}: {
+  count: number;
+  recipients: string;
+  onConfirm: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+      <div className="w-full max-w-sm rounded-xl border bg-background p-6 shadow-2xl">
+        <h2 className="text-base font-semibold">Mark questions as raised?</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Update {count} question{count !== 1 ? "s" : ""} to <strong>Awaiting Response</strong> and record that they were raised to <strong>{recipients || "the recipients"}</strong>?
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" onClick={onSkip}>Skip</Button>
+          <Button onClick={onConfirm}>Mark as Raised</Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Email modal ───────────────────────────────────────────────────────────────
@@ -47,50 +72,25 @@ function EmailModal({
   questions,
   projectName,
   onClose,
-  onSent,
+  onOpened,
 }: {
   questions: DiscoveryQuestion[];
   projectName: string;
   onClose: () => void;
-  onSent: () => void;
+  onOpened: (to: string, cc: string) => void;
 }) {
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(`${projectName} - Replenishment Queries`);
   const [body, setBody] = useState(() => buildEmailBody(questions, projectName));
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
 
-  async function send(event: React.FormEvent) {
+  function openInOutlook(event: React.FormEvent) {
     event.preventDefault();
     if (!to.trim()) { setError("Please enter at least one recipient email address."); return; }
-    setSending(true);
-    setError(null);
-    setWarning(null);
-    try {
-      const res = await fetch("/api/microsoft/send-queries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subject,
-          body: buildHtmlBody(body),
-          to: to.split(",").map((s) => s.trim()).filter(Boolean),
-          cc: cc ? cc.split(",").map((s) => s.trim()).filter(Boolean) : [],
-          questionIds: questions.map((q) => q.id),
-          projectName,
-        }),
-      });
-      const result = await res.json() as { ok: boolean; message?: string; warning?: string };
-      if (!result.ok) { setError(result.message ?? "Failed to send email."); return; }
-      if (result.warning) setWarning(result.warning);
-      onSent();
-      if (!result.warning) onClose();
-    } catch {
-      setError("An unexpected error occurred. Please try again.");
-    } finally {
-      setSending(false);
-    }
+    const url = buildOutlookUrl(to.trim(), cc.trim(), subject, body);
+    window.open(url, "_blank", "noopener,noreferrer");
+    onOpened(to.trim(), cc.trim());
   }
 
   return (
@@ -98,15 +98,14 @@ function EmailModal({
       <div className="w-full max-w-2xl overflow-hidden rounded-xl border bg-background shadow-2xl">
         <div className="flex items-center justify-between border-b px-5 py-4">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Microsoft 365 / Outlook</p>
+            <p className="text-sm font-medium text-muted-foreground">Outlook Compose</p>
             <h2 className="text-lg font-semibold">Email Selected Queries</h2>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
         </div>
 
-        <form className="max-h-[80vh] overflow-y-auto p-5 space-y-4" onSubmit={send}>
+        <form className="max-h-[80vh] overflow-y-auto p-5 space-y-4" onSubmit={openInOutlook}>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
-          {warning && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{warning}</div>}
 
           <div className="rounded-md border bg-muted/30 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{questions.length} question{questions.length !== 1 ? "s" : ""} selected</p>
@@ -158,14 +157,14 @@ function EmailModal({
               onChange={(e) => setBody(e.target.value)}
               className="min-h-56 font-mono text-xs"
             />
-            <span className="text-xs font-normal text-muted-foreground">Edit the body before sending. Sent via your connected Microsoft 365 account.</span>
+            <span className="text-xs font-normal text-muted-foreground">Edit before opening. Outlook will open a compose window — you send it manually from your own mailbox.</span>
           </label>
 
           <div className="flex justify-end gap-2 border-t pt-4">
-            <Button type="button" variant="outline" onClick={onClose} disabled={sending}>Cancel</Button>
-            <Button type="submit" disabled={sending}>
-              <Send className="h-4 w-4" aria-hidden="true" />
-              {sending ? "Sending…" : "Send via Outlook"}
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit">
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Open in Outlook
             </Button>
           </div>
         </form>
@@ -182,7 +181,7 @@ export function DiscoveryQuestionsPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedQuestions, setSelectedQuestions] = useState<DiscoveryQuestion[]>([]);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
-
+  const [confirmRaised, setConfirmRaised] = useState<{ to: string; cc: string } | null>(null);
 
   const config = moduleByKey.get("discovery_questions")!;
   const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
@@ -227,18 +226,63 @@ export function DiscoveryQuestionsPage() {
     );
   }
 
-  async function logActivityAfterSend() {
-    if (!activeProject) return;
-    try {
-      const activity = await createRecord("activity_log", {
-        project_id: activeProject.id,
-        activity_type: "Queries emailed",
-        description: `${selectedQuestions.length} discovery question${selectedQuestions.length !== 1 ? "s" : ""} sent by email.`,
+  function handleOpened(to: string, cc: string) {
+    setEmailModalOpen(false);
+    setConfirmRaised({ to, cc });
+  }
+
+  async function markAsRaised(to: string, cc: string) {
+    setConfirmRaised(null);
+    const now = new Date().toISOString();
+    const recipients = [to, cc].filter(Boolean).join(", ");
+    const noteAppend = `Raised by Outlook email to ${recipients} on ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(now))}.`;
+
+    const updated: DiscoveryQuestion[] = [];
+    for (const q of selectedQuestions) {
+      try {
+        const saved = await saveRecord("discovery_questions", {
+          ...q,
+          status: "Awaiting Response",
+          raised_to: to,
+          raised_date: now,
+          notes: q.notes ? `${q.notes}\n${noteAppend}` : noteAppend,
+        });
+        updated.push(saved as DiscoveryQuestion);
+      } catch { /* non-fatal — continue with remaining */ }
+    }
+
+    if (updated.length > 0) {
+      setData((current) => {
+        if (!current) return current;
+        const updatedIds = new Map(updated.map((q) => [q.id, q]));
+        return {
+          ...current,
+          discovery_questions: current.discovery_questions.map((q) => updatedIds.get(q.id) ?? q),
+        };
       });
-      setData((current) =>
-        current ? { ...current, activity_log: [activity, ...current.activity_log] } : current,
-      );
-    } catch { /* non-fatal */ }
+    }
+
+    // Audit log + activity
+    if (activeProject) {
+      try {
+        const activity = await createRecord("activity_log", {
+          project_id: activeProject.id,
+          activity_type: "Queries raised",
+          description: `${selectedQuestions.length} discovery question${selectedQuestions.length !== 1 ? "s" : ""} prepared for Outlook email to ${recipients}.`,
+        });
+        setData((current) =>
+          current ? { ...current, activity_log: [activity, ...current.activity_log] } : current,
+        );
+      } catch { /* non-fatal */ }
+    }
+
+    setSelectedQuestions([]);
+    reload();
+  }
+
+  function skipRaised() {
+    setConfirmRaised(null);
+    setSelectedQuestions([]);
     reload();
   }
 
@@ -258,12 +302,11 @@ export function DiscoveryQuestionsPage() {
         </p>
       </div>
 
-
       <div className="mb-4 flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
         <Mail className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Email queries via Microsoft 365</p>
-          <p className="text-xs text-muted-foreground">Select one or more questions, then click <strong>Email Selected Queries</strong>. Emails are sent from your connected Outlook account. Replies come back to your Bluestonex mailbox.</p>
+          <p className="text-sm font-semibold">Email queries via Outlook</p>
+          <p className="text-xs text-muted-foreground">Select one or more questions, click <strong>Email Selected</strong>, then send from your own Outlook. No Microsoft account connection required.</p>
         </div>
         {selectedQuestions.length > 0 && (
           <Button onClick={() => setEmailModalOpen(true)}>
@@ -294,9 +337,10 @@ export function DiscoveryQuestionsPage() {
           questions={selectedQuestions}
           projectName={activeProject.name}
           onClose={() => setEmailModalOpen(false)}
-          onSent={() => { void logActivityAfterSend(); setSelectedQuestions([]); }}
+          onOpened={handleOpened}
         />
       )}
+
       {emailModalOpen && !activeProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div className="rounded-xl border bg-background p-6 shadow-xl">
@@ -304,6 +348,15 @@ export function DiscoveryQuestionsPage() {
             <Button className="mt-4" onClick={() => setEmailModalOpen(false)}>Close</Button>
           </div>
         </div>
+      )}
+
+      {confirmRaised && (
+        <ConfirmRaisedDialog
+          count={selectedQuestions.length}
+          recipients={[confirmRaised.to, confirmRaised.cc].filter(Boolean).join(", ")}
+          onConfirm={() => void markAsRaised(confirmRaised.to, confirmRaised.cc)}
+          onSkip={skipRaised}
+        />
       )}
     </AppShell>
   );

@@ -16,7 +16,6 @@ import {
   CircleHelp,
   ClipboardCheck,
   ClipboardList,
-  Cloud,
   FileText,
   Flag,
   GitBranch,
@@ -100,8 +99,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
       { href: "/email-settings", label: "Email Settings", icon: Mail },
-      { href: "/microsoft-connection", label: "Microsoft 365", icon: Cloud },
-      { href: "/system-health", label: "System Health", icon: Stethoscope },
+{ href: "/system-health", label: "System Health", icon: Stethoscope },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
