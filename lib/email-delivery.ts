@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { DataStore } from "@/lib/data-store";
 import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildManagerSummaryEmail, buildTestEmail, type EmailContent } from "@/lib/email-content";
 import { getChangesSince } from "@/lib/audit";
-import { selectCanonicalProjects } from "@/lib/project-scope";
+import { selectEmailProjects } from "@/lib/project-scope";
 import { schemaTables } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
 import type { EmailActivity, EmailSettings } from "@/lib/types";
@@ -10,7 +10,7 @@ import type { EmailActivity, EmailSettings } from "@/lib/types";
 export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary";
 export type TriggerType = "Manual" | "Scheduled";
 export type EmailRequestPayload = { data?: DataStore; recipient?: string; settings?: Partial<EmailSettings> };
-export type EmailStatus = "sent" | "skipped_disabled" | "skipped_duplicate" | "skipped_no_recipient" | "auth_error" | "config_error" | "send_error";
+export type EmailStatus = "sent" | "skipped_disabled" | "skipped_duplicate" | "skipped_no_recipient" | "skipped_no_projects" | "auth_error" | "config_error" | "send_error";
 export type EmailExecutionResult = { ok: boolean; skipped?: boolean; status: EmailStatus; message: string; activity?: EmailActivity };
 
 const defaultRecipient = "Andrew.Walker@bluestonex.com";
@@ -210,8 +210,14 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
 
     console.log(`[email] ${kind} — loading project data`);
     const data = payload.data ?? await loadProjectData(client);
-    const projectIds = selectCanonicalProjects(data).map((p) => p.id);
-    console.log(`[email] ${kind} — projectIds=${JSON.stringify(projectIds)}`);
+    const emailProjects = selectEmailProjects(data);
+    const projectIds = emailProjects.map((p) => p.id);
+    console.log(`[email] ${kind} — projects found: ${data.projects.length} total, ${emailProjects.length} selected`);
+    console.log(`[email] ${kind} — projectIds=${JSON.stringify(projectIds)} names=${JSON.stringify(emailProjects.map((p) => p.name))}`);
+
+    if (kind === "Daily Brief" && trigger === "Scheduled" && emailProjects.length === 0) {
+      return await skip("skipped_no_projects", "No active projects were found. Run migration 015 if project data is missing.");
+    }
 
     const recentAuditChanges = kind === "Daily Brief" ? await getChangesSince(24, projectIds).catch(() => []) : [];
     const weeklyAuditChanges = kind === "Weekly Summary" ? await getChangesSince(168, projectIds).catch(() => []) : [];

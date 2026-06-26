@@ -55,6 +55,18 @@ export function selectCanonicalProjects(data: DataStore): Project[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Selects the projects to use for scheduled email generation.
+// Prefers projects with status "In Progress"; falls back to the single
+// most recently updated canonical project so the email is never empty.
+export function selectEmailProjects(data: DataStore): Project[] {
+  const canonical = selectCanonicalProjects(data);
+  if (canonical.length === 0) return [];
+  const inProgress = canonical.filter((p) => p.status === "In Progress");
+  if (inProgress.length > 0) return inProgress;
+  const mostRecent = [...canonical].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+  return mostRecent ? [mostRecent] : [];
+}
+
 export function selectProjectById(data: DataStore, projectId?: string | null): Project | null {
   if (!projectId) return selectActiveProject(data);
   return selectCanonicalProjects(data).find((project) => project.id === projectId)

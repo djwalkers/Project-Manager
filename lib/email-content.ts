@@ -1,11 +1,9 @@
-import { buildDailyBrief } from "@/lib/daily-brief";
 import type { DataStore } from "@/lib/data-store";
-import type { AuditLog } from "@/lib/types";
+import type { AuditLog, Project } from "@/lib/types";
 import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/manager-summary";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
-import { calculateDeliveryReadiness } from "@/lib/delivery";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
-import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
+import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
 
 export type EmailContent = { subject: string; html: string; text: string };
@@ -39,39 +37,172 @@ function intelligenceLines(data: DataStore, now: Date) {
   }).slice(0, 8);
 }
 
-function readinessLines(data: DataStore) {
-  return selectCanonicalProjects(data).map((project) => {
-    const readiness = calculateDeliveryReadiness(scopeProjectData(data, project).deliverables);
-    return `${project.name}: ${readiness.percent}% (${readiness.completed} of ${readiness.total} deliverables deployed).`;
-  });
+function toDateStr(d: Date) {
+  return d.toISOString().slice(0, 10);
 }
 
-function goLiveAttentionLines(data: DataStore, now: Date) {
-  return selectCanonicalProjects(data).flatMap((project) => {
-    const dashboard = buildGoLiveDashboard(data, project, now);
-    if (dashboard.status === "Green") return [];
-    const lines: string[] = [];
-    if (dashboard.status === "Red") lines.push(`${project.name}: GO-LIVE RED — Readiness ${dashboard.readinessPercent}%, ${dashboard.blockerCount} blocker${dashboard.blockerCount !== 1 ? "s" : ""}.`);
-    else lines.push(`${project.name}: Go-Live Amber — Readiness ${dashboard.readinessPercent}%.`);
-    if (dashboard.daysToGoLive !== null && dashboard.daysToGoLive <= 14) lines.push(`  ↳ Go-live in ${dashboard.daysToGoLive} day${dashboard.daysToGoLive !== 1 ? "s" : ""} — immediate attention required.`);
-    return lines;
-  });
+function daysFromNow(dateStr: string, now: Date): number {
+  return Math.round((new Date(`${dateStr}T12:00:00Z`).getTime() - now.getTime()) / 86_400_000);
+}
+
+function healthBadge(health: string) {
+  const colors: Record<string, string> = { Green: "#16a34a", Amber: "#d97706", Red: "#dc2626" };
+  const bg: Record<string, string> = { Green: "#f0fdf4", Amber: "#fffbeb", Red: "#fef2f2" };
+  const c = colors[health] ?? "#64748b";
+  const b = bg[health] ?? "#f8fafc";
+  return `<span style="background:${b};color:${c};border:1px solid ${c};font-size:11px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px">${escapeHtml(health)}</span>`;
+}
+
+function briefSection(title: string, body: string) {
+  return `<div style="background:#fff;padding:20px 24px;border:1px solid #e2e8f0;border-top:0"><h2 style="margin:0 0 12px;font-size:16px;color:#0f172a;border-bottom:1px solid #f1f5f9;padding-bottom:8px">${escapeHtml(title)}</h2>${body}</div>`;
+}
+
+function attentionRow(label: string, count: number, urgent: boolean) {
+  const color = urgent ? "#dc2626" : "#d97706";
+  if (count === 0) return "";
+  return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f8fafc"><span style="min-width:80px;font-size:22px;font-weight:700;color:${color}">${count}</span><span style="font-size:14px;color:#334155">${escapeHtml(label)}</span></div>`;
+}
+
+function briefList(items: string[], empty: string) {
+  if (!items.length) return `<p style="margin:0;color:#94a3b8;font-size:13px">${escapeHtml(empty)}</p>`;
+  return `<ul style="margin:0;padding-left:18px">${items.map((i) => `<li style="font-size:13px;color:#1e293b;margin-bottom:5px">${escapeHtml(i)}</li>`).join("")}</ul>`;
+}
+
+function kpiCell(label: string, value: string, sub?: string) {
+  return `<td style="padding:0 16px 0 0;vertical-align:top"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">${escapeHtml(label)}</div><div style="font-size:22px;font-weight:700;color:#0f172a">${escapeHtml(value)}</div>${sub ? `<div style="font-size:11px;color:#64748b">${escapeHtml(sub)}</div>` : ""}</td>`;
+}
+
+function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr: string, in7DaysStr: string, now: Date): { html: string; text: string; priorities: Array<{ label: string; score: number }> } {
+  const { deliverables, actions, risks, milestones, decisions, dependencies, discovery_questions, test_cases } = scoped;
+
+  // Project Summary
+  const totalDel = deliverables.length;
+  const doneDel = deliverables.filter((d) => d.status === "Deployed").length;
+  const progressPct = totalDel > 0 ? Math.round((doneDel / totalDel) * 100) : 0;
+  const days = project.planned_end_date ? daysFromNow(project.planned_end_date, now) : null;
+  const daysLabel = days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
+
+  // Today's Attention
+  const overdueActions = actions.filter((a) => a.due_date && a.due_date < todayStr && a.status !== "Complete" && a.status !== "Closed");
+  const highRisks = risks.filter((r) => (r.impact === "High" || r.impact === "Critical") && r.status !== "Complete" && r.status !== "Closed");
+  const openQueries = discovery_questions.filter((q) => q.status === "Awaiting Response" || q.status === "Open" || q.status === "Awaiting Business" || q.status === "Awaiting Development");
+  const upcomingDeliverables = deliverables.filter((d) => d.planned_completion_date && d.planned_completion_date >= todayStr && d.planned_completion_date <= in7DaysStr && d.status !== "Deployed");
+  const upcomingMilestones = milestones.filter((m) => m.target_date && m.target_date >= todayStr && m.target_date <= in7DaysStr && m.status !== "Complete");
+
+  // Development
+  const inProgressDel = deliverables.filter((d) => d.status !== "Not Started" && d.status !== "Deployed" && d.status !== "Blocked");
+  const blockedDel = deliverables.filter((d) => d.status === "Blocked");
+
+  // Testing
+  const totalTests = test_cases.length;
+  const passedTests = test_cases.filter((t) => t.status === "Passed").length;
+  const failedTests = test_cases.filter((t) => t.status === "Failed").length;
+  const blockedTests = test_cases.filter((t) => t.status === "Blocked").length;
+  const pendingTests = test_cases.filter((t) => t.status === "Pending").length;
+
+  // Governance
+  const openDecisions = decisions.filter((d) => d.status !== "Complete" && d.status !== "Closed" && d.status !== "Approved");
+  const openDependencies = dependencies.filter((d) => d.status !== "Complete" && d.status !== "Closed");
+
+  // Build priorities (returned for top-3 aggregation)
+  const priorities: Array<{ label: string; score: number }> = [];
+  if (overdueActions.length > 0) priorities.push({ label: `${overdueActions.length} overdue action${overdueActions.length > 1 ? "s" : ""} — ${overdueActions[0].description.slice(0, 60)}`, score: 100 + overdueActions.length });
+  highRisks.forEach((r) => priorities.push({ label: `${r.impact} risk: ${r.description.slice(0, 70)}`, score: r.impact === "Critical" ? 90 : 80 }));
+  upcomingMilestones.forEach((m) => { const d = m.target_date ? daysFromNow(m.target_date, now) : 99; priorities.push({ label: `Milestone due in ${d}d: ${m.title}`, score: 70 - d }); });
+
+  // HTML
+  const projectHeader = `<div style="background:#1e293b;color:#fff;padding:16px 24px;border-top:3px solid #3b82f6;margin-top:16px"><strong style="font-size:15px">${escapeHtml(project.name)}</strong> &nbsp; ${healthBadge(project.health)}</div>`;
+
+  const summaryHtml = `<table style="border-collapse:collapse"><tr>
+    ${kpiCell("Progress", `${progressPct}%`, `${doneDel}/${totalDel} deployed`)}
+    ${kpiCell("Go-Live", daysLabel, project.planned_end_date ?? undefined)}
+    ${kpiCell("Health", project.health)}
+    ${kpiCell("Status", project.status)}
+  </tr></table>`;
+
+  const attentionItems = [
+    attentionRow("Overdue Actions", overdueActions.length, true),
+    attentionRow("High / Critical Risks", highRisks.length, highRisks.length > 2),
+    attentionRow("Open Queries", openQueries.length, false),
+    attentionRow("Deliverables due ≤7 days", upcomingDeliverables.length, false),
+    attentionRow("Milestones due ≤7 days", upcomingMilestones.length, false),
+  ].filter(Boolean).join("");
+  const attentionHtml = attentionItems || `<p style="margin:0;color:#16a34a;font-size:14px">Nothing requires immediate attention.</p>`;
+
+  const devItems = [
+    ...inProgressDel.map((d) => `${d.deliverable_ref}: ${d.title} (${d.status})`),
+    ...blockedDel.map((d) => `BLOCKED — ${d.deliverable_ref}: ${d.title}`),
+  ];
+
+  const testHtml = totalTests > 0
+    ? `<table style="border-collapse:collapse;font-size:13px"><tr>
+        <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Total</span> <strong>${totalTests}</strong></td>
+        <td style="padding:4px 20px 4px 0"><span style="color:#16a34a">Passed</span> <strong>${passedTests}</strong></td>
+        <td style="padding:4px 20px 4px 0"><span style="color:#dc2626">Failed</span> <strong>${failedTests}</strong></td>
+        <td style="padding:4px 20px 4px 0"><span style="color:#d97706">Blocked</span> <strong>${blockedTests}</strong></td>
+        <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Pending</span> <strong>${pendingTests}</strong></td>
+      </tr></table>`
+    : `<p style="margin:0;color:#94a3b8;font-size:13px">No test cases recorded.</p>`;
+
+  const govItems = [
+    ...openDecisions.map((d) => `${d.decision_ref}: ${d.question.slice(0, 80)}`),
+    ...openDependencies.map((d) => `Dependency: ${d.name}${d.owner ? ` (${d.owner})` : ""}`),
+  ];
+
+  const html = [
+    projectHeader,
+    briefSection("Project Summary", summaryHtml),
+    briefSection("Today's Attention", attentionHtml),
+    briefSection("Development", briefList(devItems, "No deliverables in progress.")),
+    briefSection("Testing", testHtml),
+    briefSection("Governance", briefList(govItems, "No open decisions or dependencies.")),
+  ].join("");
+
+  const text = [
+    `\n${"=".repeat(60)}\n${project.name.toUpperCase()} — ${project.health} | ${progressPct}% | Go-live: ${daysLabel}\n${"=".repeat(60)}`,
+    `TODAY'S ATTENTION\n${[overdueActions.length ? `- ${overdueActions.length} overdue action(s)` : "", highRisks.length ? `- ${highRisks.length} high/critical risk(s)` : "", openQueries.length ? `- ${openQueries.length} open quer(ies)` : ""].filter(Boolean).join("\n") || "- Nothing requires immediate attention."}`,
+    `DEVELOPMENT\n${devItems.map((i) => `- ${i}`).join("\n") || "- No deliverables in progress."}`,
+    `TESTING\nTotal: ${totalTests}  Passed: ${passedTests}  Failed: ${failedTests}  Blocked: ${blockedTests}  Pending: ${pendingTests}`,
+    `GOVERNANCE\n${govItems.map((i) => `- ${i}`).join("\n") || "- No open decisions or dependencies."}`,
+  ].join("\n\n");
+
+  return { html, text, priorities };
 }
 
 export function buildAutomatedDailyBrief(data: DataStore, now = new Date(), recentAuditChanges: AuditLog[] = []): EmailContent {
-  const brief = buildDailyBrief(data, now, recentAuditChanges);
-  const intelligence = intelligenceLines(data, now);
-  const readiness = readinessLines(data);
-  const goLive = goLiveAttentionLines(data, now);
-  const additions = [
-    section("Project Intelligence Findings", listHtml(intelligence, "No critical or warning findings.")),
-    section("Delivery Readiness KPI", listHtml(readiness, "No deliverables are available.")),
-    ...(goLive.length ? [section("Go-Live Attention Required", listHtml(goLive, ""))] : []),
-  ].join("");
+  const projects = selectEmailProjects(data);
+  const todayStr = toDateStr(now);
+  const in7DaysStr = toDateStr(new Date(now.getTime() + 7 * 86_400_000));
+
+  const allPriorities: Array<{ label: string; score: number }> = [];
+  const projectBlocks: string[] = [];
+  const projectTexts: string[] = [];
+
+  for (const project of projects) {
+    const scoped = scopeProjectData(data, project);
+    const block = buildProjectBriefSection(project, scoped, todayStr, in7DaysStr, now);
+    projectBlocks.push(block.html);
+    projectTexts.push(block.text);
+    allPriorities.push(...block.priorities);
+  }
+
+  // Recent Activity (24h from audit log)
+  const activityItems = recentAuditChanges.slice(0, 10).map((e) => `[${e.entity_type}] ${e.entity_name} — ${e.action_type}${e.field_name ? ` (${e.field_name})` : ""}${e.old_value && e.new_value ? `: ${e.old_value} → ${e.new_value}` : ""}`);
+
+  // Top 3 Priorities
+  const top3 = allPriorities.sort((a, b) => b.score - a.score).slice(0, 3).map((p, i) => `${i + 1}. ${p.label}`);
+
+  const recentHtml = briefSection("Recent Activity (Last 24 Hours)", briefList(activityItems, "No changes recorded in the last 24 hours."));
+  const top3Html = briefSection("Top 3 Priorities", briefList(top3, "No priorities identified."));
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Brief</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:700px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0"><p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Project Manager / Control Centre</p><h1 style="margin:0;font-size:22px">Daily Brief</h1><p style="margin:6px 0 0;color:#cbd5e1;font-size:13px">${escapeHtml(subjectDate(now))}</p></header>${projectBlocks.join("")}${recentHtml}${top3Html}<p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px">Prepared by Project Manager / Control Centre</p></div></body></html>`;
+
+  const text = `DAILY BRIEF — ${subjectDate(now).toUpperCase()}\n${projectTexts.join("\n")}\n\nRECENT ACTIVITY (LAST 24H)\n${activityItems.map((i) => `- ${i}`).join("\n") || "- No changes recorded."}\n\nTOP 3 PRIORITIES\n${top3.join("\n") || "- No priorities identified."}`;
+
   return {
-    subject: `[Project Manager] Daily Brief - ${subjectDate(now)}`,
-    html: brief.html.replace("</body>", `${additions}</body>`),
-    text: `${brief.plainText}\n\n${plainList("Project Intelligence Findings", intelligence, "No critical or warning findings.")}\n\n${plainList("Delivery Readiness KPI", readiness, "No deliverables are available.")}${goLive.length ? `\n\n${plainList("Go-Live Attention Required", goLive, "")}` : ""}`,
+    subject: `[Project Manager] Daily Brief — ${subjectDate(now)}`,
+    html,
+    text,
   };
 }
 

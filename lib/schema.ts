@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "014_email_settings_anon_read";
-export const latestMigration = "014_email_settings_anon_read";
+export const schemaVersion = "015_project_data_anon_read";
+export const latestMigration = "015_project_data_anon_read";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -17,6 +17,7 @@ export const allMigrations = [
   "012_go_live_readiness",
   "013_microsoft_integration",
   "014_email_settings_anon_read",
+  "015_project_data_anon_read",
 ] as const;
 
 export type SchemaColumn = {
