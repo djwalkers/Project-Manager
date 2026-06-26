@@ -1,6 +1,4 @@
-"use client";
-
-import { supabase } from "@/lib/supabase/client";
+import { supabaseAnon as supabase } from "@/lib/supabase/anon";
 import type { AuditActionType, AuditFilter, AuditLog, EntityName } from "@/lib/types";
 
 // ── Current user store ────────────────────────────────────────────────────────
