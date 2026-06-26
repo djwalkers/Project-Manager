@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { executeEmail, isAuthorisedCron, isScheduledLondonSlot, type EmailRequestPayload } from "@/lib/email-delivery";
+import { executeEmail, isAuthorisedCron, type EmailRequestPayload } from "@/lib/email-delivery";
 import { isAuthorizedRequest } from "@/lib/api-auth";
 
 export async function POST(request: Request) {
@@ -12,12 +12,18 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  if (!isAuthorisedCron(request.headers.get("authorization"))) {
-    return NextResponse.json({ ok: false, message: "Unauthorised cron request." }, { status: 401 });
+  const url = new URL(request.url);
+  const auth = request.headers.get("authorization");
+  const xVercelCron = request.headers.get("x-vercel-cron");
+  const querySecret = url.searchParams.get("secret");
+
+  console.log(`[manager-summary] GET invoked — x-vercel-cron="${xVercelCron}" auth=${auth ? "present" : "absent"} querySecret=${querySecret ? "present" : "absent"}`);
+
+  if (!isAuthorisedCron(auth, xVercelCron, querySecret)) {
+    console.log("[manager-summary] Rejected — unauthorised cron request");
+    return NextResponse.json({ ok: false, status: "auth_error", message: "Unauthorised cron request." }, { status: 401 });
   }
-  if (!isScheduledLondonSlot("Manager Summary")) {
-    return NextResponse.json({ ok: true, skipped: true, message: "Outside the Friday 16:00 Europe/London delivery window." });
-  }
+
   const result = await executeEmail("Manager Summary", "Scheduled");
   return NextResponse.json(result, { status: result.ok ? 200 : 503 });
 }

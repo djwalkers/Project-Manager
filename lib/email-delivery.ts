@@ -10,7 +10,8 @@ import type { EmailActivity, EmailSettings } from "@/lib/types";
 export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary";
 export type TriggerType = "Manual" | "Scheduled";
 export type EmailRequestPayload = { data?: DataStore; recipient?: string; settings?: Partial<EmailSettings> };
-export type EmailExecutionResult = { ok: boolean; skipped?: boolean; message: string; activity?: EmailActivity };
+export type EmailStatus = "sent" | "skipped_disabled" | "skipped_duplicate" | "skipped_no_recipient" | "auth_error" | "config_error" | "send_error";
+export type EmailExecutionResult = { ok: boolean; skipped?: boolean; status: EmailStatus; message: string; activity?: EmailActivity };
 
 const defaultRecipient = "Andrew.Walker@bluestonex.com";
 const settingsId = "99999999-9999-4999-8999-999999999999";
@@ -39,9 +40,35 @@ export function isScheduledLondonSlot(kind: Exclude<EmailKind, "Test">, date = n
   return hour === 7 && ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday ?? "");
 }
 
-export function isAuthorisedCron(authorization: string | null) {
+// Accepts any of:
+//   1. x-vercel-cron: 1  — Vercel injects this on every cron invocation (scheduled + Run button)
+//   2. Authorization: Bearer <CRON_SECRET>
+//   3. ?secret=<CRON_SECRET>  — query param fallback for local/curl testing
+export function isAuthorisedCron(
+  authHeader: string | null,
+  xVercelCron: string | null,
+  querySecret?: string | null,
+): boolean {
+  // Vercel cron header is present on all legitimate Vercel cron invocations
+  if (xVercelCron === "1") {
+    console.log("[cron-auth] Accepted via x-vercel-cron header");
+    return true;
+  }
   const secret = process.env.CRON_SECRET;
-  return !secret || authorization === `Bearer ${secret}`;
+  if (!secret) {
+    console.log("[cron-auth] No CRON_SECRET configured — allowing request");
+    return true;
+  }
+  if (authHeader === `Bearer ${secret}`) {
+    console.log("[cron-auth] Accepted via Authorization Bearer token");
+    return true;
+  }
+  if (querySecret === secret) {
+    console.log("[cron-auth] Accepted via ?secret query param");
+    return true;
+  }
+  console.log("[cron-auth] Rejected — no valid auth method matched");
+  return false;
 }
 
 async function loadSettings(client: SupabaseClient | null): Promise<EmailSettings> {
@@ -111,42 +138,99 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
   const started = Date.now();
   const client = serverSupabase();
   let recipient = payload.recipient?.trim() || process.env.DAILY_BRIEF_RECIPIENT?.trim() || defaultRecipient;
+
+  console.log(`[email] ${kind} invoked — trigger=${trigger}`);
+
+  const skip = async (emailStatus: EmailStatus, message: string): Promise<EmailExecutionResult> => {
+    console.log(`[email] ${kind} skipped — status=${emailStatus} message="${message}"`);
+    const sentAt = new Date().toISOString();
+    const activity = await logActivity(client, {
+      id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt,
+      success: false, failure_reason: message,
+      duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt,
+    });
+    return { ok: true, skipped: true, status: emailStatus, message, activity };
+  };
+
   try {
+    console.log(`[email] ${kind} — loading settings`);
     const stored = await loadSettings(client);
+    console.log(`[email] ${kind} — settings loaded, daily_brief_enabled=${stored.daily_brief_enabled} recipient="${stored.recipient_email}"`);
+
     if (kind === "Manager Summary") {
       const managerRecipient = payload.settings?.manager_recipient_email?.trim() || stored.manager_recipient_email?.trim();
       recipient = managerRecipient || payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
     } else {
       recipient = payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
     }
+    console.log(`[email] ${kind} — resolved recipient="${recipient}"`);
+
+    if (!recipient || !validEmail(recipient)) {
+      return await skip("skipped_no_recipient", "A valid recipient email is not configured.");
+    }
+    recipient = recipient.toLowerCase();
+
     const enabled = kind === "Daily Brief"
       ? (payload.settings?.daily_brief_enabled ?? stored.daily_brief_enabled)
       : kind === "Manager Summary"
         ? (payload.settings?.manager_summary_enabled ?? stored.manager_summary_enabled)
         : (payload.settings?.weekly_summary_enabled ?? stored.weekly_summary_enabled);
-    if (trigger === "Scheduled" && kind !== "Test" && !enabled) return { ok: true, skipped: true, message: `${kind} is disabled.` };
-    if (trigger === "Scheduled" && !client) throw new Error("Supabase is required for scheduled email data and activity logging.");
-    if (!recipient || !validEmail(recipient)) throw new Error("A valid recipient email is not configured.");
-    recipient = recipient.toLowerCase();
-    if (trigger === "Scheduled" && client && await alreadySentToday(client, kind, now)) return { ok: true, skipped: true, message: `${kind} was already sent today.` };
+    console.log(`[email] ${kind} — enabled=${enabled} trigger=${trigger}`);
+
+    if (trigger === "Scheduled" && kind !== "Test" && !enabled) {
+      return await skip("skipped_disabled", `${kind} is disabled in email settings.`);
+    }
+
+    if (trigger === "Scheduled" && !client) {
+      return await skip("config_error", "Supabase is required for scheduled email data and activity logging.");
+    }
+
+    if (trigger === "Scheduled" && client) {
+      const duplicate = await alreadySentToday(client, kind, now);
+      console.log(`[email] ${kind} — duplicate check result: alreadySentToday=${duplicate}`);
+      if (duplicate) {
+        return await skip("skipped_duplicate", `${kind} was already sent today.`);
+      }
+    }
+
+    console.log(`[email] ${kind} — loading project data`);
     const data = payload.data ?? await loadProjectData(client);
     const projectIds = selectCanonicalProjects(data).map((p) => p.id);
+    console.log(`[email] ${kind} — projectIds=${JSON.stringify(projectIds)}`);
+
     const recentAuditChanges = kind === "Daily Brief" ? await getChangesSince(24, projectIds).catch(() => []) : [];
     const weeklyAuditChanges = kind === "Weekly Summary" ? await getChangesSince(168, projectIds).catch(() => []) : [];
+
     const content =
       kind === "Test" ? buildTestEmail(now)
       : kind === "Daily Brief" ? buildAutomatedDailyBrief(data, now, recentAuditChanges)
       : kind === "Manager Summary" ? buildManagerSummaryEmail(data, now)
       : buildAutomatedWeeklySummary(data, now, weeklyAuditChanges);
+
+    console.log(`[email] ${kind} — built content, subject="${content.subject}", sending via Resend`);
     await sendWithResend(recipient, content);
+
     const sentAt = new Date().toISOString();
-    const activity = await logActivity(client, { id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt, success: true, failure_reason: null, duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt });
-    return { ok: true, message: `${kind} sent to ${recipient}.`, activity };
+    console.log(`[email] ${kind} — sent successfully to ${recipient}, logging activity`);
+    const activity = await logActivity(client, {
+      id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt,
+      success: true, failure_reason: null,
+      duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt,
+    });
+    console.log(`[email] ${kind} — activity log result: ${activity.id ? "saved" : "failed"}`);
+    return { ok: true, status: "sent", message: `${kind} sent to ${recipient}.`, activity };
+
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Unknown email delivery failure.";
+    const emailStatus: EmailStatus = reason.includes("RESEND_API_KEY") ? "config_error" : "send_error";
+    console.error(`[email] ${kind} — ERROR status=${emailStatus}:`, reason);
     const sentAt = new Date().toISOString();
-    const activity = await logActivity(client, { id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt, success: false, failure_reason: reason, duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt });
-    return { ok: false, message: reason, activity };
+    const activity = await logActivity(client, {
+      id: crypto.randomUUID(), email_type: kind, recipient, sent_at: sentAt,
+      success: false, failure_reason: reason,
+      duration_ms: Date.now() - started, trigger_type: trigger, created_at: sentAt,
+    });
+    return { ok: false, status: emailStatus, message: reason, activity };
   }
 }
 
