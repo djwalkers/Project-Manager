@@ -19,8 +19,13 @@ const projectTables = schemaTables.map((table) => table.name).filter((name) => !
 
 function serverSupabase(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+  // Prefer service role key — bypasses RLS so server-side reads always succeed.
+  // Falls back to anon key + anon-read RLS policies (migration 014).
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  const usingServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  console.log(`[email] serverSupabase — using ${usingServiceRole ? "service role key" : "anon key"}`);
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 function validEmail(value: string) {
@@ -74,10 +79,18 @@ export function isAuthorisedCron(
 async function loadSettings(client: SupabaseClient | null): Promise<EmailSettings> {
   if (client) {
     const { data, error } = await client.from("email_settings").select("*").eq("id", settingsId).maybeSingle();
-    if (error) throw new Error(`Failed to load email settings: ${error.message}`);
-    if (data) return data as EmailSettings;
+    if (error) {
+      console.error(`[email] loadSettings — Supabase error: ${error.message} (code=${error.code})`);
+      throw new Error(`Failed to load email settings: ${error.message}`);
+    }
+    if (data) {
+      console.log(`[email] loadSettings — raw row: daily_brief_enabled=${data.daily_brief_enabled} weekly_summary_enabled=${data.weekly_summary_enabled} manager_summary_enabled=${data.manager_summary_enabled} recipient="${data.recipient_email}"`);
+      return data as EmailSettings;
+    }
+    // data is null — RLS blocked the query or no row with this ID exists
+    console.warn(`[email] loadSettings — query returned null (no error). Likely cause: RLS policy blocked the anon client (run migration 014) or the settings row does not exist. Falling back to env/defaults.`);
   }
-  return {
+  const fallback: EmailSettings = {
     id: settingsId,
     daily_brief_enabled: false,
     weekly_summary_enabled: false,
@@ -87,6 +100,8 @@ async function loadSettings(client: SupabaseClient | null): Promise<EmailSetting
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+  console.log(`[email] loadSettings — using fallback defaults: daily_brief_enabled=${fallback.daily_brief_enabled} recipient="${fallback.recipient_email}"`);
+  return fallback;
 }
 
 async function loadProjectData(client: SupabaseClient | null): Promise<DataStore> {
