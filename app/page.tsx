@@ -11,6 +11,7 @@ import {
   Flag,
   Gauge,
   HeartPulse,
+  ListChecks,
   PackageCheck,
   Target,
   Timer,
@@ -104,6 +105,13 @@ export default function DashboardPage() {
       activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
       recentActivity: data.activity_log.slice(0, 5),
       openDecisions: data.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).slice(0, 5),
+      requirements: {
+        total: data.requirements.length,
+        discovery: data.requirements.filter((r) => r.status === "Discovery").length,
+        inProgress: data.requirements.filter((r) => r.status === "In Progress").length,
+        approved: data.requirements.filter((r) => r.status === "Approved").length,
+        complete: data.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
+      },
     };
   }, [data]);
 
@@ -252,6 +260,30 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold">Operational Detail</h2>
           </div>
           <div className="grid gap-5 xl:grid-cols-4">
+            <Panel title="Requirements">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
+                  <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Total</span>
+                  <strong className="tabular-nums">{tower.requirements.total}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-amber-50 p-3 text-sm dark:bg-amber-950/20">
+                  <span>Discovery</span>
+                  <strong className="tabular-nums text-amber-700 dark:text-amber-400">{tower.requirements.discovery}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-blue-50 p-3 text-sm dark:bg-blue-950/20">
+                  <span>In Progress</span>
+                  <strong className="tabular-nums text-blue-700 dark:text-blue-400">{tower.requirements.inProgress}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-purple-50 p-3 text-sm dark:bg-purple-950/20">
+                  <span>Approved</span>
+                  <strong className="tabular-nums text-purple-700 dark:text-purple-400">{tower.requirements.approved}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-green-50 p-3 text-sm dark:bg-green-950/20">
+                  <span>Complete</span>
+                  <strong className="tabular-nums text-green-700 dark:text-green-400">{tower.requirements.complete}</strong>
+                </div>
+              </div>
+            </Panel>
             <Panel title="Recent Activity">
               <ListPanel items={tower.recentActivity} render={(item) => (
                 <>

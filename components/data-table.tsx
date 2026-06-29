@@ -13,6 +13,22 @@ import { cn, isOverdue, nextRef } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
 
+const SOURCE_BADGE: Record<string, { bg: string; color: string }> = {
+  "Functional Specification":       { bg: "#dbeafe", color: "#1e40af" },
+  "Technical Design":               { bg: "#e0e7ff", color: "#3730a3" },
+  "Customer Workshop":              { bg: "#f3e8ff", color: "#6b21a8" },
+  "Discovery Question":             { bg: "#fef3c7", color: "#92400e" },
+  "Business Decision":              { bg: "#ffedd5", color: "#9a3412" },
+  "Email":                          { bg: "#f1f5f9", color: "#475569" },
+  "Existing Solution":              { bg: "#dcfce7", color: "#166534" },
+  "Current Process Documentation":  { bg: "#ccfbf1", color: "#134e4a" },
+  "Test Strategy":                  { bg: "#e0e7ff", color: "#312e81" },
+  "SIT":                            { bg: "#fee2e2", color: "#991b1b" },
+  "UAT":                            { bg: "#fce7f3", color: "#9d174d" },
+  "Customer Request":               { bg: "#fdf4ff", color: "#7e22ce" },
+  "Other":                          { bg: "#f1f5f9", color: "#475569" },
+};
+
 function displayValue(value: unknown, type?: string) {
   if (value === null || value === undefined || value === "") return "—";
   if (type === "date") return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(new Date(String(value)));
@@ -42,6 +58,7 @@ export function DataTable({
   const rows = data[config.key] as Row[];
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All");
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<Row | null>(null);
   const [newDefaults, setNewDefaults] = useState<Row>({});
   const [selected, setSelected] = useState<Row | null>(rows[0] ?? null);
@@ -54,16 +71,29 @@ export function DataTable({
     return ["All", ...Array.from(new Set(values))];
   }, [rows]);
 
+  // Per-field unique values for multi-filter dropdowns
+  const filterOptions = useMemo(() => {
+    if (!config.filterFields) return {};
+    return Object.fromEntries(
+      config.filterFields.map((key) => {
+        const values = rows.map((row) => String(row[key] ?? "")).filter(Boolean);
+        return [key, ["All", ...Array.from(new Set(values)).sort()]];
+      }),
+    );
+  }, [config.filterFields, rows]);
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter((row) => {
-      const matchesStatus = status === "All" || row.status === status;
+      const matchesStatus = config.filterFields
+        ? config.filterFields.every((key) => !filters[key] || filters[key] === "All" || row[key] === filters[key])
+        : status === "All" || row.status === status;
       const matchesQuery =
         !needle ||
         config.searchFields.some((field) => String(row[field] ?? "").toLowerCase().includes(needle));
       return matchesStatus && matchesQuery;
     });
-  }, [config.searchFields, query, rows, status]);
+  }, [config.filterFields, config.searchFields, filters, query, rows, status]);
 
   function toggleCheck(id: string, allFiltered: Row[]) {
     setCheckedIds((prev) => {
@@ -129,22 +159,33 @@ export function DataTable({
       ) : null}
       <section className="min-w-0 rounded-lg border bg-card shadow-operational">
         <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
-            <label className="relative min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <label className="relative min-w-0 flex-1 sm:min-w-52">
               <span className="sr-only">Search {config.title}</span>
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <Input className="pl-9" placeholder={`Search ${config.title.toLowerCase()}`} value={query} onChange={(event) => setQuery(event.target.value)} onInput={(event) => setQuery(event.currentTarget.value)} />
             </label>
-            <label className="w-full sm:w-52">
-              <span className="sr-only">Status filter</span>
-              <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-                {statuses.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </Select>
-            </label>
+            {config.filterFields ? (
+              config.filterFields.map((key) => (
+                <label key={key} className="w-full sm:w-44">
+                  <span className="sr-only">{key} filter</span>
+                  <Select value={filters[key] ?? "All"} onChange={(event) => setFilters((prev) => ({ ...prev, [key]: event.target.value }))}>
+                    {(filterOptions[key] ?? ["All"]).map((opt) => (
+                      <option key={opt} value={opt}>{opt === "All" ? `All ${key}s` : opt}</option>
+                    ))}
+                  </Select>
+                </label>
+              ))
+            ) : (
+              <label className="w-full sm:w-52">
+                <span className="sr-only">Status filter</span>
+                <Select value={status} onChange={(event) => setStatus(event.target.value)}>
+                  {statuses.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </Select>
+              </label>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {selectable && checkedIds.size > 0 && selectionActions}
@@ -252,12 +293,35 @@ export function DataTable({
         </div>
         {selected ? (
           <dl className="mt-4 space-y-3">
-            {config.fields.map((field) => (
-              <div key={field.key} className="rounded-md bg-muted/60 p-3">
-                <dt className="text-xs font-semibold uppercase text-muted-foreground">{field.label}</dt>
-                <dd className="mt-1 whitespace-pre-wrap text-sm">{displayValue(selected[field.key], field.type)}</dd>
-              </div>
-            ))}
+            {config.fields.map((field) => {
+              const raw = selected[field.key];
+              const strVal = String(raw ?? "");
+              const isEmpty = raw === null || raw === undefined || raw === "";
+              return (
+                <div key={field.key} className="rounded-md bg-muted/60 p-3">
+                  <dt className="text-xs font-semibold uppercase text-muted-foreground">{field.label}</dt>
+                  <dd className="mt-1 text-sm">
+                    {field.badge && !isEmpty ? (
+                      <span
+                        style={{
+                          background: SOURCE_BADGE[strVal]?.bg ?? "#f1f5f9",
+                          color: SOURCE_BADGE[strVal]?.color ?? "#475569",
+                          padding: "2px 10px",
+                          borderRadius: "4px",
+                          fontWeight: 600,
+                          fontSize: "12px",
+                          display: "inline-block",
+                        }}
+                      >
+                        {strVal}
+                      </span>
+                    ) : (
+                      <span className="whitespace-pre-wrap">{displayValue(raw, field.type)}</span>
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
           </dl>
         ) : (
           <p className="mt-4 text-sm text-muted-foreground">Select a row to inspect details.</p>

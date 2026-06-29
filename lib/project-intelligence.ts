@@ -76,6 +76,10 @@ export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "GLR-004", category: "Delivery", sources: ["go_live_checklists"] },
   { id: "GLR-005", category: "Risk", sources: ["go_live_checklists", "risks"] },
   { id: "GLR-006", category: "Delivery", sources: ["go_live_checklists"] },
+  { id: "REQ-001", category: "Governance", sources: ["requirements"] },
+  { id: "REQ-002", category: "Governance", sources: ["requirements"] },
+  { id: "REQ-003", category: "Governance", sources: ["requirements"] },
+  { id: "REQ-004", category: "Governance", sources: ["requirements"] },
 ];
 
 const DAY_MS = 86_400_000;
@@ -308,6 +312,53 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
         82,
         "Lock the schedule baseline and track changes through a formal change control process.");
     }
+  }
+
+  // ── Requirement governance rules ─────────────────────────────────────────────
+  const activeRequirements = scoped.requirements.filter((r) => !["Complete", "Closed"].includes(r.status));
+
+  // REQ-001: High / Critical priority requirements still in Discovery
+  const highPrioDiscovery = activeRequirements.filter((r) => ["High", "Critical"].includes(r.priority) && r.status === "Discovery");
+  if (highPrioDiscovery.length) {
+    add(project, "REQ-001", "Governance", "Warning",
+      "High priority requirements are still in Discovery",
+      `${highPrioDiscovery.length} High or Critical requirement${highPrioDiscovery.length > 1 ? "s have" : " has"} not moved past Discovery.`,
+      highPrioDiscovery.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+      100,
+      "Review and progress high priority requirements before development starts.");
+  }
+
+  // REQ-002: Requirements with no description
+  const noDesc = activeRequirements.filter((r) => !r.description?.trim());
+  if (noDesc.length) {
+    add(project, "REQ-002", "Governance", "Warning",
+      "Requirements are missing a description",
+      `${noDesc.length} requirement${noDesc.length > 1 ? "s have" : " has"} no description recorded.`,
+      noDesc.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+      100,
+      "Add descriptions to all requirements before sign-off to ensure traceability.");
+  }
+
+  // REQ-003: Requirements with no source
+  const noSource = activeRequirements.filter((r) => !r.source?.trim());
+  if (noSource.length) {
+    add(project, "REQ-003", "Governance", "Warning",
+      "Requirements are missing a source",
+      `${noSource.length} requirement${noSource.length > 1 ? "s have" : " has"} no source recorded, reducing traceability.`,
+      noSource.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+      100,
+      "Record the source for all requirements to enable full requirements traceability.");
+  }
+
+  // REQ-004: Critical requirements with no owner (escalation above GOV-004)
+  const criticalNoOwner = activeRequirements.filter((r) => r.priority === "Critical" && !r.owner?.trim());
+  if (criticalNoOwner.length) {
+    add(project, "REQ-004", "Governance", "Critical",
+      "Critical requirements have no accountable owner",
+      `${criticalNoOwner.length} Critical requirement${criticalNoOwner.length > 1 ? "s have" : " has"} no assigned owner.`,
+      criticalNoOwner.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+      100,
+      "Assign an accountable owner to every Critical requirement immediately.");
   }
 
   findings.sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence || a.ruleId.localeCompare(b.ruleId));

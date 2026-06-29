@@ -35,8 +35,9 @@ export type ModuleConfig = {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   statusField?: string;
   searchFields: string[];
+  filterFields?: string[];
   columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" }[];
-  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string }[];
+  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string; rows?: number; badge?: boolean }[];
 };
 
 export const navItems = [
@@ -65,6 +66,21 @@ export const navItems = [
 ];
 
 const statusOptions = ["Discovery", "Open", "In Progress", "Pending", "Blocked", "Approved", "Complete", "Closed"];
+const requirementSourceOptions = [
+  "Functional Specification",
+  "Technical Design",
+  "Customer Workshop",
+  "Discovery Question",
+  "Business Decision",
+  "Email",
+  "Existing Solution",
+  "Current Process Documentation",
+  "Test Strategy",
+  "SIT",
+  "UAT",
+  "Customer Request",
+  "Other",
+];
 const priorityOptions = ["Low", "Medium", "High", "Critical"];
 const requirementCategoryOptions = ["Business Rule", "Database", "Backend", "UI", "Performance", "Testing"];
 const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Awaiting Response", "Answered", "Closed"];
@@ -146,6 +162,7 @@ export const modules: ModuleConfig[] = [
     description: "Track CR028 Replenishment requirements from discovery through approval.",
     icon: ListChecks,
     searchFields: ["requirement_ref", "title", "owner", "source", "status"],
+    filterFields: ["source", "category", "status", "priority", "owner"],
     columns: [
       { key: "requirement_ref", label: "Ref" },
       { key: "title", label: "Requirement" },
@@ -157,13 +174,13 @@ export const modules: ModuleConfig[] = [
     fields: [
       { key: "requirement_ref", label: "Reference", refPrefix: "REP" },
       { key: "title", label: "Title" },
-      { key: "description", label: "Description", type: "textarea" },
+      { key: "description", label: "Description", type: "textarea", rows: 5 },
       { key: "priority", label: "Priority", type: "select", options: priorityOptions },
       { key: "category", label: "Category", type: "select", options: requirementCategoryOptions },
       { key: "status", label: "Status", type: "select", options: statusOptions },
       { key: "owner", label: "Owner" },
-      { key: "source", label: "Source" },
-      { key: "notes", label: "Notes", type: "textarea" },
+      { key: "source", label: "Source", type: "select", options: requirementSourceOptions, badge: true },
+      { key: "notes", label: "Notes", type: "textarea", rows: 4 },
     ],
   },
   {

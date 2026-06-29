@@ -109,7 +109,7 @@ export function FormDialog({
             <label key={field.key} className="block space-y-2 text-sm font-medium">
               <span>{field.label}{field.required ? <span className="text-destructive" aria-hidden="true"> *</span> : null}</span>
               {field.type === "textarea" ? (
-                <Textarea required={field.required} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)} />
+                <Textarea required={field.required} rows={field.rows} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)} />
               ) : field.type === "select" ? (
                 <Select required={field.required} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)}>
                   <option value="">Select</option>
