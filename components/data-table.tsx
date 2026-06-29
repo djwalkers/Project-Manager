@@ -1,7 +1,8 @@
 "use client";
 
 import { Edit2, Eye, Plus, Search, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { FormDialog } from "@/components/form-dialog";
 import { PriorityBadge, StatusBadge } from "@/components/status-badge";
@@ -78,9 +79,28 @@ export function DataTable({
 }) {
   const Icon = config.icon;
   const rows = data[config.key] as Row[];
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("All");
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const searchParams = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams?.get("q") ?? "");
+  const [status, setStatus] = useState(() => searchParams?.get("status") ?? "All");
+  const [filters, setFilters] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    if (config.filterFields) {
+      for (const key of config.filterFields) {
+        const v = searchParams?.get(key);
+        if (v) init[key] = v;
+      }
+    }
+    return init;
+  });
+
+  // Sync URL params on first mount when navigating from dashboard
+  useEffect(() => {
+    const urlStatus = searchParams?.get("status");
+    if (urlStatus && urlStatus !== "All") setStatus(urlStatus);
+    const urlQ = searchParams?.get("q");
+    if (urlQ) setQuery(urlQ);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [editing, setEditing] = useState<Row | null>(null);
   const [newDefaults, setNewDefaults] = useState<Row>({});
   const [selected, setSelected] = useState<Row | null>(rows[0] ?? null);

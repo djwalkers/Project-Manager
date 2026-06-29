@@ -260,6 +260,16 @@ export type ActivityLog = {
   created_at: string;
 };
 
+export type ArtefactLink = {
+  id: string;
+  project_id: string;
+  source_entity: string;
+  source_id: string;
+  target_entity: string;
+  target_id: string;
+  created_at: string;
+};
+
 export type DiscoveryQuestion = {
   id: string;
   question_ref: string;
@@ -267,7 +277,7 @@ export type DiscoveryQuestion = {
   question: string;
   owner: string | null;
   category: "Business Rule" | "Replenishment Logic" | "Database" | "Performance" | "Testing" | "UI";
-  status: "Open" | "Awaiting Business" | "Awaiting Development" | "Awaiting Response" | "Answered" | "Closed";
+  status: "Open" | "Awaiting Business" | "Awaiting Development" | "Awaiting Response" | "Answered" | "Closed" | "Superseded";
   due_date: string | null;
   answer: string | null;
   notes: string | null;

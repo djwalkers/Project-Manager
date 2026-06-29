@@ -1,8 +1,30 @@
 import { AlertTriangle, CalendarRange } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import { calculateSchedule, formatScheduleDate, scheduleBarPosition, todayPosition } from "@/lib/schedule";
+import { calculateSchedule, formatScheduleDate, parseScheduleDate, scheduleBarPosition, todayPosition } from "@/lib/schedule";
 import type { Project, TimelineItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+const DAY_MS = 86_400_000;
+
+function phaseRowTone(item: TimelineItem): string {
+  if (item.status === "Complete") return "bg-emerald-50/60 dark:bg-emerald-950/10";
+  if (item.status === "Blocked") return "bg-red-50/70 dark:bg-red-950/15";
+  if (item.status === "At Risk") return "bg-amber-50/60 dark:bg-amber-950/15";
+  if (item.status === "In Progress") return "bg-blue-50/50 dark:bg-blue-950/10";
+  return "";
+}
+
+function phaseDaysLabel(item: TimelineItem): { label: string; warn: boolean } {
+  const end = parseScheduleDate(item.end_date);
+  if (!end) return { label: "", warn: false };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.ceil((end.getTime() - today.getTime()) / DAY_MS);
+  if (item.status === "Complete") return { label: "Complete", warn: false };
+  if (diff < 0) return { label: `${Math.abs(diff)}d overdue`, warn: true };
+  if (diff === 0) return { label: "Due today", warn: true };
+  return { label: `${diff}d remaining`, warn: diff <= 7 };
+}
 
 const barTone: Record<TimelineItem["status"], string> = {
   "Not Started": "bg-slate-400 dark:bg-slate-500",
@@ -47,15 +69,22 @@ export function TimelineSchedule({ project, items }: { project: Project; items: 
             <div className="space-y-3">
               {items.map((item) => {
                 const position = scheduleBarPosition(item, schedule.projectStart as string, schedule.projectEnd as string);
-                const today = todayPosition(schedule.projectStart as string, schedule.projectEnd as string);
+                const todayPct = todayPosition(schedule.projectStart as string, schedule.projectEnd as string);
+                const { label: daysLabel, warn: daysWarn } = phaseDaysLabel(item);
                 return (
-                  <div key={item.id} className="grid grid-cols-[240px_minmax(480px,1fr)] items-center gap-4">
+                  <div key={item.id} className={cn("grid grid-cols-[240px_minmax(480px,1fr)] items-center gap-4 rounded-md px-1 py-0.5", phaseRowTone(item))}>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2"><span className="text-xs font-semibold text-muted-foreground">{item.phase_ref}</span><StatusBadge value={item.status} /></div>
                       <p className="mt-1 truncate text-sm font-medium" title={item.phase_name}>{item.phase_name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{item.start_date} → {item.end_date}</p>
+                      {daysLabel && (
+                        <p className={cn("mt-0.5 text-xs font-semibold tabular-nums", daysWarn ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+                          {daysLabel}
+                        </p>
+                      )}
                     </div>
                     <div className="relative h-10 overflow-hidden rounded-md border bg-muted/60" aria-label={`${item.phase_name}: ${item.start_date} to ${item.end_date}, ${item.progress_percent}% complete`}>
-                      {today !== null ? <span className="absolute inset-y-0 z-10 w-px bg-foreground/70" style={{ left: `${today}%` }} title="Today" aria-hidden="true" /> : null}
+                      {todayPct !== null ? <span className="absolute inset-y-0 z-10 w-px bg-foreground/70" style={{ left: `${todayPct}%` }} title="Today" aria-hidden="true" /> : null}
                       {position ? (
                         <div className={cn("absolute top-2 flex h-6 items-center overflow-hidden rounded px-2 text-xs font-semibold text-white", barTone[item.status])} style={{ left: `${position.left}%`, width: `${position.width}%` }}>
                           <span className="truncate">{item.progress_percent}%</span>

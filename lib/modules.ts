@@ -83,7 +83,7 @@ const requirementSourceOptions = [
 ];
 const priorityOptions = ["Low", "Medium", "High", "Critical"];
 const requirementCategoryOptions = ["Business Rule", "Database", "Backend", "UI", "Performance", "Testing"];
-const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Awaiting Response", "Answered", "Closed"];
+const discoveryStatusOptions = ["Open", "Awaiting Business", "Awaiting Development", "Awaiting Response", "Answered", "Superseded", "Closed"];
 const discoveryCategoryOptions = ["Business Rule", "Replenishment Logic", "Database", "Performance", "Testing", "UI"];
 const milestoneStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];
 const timelineStatusOptions = ["Not Started", "In Progress", "Complete", "At Risk", "Blocked"];

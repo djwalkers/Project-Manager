@@ -1,8 +1,9 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { ArtefactLinker } from "@/components/artefact-linker";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
@@ -19,6 +20,64 @@ import {
   saveRecord,
 } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
+import type { Deliverable } from "@/lib/types";
+
+const LINKABLE = new Set([
+  "requirements", "decisions", "discovery_questions",
+  "deliverables", "risks", "actions", "test_cases",
+]);
+
+// Map status values to 0–100 percent for readiness bars
+function statusToPercent(status: string): number {
+  if (!status || status === "Not Started") return 0;
+  if (status === "Blocked") return -1; // special: red
+  if (["Complete", "Passed", "SIT Complete", "UAT Complete", "Deployed"].includes(status)) return 100;
+  if (["Ready", "Ready for SIT", "Ready for UAT", "Ready for Deployment", "Scheduled"].includes(status)) return 75;
+  if (["In Development", "In Progress", "In Analysis"].includes(status)) return 50;
+  return 25;
+}
+
+function ReadinessBar({ label, status }: { label: string; status: string }) {
+  const pct = statusToPercent(status);
+  const blocked = pct === -1;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-xs">
+        <span className="font-medium">{label}</span>
+        <span className={blocked ? "text-red-600 font-semibold" : "text-muted-foreground"}>{blocked ? "Blocked" : status || "Not Started"}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${blocked ? "bg-red-500" : "bg-primary"}`}
+          style={{ width: `${Math.max(0, pct)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DeliverableReadiness({ row }: { row: Row }) {
+  const d = row as unknown as Deliverable;
+  const bars: { label: string; status: string }[] = [
+    { label: "Development", status: d.development_status ?? "" },
+    { label: "SIT", status: d.sit_status ?? "" },
+    { label: "UAT", status: d.uat_status ?? "" },
+    { label: "Deployment", status: d.deployment_status ?? "" },
+  ];
+  const pcts = bars.map((b) => Math.max(0, statusToPercent(b.status)));
+  const overall = Math.round(pcts.reduce((sum, p) => sum + p, 0) / 4);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">Readiness</p>
+        <span className="text-xs font-semibold tabular-nums">{overall}%</span>
+      </div>
+      <div className="space-y-2">
+        {bars.map((bar) => <ReadinessBar key={bar.label} label={bar.label} status={bar.status} />)}
+      </div>
+    </div>
+  );
+}
 
 type Row = Record<string, unknown>;
 
@@ -73,6 +132,23 @@ export function ModulePageClient({ section }: { section: string }) {
       : current);
   }
 
+  const detailFooter = useCallback((row: Row) => {
+    if (!config || !pageData) return null;
+    const projectId = String(row.project_id ?? activeProject?.id ?? "");
+    const recordId = String(row.id ?? "");
+    const isDeliverable = config.key === "deliverables";
+    if (!isDeliverable && !LINKABLE.has(config.key)) return null;
+    return (
+      <div className="space-y-4">
+        {isDeliverable && <DeliverableReadiness row={row} />}
+        {LINKABLE.has(config.key) && projectId && recordId && (
+          <ArtefactLinker entity={config.key} recordId={recordId} projectId={projectId} data={pageData} />
+        )}
+      </div>
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.key, activeProject?.id, pageData]);
+
   if (!config) return null;
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data || !pageData) return <AppShell><LoadingState /></AppShell>;
@@ -106,7 +182,14 @@ export function ModulePageClient({ section }: { section: string }) {
       {config.key === "timeline_items" && activeProject && timelineScope ? (
         <TimelineSchedule project={activeProject} items={timelineScope.items} />
       ) : null}
-      <DataTable config={config} data={pageData} onSaveRecord={persistRecord} onDeleteRecord={removeRecord} defaultValues={user?.fullName ? { owner: user.fullName } : undefined} />
+      <DataTable
+        config={config}
+        data={pageData}
+        onSaveRecord={persistRecord}
+        onDeleteRecord={removeRecord}
+        defaultValues={user?.fullName ? { owner: user.fullName } : undefined}
+        detailFooter={detailFooter}
+      />
     </AppShell>
   );
 }

@@ -8,7 +8,6 @@ import {
   CalendarRange,
   CircleHelp,
   ClipboardCheck,
-  Clock,
   Flag,
   Gauge,
   HeartPulse,
@@ -17,6 +16,7 @@ import {
   Target,
   Timer,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ControlTowerKpi } from "@/components/control-tower-kpi";
@@ -27,7 +27,9 @@ import { StatusBadge } from "@/components/status-badge";
 import {
   buildManagementSummary,
   buildNeedsAttention,
+  buildTodaysPriorities,
   buildUpcomingThisWeek,
+  buildWaitingOnOthersGrouped,
   calculateProgress,
   calculateProjectHealth,
 } from "@/lib/control-tower";
@@ -50,11 +52,13 @@ function Panel({ title, description, children }: { title: string; description?: 
 function ListPanel({
   items,
   render,
+  emptyMessage = "No records to show.",
 }: {
   items: unknown[];
   render: (item: Record<string, unknown>) => React.ReactNode;
+  emptyMessage?: string;
 }) {
-  if (items.length === 0) return <p className="text-sm text-muted-foreground">No records to show.</p>;
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
   return (
     <div className="space-y-3">
       {items.map((item) => (
@@ -113,14 +117,8 @@ export default function DashboardPage() {
         approved: data.requirements.filter((r) => r.status === "Approved").length,
         complete: data.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
       },
-      waitingOnOthers: {
-        awaitingQueries: data.discovery_questions.filter((q) =>
-          ["Awaiting Business", "Awaiting Development", "Awaiting Response"].includes(q.status)
-        ).length,
-        awaitingDecisions: data.decisions.filter((d) => ["Open", "Pending"].includes(d.status)).length,
-        openDependencies: data.dependencies.filter((d) => d.status === "Open").length,
-        blockedActions: data.actions.filter((a) => a.status === "Blocked").length,
-      },
+      waitingOnOthers: buildWaitingOnOthersGrouped(data),
+      todaysPriorities: buildTodaysPriorities(data),
     };
   }, [data]);
 
@@ -188,11 +186,11 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Actual Progress" value={schedule.actualProgress === null ? "Review" : `${schedule.actualProgress}%`} helper="Duration-weighted progress across timeline phases" icon={Gauge} progress={schedule.actualProgress ?? undefined} />
           <ControlTowerKpi title="Schedule Variance" value={schedule.variance === null ? "Review" : varianceLabel} helper="Actual progress minus planned progress" icon={Activity} tone={schedule.health === "Red" ? "danger" : schedule.health === "Amber" ? "warn" : "good"} />
           <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth ?? undefined} value="Review" helper={schedule.valid ? `${varianceLabel} against the editable schedule` : "Schedule dates need review"} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : schedule.valid ? "good" : "warn"} />
-          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} />
-          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} />
-          <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} />
-          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} />
-          <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} />
+          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} href="/risks?status=Open" />
+          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} href="/actions?status=Blocked" />
+          <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} href="/decisions?status=Open" />
+          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} href="/discovery-questions?status=Awaiting Business" />
+          <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} href="/milestones" />
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
           <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
         </div>
@@ -268,6 +266,25 @@ export default function DashboardPage() {
             <Timer className="h-4 w-4 text-primary" aria-hidden="true" />
             <h2 className="text-lg font-semibold">Operational Detail</h2>
           </div>
+          <div className="mb-5">
+            <Panel title="Today's Priorities" description="Automatically calculated from overdue work, blocked items, high risks and upcoming deadlines.">
+              {tower.todaysPriorities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No critical priorities identified — the project is on track.</p>
+              ) : (
+                <ol className="space-y-3">
+                  {tower.todaysPriorities.map((p) => (
+                    <li key={p.rank} className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{p.rank}</span>
+                      <div>
+                        <p className="text-sm font-semibold">{p.title}</p>
+                        {p.detail && <p className="mt-1 text-xs text-muted-foreground">{p.detail}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Panel>
+          </div>
           <div className="grid gap-5 xl:grid-cols-4">
             <Panel title="Requirements">
               <div className="space-y-2">
@@ -275,10 +292,10 @@ export default function DashboardPage() {
                   <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Total</span>
                   <strong className="tabular-nums">{tower.requirements.total}</strong>
                 </div>
-                <div className="flex items-center justify-between rounded-md bg-amber-50 p-3 text-sm dark:bg-amber-950/20">
+                <Link href="/requirements?status=Discovery" className="flex items-center justify-between rounded-md bg-amber-50 p-3 text-sm hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/30">
                   <span>Discovery</span>
                   <strong className="tabular-nums text-amber-700 dark:text-amber-400">{tower.requirements.discovery}</strong>
-                </div>
+                </Link>
                 <div className="flex items-center justify-between rounded-md bg-blue-50 p-3 text-sm dark:bg-blue-950/20">
                   <span>In Progress</span>
                   <strong className="tabular-nums text-blue-700 dark:text-blue-400">{tower.requirements.inProgress}</strong>
@@ -294,27 +311,28 @@ export default function DashboardPage() {
               </div>
             </Panel>
             <Panel title="Waiting on Others">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-                  <span className="flex items-center gap-2"><CircleHelp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Queries awaiting answer</span>
-                  <strong className={`tabular-nums ${tower.waitingOnOthers.awaitingQueries > 0 ? "text-amber-700 dark:text-amber-400" : ""}`}>{tower.waitingOnOthers.awaitingQueries}</strong>
+              {tower.waitingOnOthers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No outstanding items waiting on others.</p>
+              ) : (
+                <div className="space-y-3">
+                  {tower.waitingOnOthers.map((group) => (
+                    <div key={group.owner} className="rounded-md border bg-muted/40 p-3">
+                      <p className="text-xs font-semibold text-muted-foreground">{group.owner}</p>
+                      <div className="mt-2 space-y-1">
+                        {group.items.map((item) => (
+                          <Link key={item.href + item.label} href={item.href} className="flex items-center justify-between text-sm hover:text-primary">
+                            <span>{item.label}</span>
+                            <span className="text-xs text-muted-foreground">→</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-                  <span className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Decisions awaiting approval</span>
-                  <strong className={`tabular-nums ${tower.waitingOnOthers.awaitingDecisions > 0 ? "text-amber-700 dark:text-amber-400" : ""}`}>{tower.waitingOnOthers.awaitingDecisions}</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-                  <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Open dependencies</span>
-                  <strong className={`tabular-nums ${tower.waitingOnOthers.openDependencies > 0 ? "text-blue-700 dark:text-blue-400" : ""}`}>{tower.waitingOnOthers.openDependencies}</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-                  <span className="flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Blocked actions</span>
-                  <strong className={`tabular-nums ${tower.waitingOnOthers.blockedActions > 0 ? "text-red-700 dark:text-red-400" : ""}`}>{tower.waitingOnOthers.blockedActions}</strong>
-                </div>
-              </div>
+              )}
             </Panel>
             <Panel title="Recent Activity">
-              <ListPanel items={tower.recentActivity} render={(item) => (
+              <ListPanel emptyMessage="No recent activity logged." items={tower.recentActivity} render={(item) => (
                 <>
                   <p className="font-medium">{String(item.activity_type)}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{String(item.description)}</p>
@@ -322,7 +340,7 @@ export default function DashboardPage() {
               )} />
             </Panel>
             <Panel title="Open Decisions">
-              <ListPanel items={tower.openDecisions} render={(item) => (
+              <ListPanel emptyMessage="No open decisions — all decisions are resolved." items={tower.openDecisions} render={(item) => (
                 <>
                   <div className="flex items-start justify-between gap-3">
                     <p className="font-medium">{String(item.decision_ref)}</p>

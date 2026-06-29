@@ -1,4 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
+import Link from "next/link";
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ export function ControlTowerKpi({
   rag,
   progress,
   trend,
+  href,
 }: {
   title: string;
   value?: number | string;
@@ -30,10 +32,18 @@ export function ControlTowerKpi({
   rag?: "Green" | "Amber" | "Red";
   progress?: number;
   trend?: { direction: "up" | "flat" | "down"; label: string };
+  href?: string;
 }) {
   const TrendIcon = trend?.direction === "up" ? TrendingUp : trend?.direction === "down" ? TrendingDown : Minus;
+  const Wrapper = href
+    ? ({ children, className }: { children: React.ReactNode; className: string }) => (
+        <Link href={href} className={cn(className, "transition-shadow hover:shadow-md hover:ring-1 hover:ring-primary/20")}>{children}</Link>
+      )
+    : ({ children, className }: { children: React.ReactNode; className: string }) => (
+        <section className={className}>{children}</section>
+      );
   return (
-    <section className="rounded-lg border bg-card p-4 shadow-operational">
+    <Wrapper className="rounded-lg border bg-card p-4 shadow-operational">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
@@ -59,6 +69,6 @@ export function ControlTowerKpi({
         </div>
       ) : null}
       <p className="mt-3 text-sm text-muted-foreground">{helper}</p>
-    </section>
+    </Wrapper>
   );
 }
