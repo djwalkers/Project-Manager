@@ -113,6 +113,7 @@ export const risks: Risk[] = [
   mitigation: "Validate behaviour in focused replenishment test scenarios before release approval.",
   owner: index === 2 ? "Solution Architect" : "Andrew Walker",
   status: index === 0 || index === 2 ? "Open" : "In Progress",
+  trend: null,
   created_at: now,
   updated_at: now,
 }));

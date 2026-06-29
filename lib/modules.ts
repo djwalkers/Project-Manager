@@ -36,7 +36,7 @@ export type ModuleConfig = {
   statusField?: string;
   searchFields: string[];
   filterFields?: string[];
-  columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" }[];
+  columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" | "exposure" | "readiness" }[];
   fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string; rows?: number; badge?: boolean }[];
 };
 
@@ -136,6 +136,7 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
       { key: "planned_completion_date", label: "Planned", type: "date" },
       { key: "owner", label: "Owner" },
+      { key: "readiness", label: "Readiness", type: "readiness" },
     ],
     fields: [
       { key: "deliverable_ref", label: "Deliverable ref", required: true, refPrefix: "DEL" },
@@ -196,6 +197,7 @@ export const modules: ModuleConfig[] = [
       { key: "description", label: "Risk" },
       { key: "impact", label: "Impact", type: "impact" },
       { key: "probability", label: "Probability" },
+      { key: "exposure", label: "Exposure", type: "exposure" },
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
@@ -206,6 +208,7 @@ export const modules: ModuleConfig[] = [
       { key: "mitigation", label: "Mitigation", type: "textarea" },
       { key: "owner", label: "Owner" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
+      { key: "trend", label: "Trend", type: "select", options: ["", "Improving", "Stable", "Worsening"] },
     ],
   },
   {

@@ -173,6 +173,7 @@ export type Risk = {
   mitigation: string | null;
   owner: string | null;
   status: Status;
+  trend: string | null;
   created_at: string;
   updated_at: string;
 };

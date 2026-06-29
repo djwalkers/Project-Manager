@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "015_project_data_anon_read";
-export const latestMigration = "015_project_data_anon_read";
+export const schemaVersion = "016_risk_trend";
+export const latestMigration = "016_risk_trend";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -18,6 +18,7 @@ export const allMigrations = [
   "013_microsoft_integration",
   "014_email_settings_anon_read",
   "015_project_data_anon_read",
+  "016_risk_trend",
 ] as const;
 
 export type SchemaColumn = {
@@ -109,6 +110,7 @@ export const schemaTables: SchemaTable[] = [
       { name: "mitigation", type: "text", required: false },
       { name: "owner", type: "text", required: false },
       { name: "status", type: "text", required: true },
+      { name: "trend", type: "text", required: false },
       createdAt, updatedAt,
     ],
   },

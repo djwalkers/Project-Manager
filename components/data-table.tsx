@@ -35,6 +35,26 @@ function displayValue(value: unknown, type?: string) {
   return String(value);
 }
 
+const IMPACT_SCORE: Record<string, number> = { Low: 1, Medium: 2, High: 3, Critical: 4 };
+const PROB_SCORE: Record<string, number> = { Low: 1, Medium: 2, High: 3 };
+
+function exposureRating(impact: string, probability: string): { label: string; bg: string; color: string } {
+  const score = (IMPACT_SCORE[impact] ?? 0) * (PROB_SCORE[probability] ?? 0);
+  if (score >= 9) return { label: "Critical", bg: "#fee2e2", color: "#991b1b" };
+  if (score >= 6) return { label: "High", bg: "#ffedd5", color: "#9a3412" };
+  if (score >= 3) return { label: "Medium", bg: "#fef3c7", color: "#92400e" };
+  if (score >= 1) return { label: "Low", bg: "#dcfce7", color: "#166534" };
+  return { label: "—", bg: "#f1f5f9", color: "#475569" };
+}
+
+function readinessDot(statusValue: string): string {
+  const s = statusValue ?? "";
+  if (!s || s === "Not Started") return "#d1d5db";
+  if (s === "Blocked") return "#ef4444";
+  if (s.includes("Complete") || s === "Deployed" || s === "Passed") return "#22c55e";
+  return "#3b82f6";
+}
+
 export function DataTable({
   config,
   data,
@@ -44,6 +64,7 @@ export function DataTable({
   selectable,
   onSelectionChange,
   selectionActions,
+  detailFooter,
 }: {
   config: ModuleConfig;
   data: DataStore;
@@ -53,6 +74,7 @@ export function DataTable({
   selectable?: boolean;
   onSelectionChange?: (rows: Row[]) => void;
   selectionActions?: React.ReactNode;
+  detailFooter?: (row: Row) => React.ReactNode;
 }) {
   const Icon = config.icon;
   const rows = data[config.key] as Row[];
@@ -252,6 +274,23 @@ export function DataTable({
                           <StatusBadge value={String(row[column.key] ?? "")} />
                         ) : column.type === "priority" || column.type === "impact" ? (
                           <PriorityBadge value={String(row[column.key] ?? "")} />
+                        ) : column.type === "exposure" ? (() => {
+                          const { label, bg, color } = exposureRating(String(row.impact ?? ""), String(row.probability ?? ""));
+                          return (
+                            <span style={{ background: bg, color, padding: "2px 10px", borderRadius: "4px", fontWeight: 600, fontSize: "12px", display: "inline-block" }}>
+                              {label}
+                            </span>
+                          );
+                        })() : column.type === "readiness" ? (
+                          <div className="flex gap-1.5 items-center" title="Dev · SIT · UAT · Deploy">
+                            {(["development_status", "sit_status", "uat_status", "deployment_status"] as const).map((key) => (
+                              <span
+                                key={key}
+                                title={String(row[key] ?? "Not Started")}
+                                style={{ width: 10, height: 10, borderRadius: "50%", display: "inline-block", background: readinessDot(String(row[key] ?? "")) }}
+                              />
+                            ))}
+                          </div>
                         ) : (
                           <span className="line-clamp-2">{displayValue(row[column.key], column.type)}</span>
                         )}
@@ -292,6 +331,7 @@ export function DataTable({
           <h2 className="text-base font-semibold">Detail View</h2>
         </div>
         {selected ? (
+          <>
           <dl className="mt-4 space-y-3">
             {config.fields.map((field) => {
               const raw = selected[field.key];
@@ -323,6 +363,10 @@ export function DataTable({
               );
             })}
           </dl>
+          {detailFooter ? (
+            <div className="mt-4 border-t pt-4">{detailFooter(selected)}</div>
+          ) : null}
+          </>
         ) : (
           <p className="mt-4 text-sm text-muted-foreground">Select a row to inspect details.</p>
         )}

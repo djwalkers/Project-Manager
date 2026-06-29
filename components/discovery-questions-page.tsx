@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Mail, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, ExternalLink, Mail, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -16,6 +16,26 @@ import type { DiscoveryQuestion } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
 
 type Row = Record<string, unknown>;
+
+const AWAITING_STATUSES = new Set(["Awaiting Business", "Awaiting Development", "Awaiting Response"]);
+
+function workingDaysSince(dateStr: string | null | undefined): number {
+  if (!dateStr) return 0;
+  const start = new Date(dateStr);
+  const now = new Date();
+  if (isNaN(start.getTime())) return 0;
+  let days = 0;
+  const cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  const end = new Date(now);
+  end.setHours(0, 0, 0, 0);
+  while (cursor < end) {
+    cursor.setDate(cursor.getDate() + 1);
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) days++;
+  }
+  return days;
+}
 
 function toQuestion(row: Row): DiscoveryQuestion {
   return row as unknown as DiscoveryQuestion;
@@ -210,6 +230,7 @@ export function DiscoveryQuestionsPage() {
   const [selectedQuestions, setSelectedQuestions] = useState<DiscoveryQuestion[]>([]);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [confirmRaised, setConfirmRaised] = useState<{ to: string; cc: string } | null>(null);
+  const [quickActionError, setQuickActionError] = useState<string | null>(null);
 
   const config = moduleByKey.get("discovery_questions")!;
   const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
@@ -316,6 +337,50 @@ export function DiscoveryQuestionsPage() {
     reload();
   }
 
+  async function quickUpdate(id: string, patch: Partial<DiscoveryQuestion>) {
+    setQuickActionError(null);
+    try {
+      const existing = data?.discovery_questions.find((q) => q.id === id);
+      if (!existing) return;
+      const saved = await saveRecord("discovery_questions", { ...existing, ...patch });
+      setData((current) =>
+        current
+          ? { ...current, discovery_questions: current.discovery_questions.map((q) => (q.id === id ? (saved as DiscoveryQuestion) : q)) }
+          : current,
+      );
+    } catch (err) {
+      setQuickActionError(err instanceof Error ? err.message : "Failed to update question");
+    }
+  }
+
+  const awaitingQueries = data ? data.discovery_questions.filter((q) => AWAITING_STATUSES.has(q.status)) : [];
+  const answeredNotClosed = data ? data.discovery_questions.filter((q) => q.status === "Answered") : [];
+
+  function detailFooter(row: Row) {
+    const q = toQuestion(row);
+    const canMarkAnswered = AWAITING_STATUSES.has(q.status);
+    const canMarkClosed = q.status === "Answered";
+    if (!canMarkAnswered && !canMarkClosed) return null;
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">Quick Actions</p>
+        {canMarkAnswered && (
+          <Button size="sm" variant="outline" onClick={() => void quickUpdate(q.id, { status: "Answered", answered_date: new Date().toISOString() })}>
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+            Mark as Answered
+          </Button>
+        )}
+        {canMarkClosed && (
+          <Button size="sm" variant="outline" onClick={() => void quickUpdate(q.id, { status: "Closed" })}>
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Mark as Closed
+          </Button>
+        )}
+        {quickActionError && <p className="text-xs text-destructive">{quickActionError}</p>}
+      </div>
+    );
+  }
+
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
 
@@ -331,6 +396,34 @@ export function DiscoveryQuestionsPage() {
           {data.discovery_questions.length} total records
         </p>
       </div>
+
+      {(awaitingQueries.length > 0 || answeredNotClosed.length > 0) && (
+        <div className="mb-4 rounded-lg border bg-card px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Query Status</p>
+          {awaitingQueries.map((q) => {
+            const days = workingDaysSince(q.raised_date);
+            const overdue = days > 5;
+            return (
+              <div key={q.id} className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm ${overdue ? "bg-amber-50 dark:bg-amber-950/20" : "bg-muted/40"}`}>
+                {overdue ? <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" /> : <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                <span className="min-w-0 flex-1 truncate font-medium">{q.question_ref}</span>
+                <span className="text-xs text-muted-foreground">{q.status}</span>
+                {q.raised_date && (
+                  <span className={`text-xs font-semibold ${overdue ? "text-amber-700" : "text-muted-foreground"}`}>
+                    {days}d{overdue ? " ⚠ reminder" : ""}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {answeredNotClosed.length > 0 && (
+            <div className="flex items-center gap-2 rounded-md bg-green-50 dark:bg-green-950/20 px-3 py-2 text-sm">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+              <span className="text-sm">{answeredNotClosed.length} answered question{answeredNotClosed.length !== 1 ? "s" : ""} awaiting closure</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mb-4 flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
         <Mail className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
@@ -354,6 +447,7 @@ export function DiscoveryQuestionsPage() {
         defaultValues={defaultValues}
         selectable
         onSelectionChange={(rows) => setSelectedQuestions(rows.map(toQuestion))}
+        detailFooter={detailFooter}
         selectionActions={
           <Button variant="default" onClick={() => setEmailModalOpen(true)}>
             <Mail className="h-4 w-4" aria-hidden="true" />

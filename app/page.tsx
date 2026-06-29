@@ -8,6 +8,7 @@ import {
   CalendarRange,
   CircleHelp,
   ClipboardCheck,
+  Clock,
   Flag,
   Gauge,
   HeartPulse,
@@ -111,6 +112,14 @@ export default function DashboardPage() {
         inProgress: data.requirements.filter((r) => r.status === "In Progress").length,
         approved: data.requirements.filter((r) => r.status === "Approved").length,
         complete: data.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
+      },
+      waitingOnOthers: {
+        awaitingQueries: data.discovery_questions.filter((q) =>
+          ["Awaiting Business", "Awaiting Development", "Awaiting Response"].includes(q.status)
+        ).length,
+        awaitingDecisions: data.decisions.filter((d) => ["Open", "Pending"].includes(d.status)).length,
+        openDependencies: data.dependencies.filter((d) => d.status === "Open").length,
+        blockedActions: data.actions.filter((a) => a.status === "Blocked").length,
       },
     };
   }, [data]);
@@ -281,6 +290,26 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between rounded-md bg-green-50 p-3 text-sm dark:bg-green-950/20">
                   <span>Complete</span>
                   <strong className="tabular-nums text-green-700 dark:text-green-400">{tower.requirements.complete}</strong>
+                </div>
+              </div>
+            </Panel>
+            <Panel title="Waiting on Others">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
+                  <span className="flex items-center gap-2"><CircleHelp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Queries awaiting answer</span>
+                  <strong className={`tabular-nums ${tower.waitingOnOthers.awaitingQueries > 0 ? "text-amber-700 dark:text-amber-400" : ""}`}>{tower.waitingOnOthers.awaitingQueries}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
+                  <span className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Decisions awaiting approval</span>
+                  <strong className={`tabular-nums ${tower.waitingOnOthers.awaitingDecisions > 0 ? "text-amber-700 dark:text-amber-400" : ""}`}>{tower.waitingOnOthers.awaitingDecisions}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
+                  <span className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Open dependencies</span>
+                  <strong className={`tabular-nums ${tower.waitingOnOthers.openDependencies > 0 ? "text-blue-700 dark:text-blue-400" : ""}`}>{tower.waitingOnOthers.openDependencies}</strong>
+                </div>
+                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
+                  <span className="flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Blocked actions</span>
+                  <strong className={`tabular-nums ${tower.waitingOnOthers.blockedActions > 0 ? "text-red-700 dark:text-red-400" : ""}`}>{tower.waitingOnOthers.blockedActions}</strong>
                 </div>
               </div>
             </Panel>
