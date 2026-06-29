@@ -24,7 +24,7 @@ function cleanRecord(table: EntityName, record: RecordValue) {
       .map((column) => {
         const type = columns.find((item) => item.name === column)?.type;
         const value = record[column];
-        if (value === "" && type === "date") return [column, null];
+        if (value === "" && (type === "date" || type === "timestamptz")) return [column, null];
         if ((type === "integer" || type === "numeric") && value !== "") return [column, Number(value)];
         return [column, value];
       }),
