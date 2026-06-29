@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "019_evidence_and_signoff";
-export const latestMigration = "019_evidence_and_signoff";
+export const schemaVersion = "020_delivery_intelligence";
+export const latestMigration = "020_delivery_intelligence";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -22,6 +22,7 @@ export const allMigrations = [
   "017_artefact_links",
   "018_acceptance_criteria",
   "019_evidence_and_signoff",
+  "020_delivery_intelligence",
 ] as const;
 
 export type SchemaColumn = {
@@ -227,6 +228,15 @@ export const schemaTables: SchemaTable[] = [
       { name: "open_questions", type: "integer", required: true },
       { name: "active_milestone", type: "text", required: false },
       { name: "active_phase", type: "text", required: false },
+      { name: "delivery_confidence", type: "integer", required: false },
+      { name: "project_readiness", type: "integer", required: false },
+      { name: "requirements_complete", type: "integer", required: false },
+      { name: "acceptance_complete", type: "integer", required: false },
+      { name: "evidence_complete", type: "integer", required: false },
+      { name: "sign_off_complete", type: "integer", required: false },
+      { name: "blocked_actions", type: "integer", required: false },
+      { name: "high_risks", type: "integer", required: false },
+      { name: "outstanding_dependencies", type: "integer", required: false },
       createdAt,
     ],
   },

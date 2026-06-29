@@ -330,6 +330,15 @@ export const project_snapshots: ProjectSnapshot[] = [
     active_milestone: "Discovery Complete",
     active_phase: "Functional Analysis",
     created_at: "2026-06-23T17:00:00.000Z",
+    delivery_confidence: null,
+    project_readiness: null,
+    requirements_complete: null,
+    acceptance_complete: null,
+    evidence_complete: null,
+    sign_off_complete: null,
+    blocked_actions: null,
+    high_risks: null,
+    outstanding_dependencies: null,
   },
 ];
 

@@ -43,6 +43,16 @@ export function calculateProjectSnapshot(data: DataStore, project: Project, now 
     open_questions: scoped.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
     active_milestone: activeMilestone?.title ?? null,
     active_phase: schedule.active[0]?.phase_name ?? schedule.atRisk[0]?.phase_name ?? schedule.blocked[0]?.phase_name ?? project.status,
+    // Delivery intelligence fields — null in legacy snapshot-service path; populated by lib/snapshots.ts
+    delivery_confidence: null,
+    project_readiness: null,
+    requirements_complete: null,
+    acceptance_complete: null,
+    evidence_complete: null,
+    sign_off_complete: null,
+    blocked_actions: null,
+    high_risks: null,
+    outstanding_dependencies: null,
   };
 }
 

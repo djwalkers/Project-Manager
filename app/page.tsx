@@ -18,7 +18,7 @@ import {
   Timer,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ControlTowerKpi } from "@/components/control-tower-kpi";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -35,8 +35,12 @@ import {
   calculateProjectHealth,
 } from "@/lib/control-tower";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
+import type { ProjectSnapshot } from "@/lib/types";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention } from "@/lib/delivery";
 import { computeReadiness } from "@/components/requirement-readiness";
+import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
+import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
+import { ProjectTrendsPanel } from "@/components/trend-chart";
 import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
@@ -73,7 +77,41 @@ function ListPanel({
 }
 
 export default function DashboardPage() {
-  const { data, error, reload } = useProjectData();
+  const { data, setData, error, reload } = useProjectData();
+  const [snapshotting, setSnapshotting] = useState(false);
+
+  const takeSnapshot = useCallback(async (d: NonNullable<typeof data>) => {
+    setSnapshotting(true);
+    try {
+      const saved = await captureSnapshot(d);
+      if (saved) {
+        setData((prev) => {
+          if (!prev) return prev;
+          const existing = (prev.project_snapshots ?? []).find((s) => s.id === saved.id);
+          return {
+            ...prev,
+            project_snapshots: existing
+              ? prev.project_snapshots.map((s) => (s.id === saved.id ? saved : s))
+              : [...(prev.project_snapshots ?? []), saved],
+          };
+        });
+      }
+    } finally {
+      setSnapshotting(false);
+    }
+  }, [setData]);
+
+  // Auto-capture once per day when the page loads
+  useEffect(() => {
+    if (!data) return;
+    const project = selectActiveProject(data);
+    if (!project) return;
+    if (!todaySnapshotExists(data, project.id)) {
+      void takeSnapshot(data);
+    }
+  // Only run on initial data load
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!data]);
 
   const tower = useMemo(() => {
     const project = data ? selectActiveProject(data) : null;
@@ -143,6 +181,10 @@ export default function DashboardPage() {
         data.requirement_sign_offs ?? [],
         data.test_cases ?? [],
       ),
+      confidence: computeDeliveryConfidence(data),
+      snapshots: (data.project_snapshots ?? [])
+        .filter((s) => s.project_id === project.id)
+        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)),
     };
   }, [data]);
 
@@ -158,6 +200,42 @@ export default function DashboardPage() {
 
   const { project, progress, schedule } = tower;
   const varianceLabel = schedule.variance === null ? "Review" : schedule.variance > 0 ? `+${schedule.variance}%` : `${schedule.variance}%`;
+
+  // Trend helpers — compare current value to the most recent prior snapshot
+  const prevSnapshot = tower.snapshots.length >= 2
+    ? tower.snapshots[tower.snapshots.length - 2]
+    : tower.snapshots.length === 1
+      ? tower.snapshots[0]
+      : null;
+
+  function snapTrend(
+    current: number,
+    prevKey: keyof ProjectSnapshot,
+    higherIsBetter = true,
+  ): { direction: "up" | "flat" | "down"; label: string } | undefined {
+    if (!prevSnapshot) return undefined;
+    const prev = Number(prevSnapshot[prevKey] ?? current);
+    const diff = current - prev;
+    if (diff === 0) return { direction: "flat", label: `Stable vs ${prevSnapshot.snapshot_date.slice(5)}` };
+    const direction = diff > 0 ? "up" : "down";
+    const sign = diff > 0 ? "+" : "";
+    return {
+      direction: higherIsBetter ? direction : (direction === "up" ? "down" : "up"),
+      label: `${sign}${diff} vs ${prevSnapshot.snapshot_date.slice(5)}`,
+    };
+  }
+
+  // Momentum: confidence delta over last 7 snapshots
+  const momentum = (() => {
+    const snaps = tower.snapshots.filter((s) => s.delivery_confidence != null);
+    if (snaps.length < 2) return null;
+    const recent = snaps[snaps.length - 1];
+    const lookback = snaps.length >= 8 ? snaps[snaps.length - 8] : snaps[0];
+    const delta = (recent.delivery_confidence ?? 0) - (lookback.delivery_confidence ?? 0);
+    const label =
+      delta > 0 ? "Improving" : delta < 0 ? "Declining" : "Stable";
+    return { delta, label, since: lookback.snapshot_date.slice(5) };
+  })();
 
   return (
     <AppShell>
@@ -210,32 +288,94 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Actual Progress" value={schedule.actualProgress === null ? "Review" : `${schedule.actualProgress}%`} helper="Duration-weighted progress across timeline phases" icon={Gauge} progress={schedule.actualProgress ?? undefined} />
           <ControlTowerKpi title="Schedule Variance" value={schedule.variance === null ? "Review" : varianceLabel} helper="Actual progress minus planned progress" icon={Activity} tone={schedule.health === "Red" ? "danger" : schedule.health === "Amber" ? "warn" : "good"} />
           <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth ?? undefined} value="Review" helper={schedule.valid ? `${varianceLabel} against the editable schedule` : "Schedule dates need review"} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : schedule.valid ? "good" : "warn"} />
-          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} href="/risks?status=Open" />
-          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} href="/actions?status=Blocked" />
+          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} trend={snapTrend(tower.openRisks, "open_risks", false)} href="/risks?status=Open" />
+          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} trend={snapTrend(tower.overdueActions, "overdue_actions", false)} href="/actions?status=Blocked" />
           <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} href="/decisions?status=Open" />
-          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} href="/discovery-questions?status=Awaiting Business" />
+          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} trend={snapTrend(tower.openQuestions, "open_questions", false)} href="/discovery-questions?status=Awaiting Business" />
           <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} href="/milestones" />
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
           <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
-          <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
-          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
+          <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} trend={snapTrend(tower.acceptance.pct, "acceptance_complete")} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
+          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={snapTrend(tower.projectReadiness.overall, "project_readiness")} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
           <ControlTowerKpi
             title="Delivery Confidence"
-            value={`${tower.projectReadiness.overall}%`}
-            helper={(() => {
-              const o = tower.projectReadiness.overall;
-              const dims = tower.projectReadiness.dimensions;
-              const weak = dims.filter((d) => d.pct < 70).map((d) => d.label).join(", ");
-              if (o === 100) return "All readiness dimensions satisfied.";
-              if (o >= 70) return weak ? `Good confidence. Improve: ${weak}.` : "On track for delivery.";
-              if (o >= 40) return weak ? `Moderate confidence. Gaps in: ${weak}.` : "Readiness needs attention.";
-              return weak ? `Low confidence. Critical gaps in: ${weak}.` : "Delivery is at risk.";
-            })()}
+            value={`${tower.confidence.score}%`}
+            helper={tower.confidence.reasons.length ? tower.confidence.reasons.join(" · ") : "No confidence gaps detected."}
             icon={Target}
-            progress={tower.projectReadiness.overall}
-            tone={tower.projectReadiness.overall >= 70 ? "good" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"}
+            progress={tower.confidence.score}
+            trend={snapTrend(tower.confidence.score, "delivery_confidence")}
+            tone={tower.confidence.rag === "Green" ? "good" : tower.confidence.rag === "Amber" ? "warn" : "danger"}
           />
         </div>
+
+        {/* Part 4 — Delivery Confidence + Part 5 — Project Momentum */}
+        <div className="mt-5 grid gap-5 xl:grid-cols-3">
+          {/* Delivery Confidence reasoning */}
+          <section className="col-span-2 rounded-lg border bg-card p-5 shadow-operational">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold">Delivery Confidence</h3>
+              <span className={`text-3xl font-bold tabular-nums ${tower.confidence.rag === "Green" ? "text-green-700" : tower.confidence.rag === "Amber" ? "text-amber-600" : "text-red-600"}`}>
+                {tower.confidence.score}%
+              </span>
+            </div>
+            {tower.confidence.reasons.length === 0 ? (
+              <p className="mt-3 text-sm text-green-700">All confidence checks passed — delivery is on track.</p>
+            ) : (
+              <div className="mt-3">
+                <p className="text-sm text-muted-foreground">Confidence reduced because:</p>
+                <ul className="mt-2 space-y-1.5">
+                  {tower.confidence.reasons.map((reason) => (
+                    <li key={reason} className="flex items-center gap-2 text-sm">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full transition-[width] duration-500 ${tower.confidence.rag === "Green" ? "bg-green-600" : tower.confidence.rag === "Amber" ? "bg-amber-500" : "bg-red-500"}`}
+                style={{ width: `${tower.confidence.score}%` }}
+              />
+            </div>
+          </section>
+
+          {/* Project Momentum */}
+          <section className="rounded-lg border bg-card p-5 shadow-operational">
+            <h3 className="text-base font-semibold">Project Momentum</h3>
+            {momentum === null ? (
+              <p className="mt-3 text-sm text-muted-foreground">Not enough snapshots yet — momentum calculates after 2+ daily captures.</p>
+            ) : (
+              <div className="mt-4 text-center">
+                <p className={`text-sm font-semibold ${momentum.delta > 0 ? "text-green-700" : momentum.delta < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                  {momentum.label}
+                </p>
+                <p className={`mt-1 text-5xl font-bold tabular-nums ${momentum.delta > 0 ? "text-green-700" : momentum.delta < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                  {momentum.delta > 0 ? "+" : ""}{momentum.delta}%
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">Delivery Confidence change since {momentum.since}</p>
+              </div>
+            )}
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                disabled={snapshotting || !data}
+                onClick={() => data && void takeSnapshot(data)}
+                className="rounded-md border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {snapshotting ? "Saving…" : "Take Snapshot Now"}
+              </button>
+            </div>
+          </section>
+        </div>
+
+        {/* Part 2 — Trend Charts */}
+        {tower.snapshots.length >= 2 && (
+          <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational">
+            <ProjectTrendsPanel snapshots={tower.snapshots} />
+          </section>
+        )}
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
           <InsightPanel title="Needs Attention" description="Automatically prioritised by severity." items={tower.needsAttention} emptyMessage="No blockers or aged items need attention." />

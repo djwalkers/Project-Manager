@@ -67,8 +67,15 @@ export function ControlTowerKpi({
             </p>
           ) : null}
         </div>
-      ) : null}
-      <p className="mt-3 text-sm text-muted-foreground">{helper}</p>
+      ) : (
+        trend ? (
+          <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <TrendIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            {trend.label}
+          </p>
+        ) : null
+      )}
+      <p className={trend && progress === undefined ? "mt-1 text-sm text-muted-foreground" : "mt-3 text-sm text-muted-foreground"}>{helper}</p>
     </Wrapper>
   );
 }

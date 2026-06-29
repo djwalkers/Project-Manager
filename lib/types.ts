@@ -65,6 +65,16 @@ export type ProjectSnapshot = {
   active_milestone: string | null;
   active_phase: string | null;
   created_at: string;
+  // Delivery intelligence fields (020_delivery_intelligence)
+  delivery_confidence: number | null;
+  project_readiness: number | null;
+  requirements_complete: number | null;
+  acceptance_complete: number | null;
+  evidence_complete: number | null;
+  sign_off_complete: number | null;
+  blocked_actions: number | null;
+  high_risks: number | null;
+  outstanding_dependencies: number | null;
 };
 
 export type Deliverable = {
