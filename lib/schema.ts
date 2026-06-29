@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "020_delivery_intelligence";
-export const latestMigration = "020_delivery_intelligence";
+export const schemaVersion = "021_meeting_intelligence";
+export const latestMigration = "021_meeting_intelligence";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -23,6 +23,7 @@ export const allMigrations = [
   "018_acceptance_criteria",
   "019_evidence_and_signoff",
   "020_delivery_intelligence",
+  "021_meeting_intelligence",
 ] as const;
 
 export type SchemaColumn = {
@@ -394,6 +395,41 @@ export const schemaTables: SchemaTable[] = [
       { name: "notes", type: "text", required: false },
       createdAt,
       updatedAt,
+    ],
+  },
+  {
+    name: "meeting_intelligence",
+    seedKey: ["project_id", "meeting_ref"],
+    columns: [
+      id, projectId,
+      { name: "meeting_ref", type: "text", required: true },
+      { name: "title", type: "text", required: true },
+      { name: "meeting_date", type: "date", required: false },
+      { name: "source", type: "text", required: true },
+      { name: "participants", type: "text", required: false },
+      { name: "ai_summary", type: "text", required: false },
+      { name: "raw_input", type: "text", required: false },
+      { name: "processing_status", type: "text", required: true },
+      createdAt, updatedAt,
+    ],
+  },
+  {
+    name: "meeting_suggestions",
+    seedKey: ["meeting_id"],
+    columns: [
+      id, projectId,
+      { name: "meeting_id", type: "uuid", required: true, foreignKey: "meeting_intelligence.id" },
+      { name: "entity_type", type: "text", required: true },
+      { name: "action", type: "text", required: true },
+      { name: "title", type: "text", required: true },
+      { name: "description", type: "text", required: false },
+      { name: "confidence", type: "text", required: true },
+      { name: "reason", type: "text", required: false },
+      { name: "status", type: "text", required: true },
+      { name: "existing_record_id", type: "uuid", required: false },
+      { name: "existing_record_ref", type: "text", required: false },
+      { name: "feedback", type: "text", required: false },
+      createdAt, updatedAt,
     ],
   },
 ];

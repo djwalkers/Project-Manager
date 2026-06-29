@@ -209,6 +209,30 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
     ? readinessHtmlParts.join("")
     : `<p style="margin:0;color:#16a34a;font-size:13px">No sign-off or evidence gaps.</p>`;
 
+  // Meeting Intelligence (Part 10)
+  const projectMeetings = (scoped.meeting_intelligence ?? [])
+    .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""));
+  const yesterdayStr = toDateStr(new Date(now.getTime() - 86_400_000));
+  const meetingsYesterday = projectMeetings.filter((m) => m.meeting_date === yesterdayStr);
+  const pendingSuggestionCount = (scoped.meeting_suggestions ?? []).filter(
+    (s) => s.status === "Pending",
+  ).length;
+  const meetingHtmlParts: string[] = [];
+  if (meetingsYesterday.length > 0) {
+    meetingHtmlParts.push(
+      `<p style="margin:4px 0;font-size:13px">${meetingsYesterday.length} meeting${meetingsYesterday.length > 1 ? "s" : ""} analysed yesterday: ${meetingsYesterday.map((m) => m.title).join(", ")}</p>`,
+    );
+  }
+  if (pendingSuggestionCount > 0) {
+    meetingHtmlParts.push(
+      `<p style="margin:4px 0;font-size:13px;font-weight:700;color:#d97706">${pendingSuggestionCount} suggested update${pendingSuggestionCount > 1 ? "s" : ""} awaiting review</p>`,
+    );
+    priorities.push({ label: `${pendingSuggestionCount} meeting suggestion(s) pending review`, score: 70 });
+  }
+  const meetingHtml = meetingHtmlParts.length > 0
+    ? meetingHtmlParts.join("")
+    : `<p style="margin:0;color:#6b7280;font-size:13px">No meeting intelligence activity.</p>`;
+
   const html = [
     projectHeader,
     briefSection("Project Summary", summaryHtml),
@@ -218,6 +242,7 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
     briefSection("Acceptance Criteria", acHtml),
     briefSection("Sign-off & Evidence", readinessHtml),
     briefSection("Governance", briefList(govItems, "No open decisions or dependencies.")),
+    briefSection("Meeting Intelligence", meetingHtml),
   ].join("");
 
   const text = [

@@ -399,6 +399,54 @@ export type AcceptanceCriteria = {
   updated_at: string;
 };
 
+// ── Meeting Intelligence ─────────────────────────────────────────────────────
+
+export type MeetingSource = "Teams" | "Zoom" | "Email" | "Workshop" | "Document" | "Other";
+export type MeetingStatus = "Draft" | "Analysed" | "Applied" | "Archived";
+
+export type MeetingIntelligence = {
+  id: string;
+  project_id: string;
+  meeting_ref: string;
+  title: string;
+  meeting_date: string | null;
+  source: MeetingSource;
+  participants: string | null;
+  ai_summary: string | null;
+  raw_input: string | null;
+  processing_status: MeetingStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SuggestionEntityType =
+  | "action" | "decision" | "risk" | "requirement" | "discovery_question"
+  | "dependency" | "milestone" | "deliverable" | "test_case" | "acceptance_criterion"
+  | "evidence" | "project_update" | "general_note";
+
+export type SuggestionAction = "create" | "update" | "close" | "note";
+export type ConfidenceLevel = "High" | "Medium" | "Low";
+export type SuggestionStatus = "Pending" | "Accepted" | "Rejected" | "Applied";
+
+export type MeetingSuggestion = {
+  id: string;
+  project_id: string;
+  meeting_id: string;
+  entity_type: SuggestionEntityType;
+  action: SuggestionAction;
+  title: string;
+  description: string | null;
+  confidence: ConfidenceLevel;
+  reason: string | null;
+  status: SuggestionStatus;
+  existing_record_id: string | null;
+  existing_record_ref: string | null;
+  data_payload: Record<string, unknown> | null;
+  feedback: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EntityMap = {
   projects: Project;
   deliverables: Deliverable;
@@ -422,6 +470,8 @@ export type EntityMap = {
   acceptance_criteria: AcceptanceCriteria;
   evidence: Evidence;
   requirement_sign_offs: RequirementSignOff;
+  meeting_intelligence: MeetingIntelligence;
+  meeting_suggestions: MeetingSuggestion;
 };
 
 export type EntityName = keyof EntityMap;

@@ -8,12 +8,14 @@ import {
   CalendarRange,
   CircleHelp,
   ClipboardCheck,
+  Clock,
   Flag,
   Gauge,
   HeartPulse,
   ListChecks,
   PackageCheck,
   ShieldCheck,
+  Sparkles,
   Target,
   Timer,
 } from "lucide-react";
@@ -377,6 +379,9 @@ export default function DashboardPage() {
           </section>
         )}
 
+        {/* Part 9 — Latest Meeting Intelligence */}
+        <MeetingIntelligencePanel data={data} />
+
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
           <InsightPanel title="Needs Attention" description="Automatically prioritised by severity." items={tower.needsAttention} emptyMessage="No blockers or aged items need attention." />
           <InsightPanel title="Upcoming This Week" description="Actions, decisions and milestones due in the next seven days." items={tower.upcomingThisWeek} emptyMessage="Nothing is due in the next seven days." />
@@ -549,5 +554,62 @@ export default function DashboardPage() {
         </div>
       </section>
     </AppShell>
+  );
+}
+
+// ── Meeting Intelligence Dashboard Panel (Part 9) ─────────────────────────────
+
+import type { DataStore } from "@/lib/data-store";
+
+function MeetingIntelligencePanel({ data }: { data: DataStore }) {
+  const meetings = (data.meeting_intelligence ?? [])
+    .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""));
+  if (meetings.length === 0) return null;
+
+  const lastMeeting = meetings[0];
+  const pendingSuggestions = (data.meeting_suggestions ?? []).filter(
+    (s) => s.status === "Pending",
+  );
+  const recentlyApplied = (data.meeting_suggestions ?? []).filter(
+    (s) => s.status === "Applied",
+  ).length;
+  const awaitingReview = meetings.filter((m) => m.processing_status === "Analysed").length;
+
+  return (
+    <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <h3 className="text-base font-semibold">Latest Meeting Intelligence</h3>
+        </div>
+        <Link href="/meeting-intelligence" className="text-xs font-medium text-primary hover:underline">
+          View all
+        </Link>
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-md border bg-muted/40 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Last Meeting</p>
+          <p className="mt-1 text-sm font-medium">{lastMeeting.title}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{lastMeeting.meeting_date ?? "No date"} · {lastMeeting.source}</p>
+        </div>
+        <div className="rounded-md border bg-muted/40 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Awaiting Review</p>
+          <p className={`mt-1 text-2xl font-bold tabular-nums ${awaitingReview ? "text-amber-600" : ""}`}>{awaitingReview}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">meetings with pending suggestions</p>
+        </div>
+        <div className="rounded-md border bg-muted/40 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Suggestions</p>
+          <p className={`mt-1 text-2xl font-bold tabular-nums ${pendingSuggestions.length ? "text-amber-600" : ""}`}>{pendingSuggestions.length}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{recentlyApplied} applied total</p>
+        </div>
+      </div>
+      {pendingSuggestions.length > 0 && (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          {pendingSuggestions.length} suggestion{pendingSuggestions.length > 1 ? "s" : ""} pending review —{" "}
+          <Link href="/meeting-intelligence" className="font-semibold underline">review now</Link>
+        </div>
+      )}
+    </section>
   );
 }

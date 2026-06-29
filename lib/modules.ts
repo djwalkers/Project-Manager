@@ -21,6 +21,7 @@ import {
   Settings,
   ShieldCheck,
   ShieldQuestion,
+  Sparkles,
   Stethoscope,
   TrendingUp,
 } from "lucide-react";
@@ -59,6 +60,7 @@ export const navItems = [
   { href: "/dependencies", label: "Dependencies", icon: GitBranch },
   { href: "/testing", label: "Testing", icon: BookOpenCheck },
   { href: "/meetings", label: "Meetings", icon: CalendarDays },
+  { href: "/meeting-intelligence", label: "Meeting Intelligence", icon: Sparkles },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/audit-trail", label: "Audit Trail", icon: History },
   { href: "/system-health", label: "System Health", icon: Stethoscope },

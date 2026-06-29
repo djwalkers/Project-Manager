@@ -2,6 +2,8 @@ import type {
   AcceptanceCriteria,
   Evidence,
   RequirementSignOff,
+  MeetingIntelligence,
+  MeetingSuggestion,
   ActionItem,
   ActivityLog,
   Decision,
@@ -381,4 +383,6 @@ export const seedData = {
   acceptance_criteria: [] as AcceptanceCriteria[],
   evidence: [] as Evidence[],
   requirement_sign_offs: [] as RequirementSignOff[],
+  meeting_intelligence: [] as MeetingIntelligence[],
+  meeting_suggestions: [] as MeetingSuggestion[],
 };

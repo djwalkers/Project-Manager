@@ -124,5 +124,7 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
     acceptance_criteria: belongsToProject(data.acceptance_criteria ?? []),
     evidence: belongsToProject(data.evidence ?? []),
     requirement_sign_offs: belongsToProject(data.requirement_sign_offs ?? []),
+    meeting_intelligence: belongsToProject(data.meeting_intelligence ?? []),
+    meeting_suggestions: belongsToProject(data.meeting_suggestions ?? []),
   };
 }
