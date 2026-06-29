@@ -173,6 +173,42 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
 
   if (failedACReqs.length > 0) priorities.push({ label: `${failedACReqs.length} requirement(s) with failed acceptance criteria`, score: 95 });
 
+  // Sign-off & Evidence (Part 5)
+  const allSignOffs = scoped.requirement_sign_offs ?? [];
+  const allEvidence = scoped.evidence ?? [];
+
+  const awaitingSignOffReqs = scoped.requirements.filter((r) =>
+    allSignOffs.some((s) => s.requirement_id === r.id && s.status === "Pending"),
+  ).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+
+  const missingEvidenceReqs = scoped.requirements.filter((r) => {
+    const acs = allAC.filter((ac) => ac.requirement_id === r.id);
+    return acs.length > 0 && acs.every((ac) => !allEvidence.some((ev) => ev.ac_id === ac.id));
+  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+
+  const failedGateReqs = scoped.requirements.filter((r) => {
+    const acs = allAC.filter((ac) => ac.requirement_id === r.id);
+    const hasFailedAC = acs.some((ac) => ac.status === "Failed");
+    const noEvidence = acs.length > 0 && acs.every((ac) => !allEvidence.some((ev) => ev.ac_id === ac.id));
+    return hasFailedAC || noEvidence;
+  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+
+  const readinessHtmlParts: string[] = [];
+  if (awaitingSignOffReqs.length > 0) {
+    readinessHtmlParts.push(`<p style="margin:4px 0;font-size:12px;font-weight:700;color:#d97706">Awaiting sign-off (${awaitingSignOffReqs.length}):</p>${briefList(awaitingSignOffReqs, "")}`);
+    priorities.push({ label: `${awaitingSignOffReqs.length} requirement(s) awaiting sign-off`, score: 88 });
+  }
+  if (missingEvidenceReqs.length > 0) {
+    readinessHtmlParts.push(`<p style="margin:8px 0 4px;font-size:12px;font-weight:700;color:#7c3aed">Missing evidence (${missingEvidenceReqs.length}):</p>${briefList(missingEvidenceReqs, "")}`);
+    priorities.push({ label: `${missingEvidenceReqs.length} requirement(s) missing evidence`, score: 75 });
+  }
+  if (failedGateReqs.length > 0) {
+    readinessHtmlParts.push(`<p style="margin:8px 0 4px;font-size:12px;font-weight:700;color:#dc2626">Failed readiness gates (${failedGateReqs.length}):</p>${briefList(failedGateReqs, "")}`);
+  }
+  const readinessHtml = readinessHtmlParts.length > 0
+    ? readinessHtmlParts.join("")
+    : `<p style="margin:0;color:#16a34a;font-size:13px">No sign-off or evidence gaps.</p>`;
+
   const html = [
     projectHeader,
     briefSection("Project Summary", summaryHtml),
@@ -180,6 +216,7 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
     briefSection("Development", briefList(devItems, "No deliverables in progress.")),
     briefSection("Testing", testHtml),
     briefSection("Acceptance Criteria", acHtml),
+    briefSection("Sign-off & Evidence", readinessHtml),
     briefSection("Governance", briefList(govItems, "No open decisions or dependencies.")),
   ].join("");
 

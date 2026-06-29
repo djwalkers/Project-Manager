@@ -4,8 +4,9 @@ import { CheckCircle2, Circle, Clock, Loader2, Plus, Shield, Trash2, XCircle } f
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { EvidencePanel } from "@/components/evidence-panel";
 import { saveRecord, deleteRecord } from "@/lib/supabase/data-store";
-import type { AcceptanceCriteria, AcceptanceCriteriaStatus } from "@/lib/types";
+import type { AcceptanceCriteria, AcceptanceCriteriaStatus, Evidence } from "@/lib/types";
 import { nextRef } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
@@ -14,32 +15,30 @@ const AC_STATUS_OPTIONS: AcceptanceCriteriaStatus[] = ["Not Started", "In Progre
 
 function statusIcon(status: AcceptanceCriteriaStatus) {
   switch (status) {
-    case "Met":        return <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-label="Met" />;
-    case "Failed":     return <XCircle      className="h-4 w-4 shrink-0 text-red-600"   aria-label="Failed" />;
-    case "In Progress":return <Clock        className="h-4 w-4 shrink-0 text-amber-500" aria-label="In Progress" />;
-    case "Waived":     return <Shield       className="h-4 w-4 shrink-0 text-blue-500"  aria-label="Waived" />;
-    default:           return <Circle       className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Not Started" />;
+    case "Met":         return <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-label="Met" />;
+    case "Failed":      return <XCircle      className="h-4 w-4 shrink-0 text-red-600"   aria-label="Failed" />;
+    case "In Progress": return <Clock        className="h-4 w-4 shrink-0 text-amber-500" aria-label="In Progress" />;
+    case "Waived":      return <Shield       className="h-4 w-4 shrink-0 text-blue-500"  aria-label="Waived" />;
+    default:            return <Circle       className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Not Started" />;
   }
 }
 
 function statusBadgeClass(status: AcceptanceCriteriaStatus): string {
   switch (status) {
-    case "Met":         return "border-green-200 bg-green-50 text-green-700";
-    case "Failed":      return "border-red-200 bg-red-50 text-red-700";
-    case "In Progress": return "border-amber-200 bg-amber-50 text-amber-700";
-    case "Waived":      return "border-blue-200 bg-blue-50 text-blue-700";
-    default:            return "border-border bg-muted/40 text-muted-foreground";
+    case "Met":          return "border-green-200 bg-green-50 text-green-700";
+    case "Failed":       return "border-red-200 bg-red-50 text-red-700";
+    case "In Progress":  return "border-amber-200 bg-amber-50 text-amber-700";
+    case "Waived":       return "border-blue-200 bg-blue-50 text-blue-700";
+    default:             return "border-border bg-muted/40 text-muted-foreground";
   }
 }
 
 function ProgressBar({ criteria }: { criteria: AcceptanceCriteria[] }) {
   if (!criteria.length) return null;
   const met    = criteria.filter((ac) => ac.status === "Met").length;
-  const failed = criteria.filter((ac) => ac.status === "Failed").length;
   const waived = criteria.filter((ac) => ac.status === "Waived").length;
-  const effective = criteria.length - waived;
-  const pct = effective > 0 ? Math.round(((met + waived) / criteria.length) * 100) : (waived === criteria.length ? 100 : 0);
-
+  const failed = criteria.filter((ac) => ac.status === "Failed").length;
+  const pct    = Math.round(((met + waived) / criteria.length) * 100);
   return (
     <div className="mb-4 rounded-md border bg-muted/30 p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -62,28 +61,33 @@ function ProgressBar({ criteria }: { criteria: AcceptanceCriteria[] }) {
   );
 }
 
-type EditForm = { criterion: string; description: string; status: AcceptanceCriteriaStatus; owner: string; evidence: string; notes: string };
+type EditForm = { criterion: string; description: string; status: AcceptanceCriteriaStatus; owner: string; notes: string };
 
-const emptyForm = (): EditForm => ({ criterion: "", description: "", status: "Not Started", owner: "", evidence: "", notes: "" });
+const emptyForm = (): EditForm => ({ criterion: "", description: "", status: "Not Started", owner: "", notes: "" });
 
 export function AcceptanceCriteriaPanel({
   requirementId,
   projectId,
   criteria,
   allCriteria,
+  evidence,
   onUpdate,
+  onEvidenceUpdate,
 }: {
   requirementId: string;
   projectId: string;
   criteria: AcceptanceCriteria[];
   allCriteria: AcceptanceCriteria[];
+  evidence: Evidence[];
   onUpdate: (updated: AcceptanceCriteria[]) => void;
+  onEvidenceUpdate: (updated: Evidence[]) => void;
 }) {
-  const [adding, setAdding]     = useState(false);
-  const [editId, setEditId]     = useState<string | null>(null);
-  const [form, setForm]         = useState<EditForm>(emptyForm());
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState<string | null>(null);
+  const [adding, setAdding]   = useState(false);
+  const [editId, setEditId]   = useState<string | null>(null);
+  const [form, setForm]       = useState<EditForm>(emptyForm());
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function updateForm(key: keyof EditForm, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -102,7 +106,6 @@ export function AcceptanceCriteriaPanel({
       description: ac.description ?? "",
       status:      ac.status,
       owner:       ac.owner ?? "",
-      evidence:    ac.evidence ?? "",
       notes:       ac.notes ?? "",
     });
     setEditId(ac.id);
@@ -126,8 +129,7 @@ export function AcceptanceCriteriaPanel({
         const saved = await saveRecord("acceptance_criteria", {
           project_id: projectId, requirement_id: requirementId, ac_ref: acRef,
           criterion: form.criterion, description: form.description || null,
-          status: form.status, owner: form.owner || null,
-          evidence: form.evidence || null, notes: form.notes || null,
+          status: form.status, owner: form.owner || null, notes: form.notes || null,
         }) as AcceptanceCriteria;
         onUpdate([...criteria, saved]);
       } else if (editId) {
@@ -136,8 +138,7 @@ export function AcceptanceCriteriaPanel({
         const saved = await saveRecord("acceptance_criteria", {
           ...existing,
           criterion: form.criterion, description: form.description || null,
-          status: form.status, owner: form.owner || null,
-          evidence: form.evidence || null, notes: form.notes || null,
+          status: form.status, owner: form.owner || null, notes: form.notes || null,
         }) as AcceptanceCriteria;
         onUpdate(criteria.map((ac) => ac.id === editId ? saved : ac));
       }
@@ -182,7 +183,6 @@ export function AcceptanceCriteriaPanel({
 
       {error && <p className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
 
-      {/* Inline add/edit form */}
       {(adding || editId) && (
         <div className="mb-4 rounded-md border bg-card p-4 space-y-3">
           <p className="text-xs font-semibold uppercase text-muted-foreground">{adding ? "New Criterion" : "Edit Criterion"}</p>
@@ -207,10 +207,6 @@ export function AcceptanceCriteriaPanel({
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Evidence</label>
-            <Textarea value={form.evidence} onChange={(e) => updateForm("evidence", e.target.value)} rows={2} placeholder="Evidence that this criterion has been met" />
-          </div>
-          <div>
             <label className="block text-xs font-medium mb-1">Notes</label>
             <Textarea value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} rows={2} />
           </div>
@@ -229,63 +225,74 @@ export function AcceptanceCriteriaPanel({
       )}
 
       <div className="space-y-2">
-        {criteria.map((ac) => (
-          <div key={ac.id} className={`rounded-md border p-3 ${editId === ac.id ? "border-primary/40 bg-primary/5" : "bg-muted/30"}`}>
-            <div className="flex items-start gap-2">
-              {statusIcon(ac.status)}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-semibold text-muted-foreground">{ac.ac_ref}</span>
-                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(ac.status)}`}>{ac.status}</span>
-                  {ac.owner && <span className="text-xs text-muted-foreground">{ac.owner}</span>}
+        {criteria.map((ac) => {
+          const acEvidence = evidence.filter((ev) => ev.ac_id === ac.id);
+          const isExpanded = expandedId === ac.id;
+          return (
+            <div key={ac.id} className={`rounded-md border ${editId === ac.id ? "border-primary/40 bg-primary/5" : "bg-muted/30"}`}>
+              <div className="flex items-start gap-2 p-3">
+                {statusIcon(ac.status)}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-muted-foreground">{ac.ac_ref}</span>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(ac.status)}`}>{ac.status}</span>
+                    {ac.owner && <span className="text-xs text-muted-foreground">{ac.owner}</span>}
+                    {acEvidence.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isExpanded ? null : ac.id)}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        {acEvidence.length} evidence item{acEvidence.length > 1 ? "s" : ""}
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm font-medium">{ac.criterion}</p>
+                  {ac.description && <p className="mt-0.5 text-xs text-muted-foreground">{ac.description}</p>}
                 </div>
-                <p className="mt-1 text-sm font-medium">{ac.criterion}</p>
-                {ac.description && <p className="mt-0.5 text-xs text-muted-foreground">{ac.description}</p>}
-                {ac.evidence && (
-                  <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium">Evidence:</span> {ac.evidence}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {ac.status !== "Met" && (
-                  <button
-                    type="button"
-                    title="Mark Met"
-                    onClick={() => void quickStatus(ac, "Met")}
-                    className="rounded p-1 text-green-600 hover:bg-green-50"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-1 shrink-0">
+                  {ac.status !== "Met" && (
+                    <button type="button" title="Mark Met" onClick={() => void quickStatus(ac, "Met")} className="rounded p-1 text-green-600 hover:bg-green-50">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {ac.status !== "Failed" && (
+                    <button type="button" title="Mark Failed" onClick={() => void quickStatus(ac, "Failed")} className="rounded p-1 text-red-600 hover:bg-red-50">
+                      <XCircle className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button type="button" title="Toggle evidence" onClick={() => setExpandedId(isExpanded ? null : ac.id)} className="rounded p-1 text-muted-foreground hover:text-primary" aria-label="Evidence">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                   </button>
-                )}
-                {ac.status !== "Failed" && (
-                  <button
-                    type="button"
-                    title="Mark Failed"
-                    onClick={() => void quickStatus(ac, "Failed")}
-                    className="rounded p-1 text-red-600 hover:bg-red-50"
-                  >
-                    <XCircle className="h-3.5 w-3.5" />
+                  <button type="button" title="Edit" onClick={() => startEdit(ac)} className="rounded p-1 text-muted-foreground hover:text-foreground">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                   </button>
-                )}
-                <button
-                  type="button"
-                  title="Edit"
-                  onClick={() => startEdit(ac)}
-                  className="rounded p-1 text-muted-foreground hover:text-foreground"
-                >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                </button>
-                <button
-                  type="button"
-                  title="Delete"
-                  onClick={() => void remove(ac.id)}
-                  className="rounded p-1 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                  <button type="button" title="Delete" onClick={() => void remove(ac.id)} className="rounded p-1 text-muted-foreground hover:text-destructive">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
+
+              {isExpanded && (
+                <div className="border-t px-3 pb-3">
+                  <EvidencePanel
+                    acId={ac.id}
+                    projectId={projectId}
+                    evidence={acEvidence}
+                    onUpdate={(updated) => {
+                      // Merge updated evidence items back into the parent evidence array
+                      const updatedIds = new Set(updated.map((e) => e.id));
+                      const rest = evidence.filter((e) => e.ac_id !== ac.id || updatedIds.has(e.id));
+                      const newItems = updated.filter((e) => !evidence.some((ex) => ex.id === e.id));
+                      const merged = rest.map((e) => updated.find((u) => u.id === e.id) ?? e);
+                      onEvidenceUpdate([...merged, ...newItems]);
+                    }}
+                  />
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

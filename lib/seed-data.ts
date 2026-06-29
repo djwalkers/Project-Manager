@@ -1,5 +1,7 @@
 import type {
   AcceptanceCriteria,
+  Evidence,
+  RequirementSignOff,
   ActionItem,
   ActivityLog,
   Decision,
@@ -368,4 +370,6 @@ export const seedData = {
   go_live_checklists,
   cutover_plan,
   acceptance_criteria: [] as AcceptanceCriteria[],
+  evidence: [] as Evidence[],
+  requirement_sign_offs: [] as RequirementSignOff[],
 };

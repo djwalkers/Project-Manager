@@ -342,6 +342,38 @@ export type AuditFilter = {
 
 export type AcceptanceCriteriaStatus = "Not Started" | "In Progress" | "Met" | "Failed" | "Waived";
 
+export type EvidenceType = "Screenshot" | "Test Result" | "SQL Query" | "Customer Email" | "Meeting Note" | "Design Document" | "Other";
+
+export type Evidence = {
+  id: string;
+  project_id: string;
+  ac_id: string;
+  evidence_type: EvidenceType;
+  title: string;
+  description: string | null;
+  url: string | null;
+  evidence_date: string | null;
+  owner: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SignOffStatus = "Pending" | "Approved" | "Rejected";
+export type SignOffType = "Business" | "Technical" | "Testing" | "Customer";
+
+export type RequirementSignOff = {
+  id: string;
+  project_id: string;
+  requirement_id: string;
+  sign_off_type: SignOffType;
+  person: string | null;
+  sign_off_date: string | null;
+  status: SignOffStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AcceptanceCriteria = {
   id: string;
   project_id: string;
@@ -378,6 +410,8 @@ export type EntityMap = {
   go_live_checklists: GoLiveChecklist;
   cutover_plan: CutoverStep;
   acceptance_criteria: AcceptanceCriteria;
+  evidence: Evidence;
+  requirement_sign_offs: RequirementSignOff;
 };
 
 export type EntityName = keyof EntityMap;

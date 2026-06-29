@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AcceptanceCriteriaPanel } from "@/components/acceptance-criteria-panel";
 import { ArtefactLinker } from "@/components/artefact-linker";
+import { ReadinessGates } from "@/components/readiness-gates";
+import { RequirementReadiness } from "@/components/requirement-readiness";
+import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
@@ -21,7 +24,7 @@ import {
   saveRecord,
 } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
-import type { AcceptanceCriteria, Deliverable } from "@/lib/types";
+import type { AcceptanceCriteria, Deliverable, Evidence, RequirementSignOff, TestCase } from "@/lib/types";
 
 const LINKABLE = new Set([
   "requirements", "acceptance_criteria", "decisions", "discovery_questions",
@@ -185,8 +188,13 @@ export function ModulePageClient({ section }: { section: string }) {
     if (!isDeliverable && !isRequirement && !LINKABLE.has(config.key)) return null;
     const criteria = (pageData.acceptance_criteria ?? []).filter((ac: AcceptanceCriteria) => ac.requirement_id === recordId);
     const allCriteria = (pageData.acceptance_criteria ?? []) as AcceptanceCriteria[];
+    const evidence = (pageData.evidence ?? []) as Evidence[];
+    const reqEvidence = evidence.filter((ev) => criteria.some((ac) => ac.id === ev.ac_id));
+    const signOffs = ((pageData.requirement_sign_offs ?? []) as RequirementSignOff[]).filter((s) => s.requirement_id === recordId);
+    const testCases = (pageData.test_cases ?? []) as TestCase[];
     const isTestCase = config.key === "test_cases";
     const testStatus = String(row.status ?? "");
+    const requirementStatus = String(row.status ?? "");
     return (
       <div className="space-y-4">
         {isDeliverable && <DeliverableReadiness row={row} />}
@@ -197,23 +205,53 @@ export function ModulePageClient({ section }: { section: string }) {
           </p>
         )}
         {isRequirement && pid && recordId && (
-          <AcceptanceCriteriaPanel
-            requirementId={recordId}
-            projectId={pid}
-            criteria={criteria}
-            allCriteria={allCriteria}
-            onUpdate={(updated) => {
-              setData((current) => {
-                if (!current) return current;
-                const existingIds = new Set(updated.map((ac) => ac.id));
-                const existing = (current.acceptance_criteria ?? []) as AcceptanceCriteria[];
-                const kept = existing.filter((ac) => ac.requirement_id !== recordId || existingIds.has(ac.id));
-                const newItems = updated.filter((ac) => !existing.some((e) => e.id === ac.id));
-                const merged = kept.map((ac) => updated.find((u) => u.id === ac.id) ?? ac);
-                return { ...current, acceptance_criteria: [...merged, ...newItems] };
-              });
-            }}
-          />
+          <>
+            <RequirementReadiness criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={testCases} />
+            <ReadinessGates criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={testCases} requirementStatus={requirementStatus} />
+            <AcceptanceCriteriaPanel
+              requirementId={recordId}
+              projectId={pid}
+              criteria={criteria}
+              allCriteria={allCriteria}
+              evidence={reqEvidence}
+              onUpdate={(updated) => {
+                setData((current) => {
+                  if (!current) return current;
+                  const existingIds = new Set(updated.map((ac) => ac.id));
+                  const existing = (current.acceptance_criteria ?? []) as AcceptanceCriteria[];
+                  const kept = existing.filter((ac) => ac.requirement_id !== recordId || existingIds.has(ac.id));
+                  const newItems = updated.filter((ac) => !existing.some((e) => e.id === ac.id));
+                  const merged = kept.map((ac) => updated.find((u) => u.id === ac.id) ?? ac);
+                  return { ...current, acceptance_criteria: [...merged, ...newItems] };
+                });
+              }}
+              onEvidenceUpdate={(updated) => {
+                setData((current) => {
+                  if (!current) return current;
+                  const existing = (current.evidence ?? []) as Evidence[];
+                  const updatedIds = new Set(updated.map((e) => e.id));
+                  const kept = existing.filter((e) => !updatedIds.has(e.id) && !updated.some((u) => u.id === e.id));
+                  return { ...current, evidence: [...kept, ...updated] };
+                });
+              }}
+            />
+            <RequirementSignOffPanel
+              requirementId={recordId}
+              projectId={pid}
+              signOffs={signOffs}
+              onUpdate={(updated) => {
+                setData((current) => {
+                  if (!current) return current;
+                  const existing = (current.requirement_sign_offs ?? []) as RequirementSignOff[];
+                  const updatedIds = new Set(updated.map((s) => s.id));
+                  const kept = existing.filter((s) => s.requirement_id !== recordId || updatedIds.has(s.id));
+                  const newItems = updated.filter((s) => !existing.some((e) => e.id === s.id));
+                  const merged = kept.map((s) => updated.find((u) => u.id === s.id) ?? s);
+                  return { ...current, requirement_sign_offs: [...merged, ...newItems] };
+                });
+              }}
+            />
+          </>
         )}
         {LINKABLE.has(config.key) && pid && recordId && (
           <ArtefactLinker entity={config.key} recordId={recordId} projectId={pid} data={pageData} />

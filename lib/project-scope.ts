@@ -122,5 +122,7 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
     go_live_checklists: belongsToProject(data.go_live_checklists ?? []),
     cutover_plan: belongsToProject(data.cutover_plan ?? []),
     acceptance_criteria: belongsToProject(data.acceptance_criteria ?? []),
+    evidence: belongsToProject(data.evidence ?? []),
+    requirement_sign_offs: belongsToProject(data.requirement_sign_offs ?? []),
   };
 }

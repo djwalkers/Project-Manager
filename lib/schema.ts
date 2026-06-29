@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "018_acceptance_criteria";
-export const latestMigration = "018_acceptance_criteria";
+export const schemaVersion = "019_evidence_and_signoff";
+export const latestMigration = "019_evidence_and_signoff";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -21,6 +21,7 @@ export const allMigrations = [
   "016_risk_trend",
   "017_artefact_links",
   "018_acceptance_criteria",
+  "019_evidence_and_signoff",
 ] as const;
 
 export type SchemaColumn = {
@@ -351,6 +352,35 @@ export const schemaTables: SchemaTable[] = [
       { name: "status", type: "text", required: true },
       { name: "owner", type: "text", required: false },
       { name: "evidence", type: "text", required: false },
+      { name: "notes", type: "text", required: false },
+      createdAt,
+      updatedAt,
+    ],
+  },
+  {
+    name: "evidence",
+    columns: [
+      id, projectId,
+      { name: "ac_id", type: "uuid", required: true, foreignKey: "acceptance_criteria.id" },
+      { name: "evidence_type", type: "text", required: true },
+      { name: "title", type: "text", required: true },
+      { name: "description", type: "text", required: false },
+      { name: "url", type: "text", required: false },
+      { name: "evidence_date", type: "date", required: false },
+      { name: "owner", type: "text", required: false },
+      createdAt,
+      updatedAt,
+    ],
+  },
+  {
+    name: "requirement_sign_offs",
+    columns: [
+      id, projectId,
+      { name: "requirement_id", type: "uuid", required: true, foreignKey: "requirements.id" },
+      { name: "sign_off_type", type: "text", required: true },
+      { name: "person", type: "text", required: false },
+      { name: "sign_off_date", type: "date", required: false },
+      { name: "status", type: "text", required: true },
       { name: "notes", type: "text", required: false },
       createdAt,
       updatedAt,

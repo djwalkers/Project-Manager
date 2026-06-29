@@ -36,6 +36,7 @@ import {
 } from "@/lib/control-tower";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention } from "@/lib/delivery";
+import { computeReadiness } from "@/components/requirement-readiness";
 import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
@@ -136,6 +137,12 @@ export default function DashboardPage() {
         ).length;
         return { total, met, failed, outstanding, pct, reqs100, reqsFailed };
       })(),
+      projectReadiness: computeReadiness(
+        data.acceptance_criteria ?? [],
+        data.evidence ?? [],
+        data.requirement_sign_offs ?? [],
+        data.test_cases ?? [],
+      ),
     };
   }, [data]);
 
@@ -211,6 +218,23 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
           <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
           <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
+          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
+          <ControlTowerKpi
+            title="Delivery Confidence"
+            value={`${tower.projectReadiness.overall}%`}
+            helper={(() => {
+              const o = tower.projectReadiness.overall;
+              const dims = tower.projectReadiness.dimensions;
+              const weak = dims.filter((d) => d.pct < 70).map((d) => d.label).join(", ");
+              if (o === 100) return "All readiness dimensions satisfied.";
+              if (o >= 70) return weak ? `Good confidence. Improve: ${weak}.` : "On track for delivery.";
+              if (o >= 40) return weak ? `Moderate confidence. Gaps in: ${weak}.` : "Readiness needs attention.";
+              return weak ? `Low confidence. Critical gaps in: ${weak}.` : "Delivery is at risk.";
+            })()}
+            icon={Target}
+            progress={tower.projectReadiness.overall}
+            tone={tower.projectReadiness.overall >= 70 ? "good" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"}
+          />
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">

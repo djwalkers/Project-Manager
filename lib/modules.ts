@@ -50,7 +50,6 @@ export const navItems = [
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
   { href: "/deliverables", label: "Deliverables", icon: PackageCheck },
   { href: "/requirements", label: "Requirements", icon: ListChecks },
-  { href: "/acceptance-criteria", label: "Acceptance Criteria", icon: ShieldCheck },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/decisions", label: "Decisions", icon: ShieldQuestion },
   { href: "/discovery-questions", label: "Discovery Questions", icon: CircleHelp },
