@@ -13,6 +13,7 @@ type Row = Record<string, unknown>;
 // Entity types that support linking
 const LINKABLE_ENTITIES: string[] = [
   "requirements",
+  "acceptance_criteria",
   "decisions",
   "discovery_questions",
   "deliverables",
@@ -24,6 +25,7 @@ const LINKABLE_ENTITIES: string[] = [
 function refKey(entity: string): string {
   const map: Record<string, string> = {
     requirements: "requirement_ref",
+    acceptance_criteria: "ac_ref",
     decisions: "decision_ref",
     discovery_questions: "question_ref",
     deliverables: "deliverable_ref",
@@ -39,6 +41,7 @@ function refKey(entity: string): string {
 function labelKey(entity: string): string {
   const map: Record<string, string> = {
     requirements: "title",
+    acceptance_criteria: "criterion",
     decisions: "question",
     discovery_questions: "question",
     deliverables: "title",

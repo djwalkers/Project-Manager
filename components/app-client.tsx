@@ -3,6 +3,7 @@
 import { AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { AcceptanceCriteriaPanel } from "@/components/acceptance-criteria-panel";
 import { ArtefactLinker } from "@/components/artefact-linker";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
@@ -20,10 +21,10 @@ import {
   saveRecord,
 } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
-import type { Deliverable } from "@/lib/types";
+import type { AcceptanceCriteria, Deliverable } from "@/lib/types";
 
 const LINKABLE = new Set([
-  "requirements", "decisions", "discovery_questions",
+  "requirements", "acceptance_criteria", "decisions", "discovery_questions",
   "deliverables", "risks", "actions", "test_cases",
 ]);
 
@@ -51,6 +52,49 @@ function ReadinessBar({ label, status }: { label: string; status: string }) {
           className={`h-full rounded-full transition-[width] duration-300 ${blocked ? "bg-red-500" : "bg-primary"}`}
           style={{ width: `${Math.max(0, pct)}%` }}
         />
+      </div>
+    </div>
+  );
+}
+
+function DeliverableACReadiness({ row, data }: { row: Row; data: DataStore }) {
+  // Show AC readiness aggregated across all requirements in this project
+  const pid = String(row.project_id ?? "");
+  const allAC = (data.acceptance_criteria ?? []) as AcceptanceCriteria[];
+  const projectAC = allAC.filter((ac) => ac.project_id === pid);
+  if (!projectAC.length) return null;
+
+  const projectReqs = data.requirements.filter((r) => r.project_id === pid);
+  const reqsWith100 = projectReqs.filter((r) => {
+    const acs = projectAC.filter((ac) => ac.requirement_id === r.id);
+    return acs.length > 0 && acs.every((ac) => ac.status === "Met" || ac.status === "Waived");
+  }).length;
+  const reqsWithAC = projectReqs.filter((r) => projectAC.some((ac) => ac.requirement_id === r.id)).length;
+  const met = projectAC.filter((ac) => ac.status === "Met" || ac.status === "Waived").length;
+  const pct = projectAC.length > 0 ? Math.round((met / projectAC.length) * 100) : 0;
+
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase text-muted-foreground mb-2">Acceptance Readiness</p>
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <div className="rounded-md bg-muted/60 p-2 text-center">
+          <p className="text-lg font-bold tabular-nums">{reqsWithAC}</p>
+          <p className="text-xs text-muted-foreground">Requirements</p>
+        </div>
+        <div className="rounded-md bg-green-50 p-2 text-center">
+          <p className="text-lg font-bold tabular-nums text-green-700">{reqsWith100}</p>
+          <p className="text-xs text-muted-foreground">AC Complete</p>
+        </div>
+        <div className="rounded-md bg-muted/60 p-2 text-center">
+          <p className="text-lg font-bold tabular-nums">{reqsWithAC - reqsWith100}</p>
+          <p className="text-xs text-muted-foreground">Outstanding</p>
+        </div>
+      </div>
+      <div className="mb-1 flex justify-between text-xs">
+        <span>Readiness</span><span className="font-semibold">{pct}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full ${pct === 100 ? "bg-green-600" : "bg-primary"}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -134,15 +178,45 @@ export function ModulePageClient({ section }: { section: string }) {
 
   const detailFooter = useCallback((row: Row) => {
     if (!config || !pageData) return null;
-    const projectId = String(row.project_id ?? activeProject?.id ?? "");
+    const pid = String(row.project_id ?? activeProject?.id ?? "");
     const recordId = String(row.id ?? "");
     const isDeliverable = config.key === "deliverables";
-    if (!isDeliverable && !LINKABLE.has(config.key)) return null;
+    const isRequirement = config.key === "requirements";
+    if (!isDeliverable && !isRequirement && !LINKABLE.has(config.key)) return null;
+    const criteria = (pageData.acceptance_criteria ?? []).filter((ac: AcceptanceCriteria) => ac.requirement_id === recordId);
+    const allCriteria = (pageData.acceptance_criteria ?? []) as AcceptanceCriteria[];
+    const isTestCase = config.key === "test_cases";
+    const testStatus = String(row.status ?? "");
     return (
       <div className="space-y-4">
         {isDeliverable && <DeliverableReadiness row={row} />}
-        {LINKABLE.has(config.key) && projectId && recordId && (
-          <ArtefactLinker entity={config.key} recordId={recordId} projectId={projectId} data={pageData} />
+        {isDeliverable && <DeliverableACReadiness row={row} data={pageData} />}
+        {isTestCase && testStatus === "Passed" && (
+          <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+            This test has Passed. If it validates linked Acceptance Criteria, consider marking those criteria as Met.
+          </p>
+        )}
+        {isRequirement && pid && recordId && (
+          <AcceptanceCriteriaPanel
+            requirementId={recordId}
+            projectId={pid}
+            criteria={criteria}
+            allCriteria={allCriteria}
+            onUpdate={(updated) => {
+              setData((current) => {
+                if (!current) return current;
+                const existingIds = new Set(updated.map((ac) => ac.id));
+                const existing = (current.acceptance_criteria ?? []) as AcceptanceCriteria[];
+                const kept = existing.filter((ac) => ac.requirement_id !== recordId || existingIds.has(ac.id));
+                const newItems = updated.filter((ac) => !existing.some((e) => e.id === ac.id));
+                const merged = kept.map((ac) => updated.find((u) => u.id === ac.id) ?? ac);
+                return { ...current, acceptance_criteria: [...merged, ...newItems] };
+              });
+            }}
+          />
+        )}
+        {LINKABLE.has(config.key) && pid && recordId && (
+          <ArtefactLinker entity={config.key} recordId={recordId} projectId={pid} data={pageData} />
         )}
       </div>
     );

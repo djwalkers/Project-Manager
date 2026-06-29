@@ -340,6 +340,23 @@ export type AuditFilter = {
   offset?: number;
 };
 
+export type AcceptanceCriteriaStatus = "Not Started" | "In Progress" | "Met" | "Failed" | "Waived";
+
+export type AcceptanceCriteria = {
+  id: string;
+  project_id: string;
+  requirement_id: string;
+  ac_ref: string;
+  criterion: string;
+  description: string | null;
+  status: AcceptanceCriteriaStatus;
+  owner: string | null;
+  evidence: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EntityMap = {
   projects: Project;
   deliverables: Deliverable;
@@ -360,6 +377,7 @@ export type EntityMap = {
   email_activity_log: EmailActivity;
   go_live_checklists: GoLiveChecklist;
   cutover_plan: CutoverStep;
+  acceptance_criteria: AcceptanceCriteria;
 };
 
 export type EntityName = keyof EntityMap;

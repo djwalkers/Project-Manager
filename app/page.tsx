@@ -13,6 +13,7 @@ import {
   HeartPulse,
   ListChecks,
   PackageCheck,
+  ShieldCheck,
   Target,
   Timer,
 } from "lucide-react";
@@ -119,6 +120,22 @@ export default function DashboardPage() {
       },
       waitingOnOthers: buildWaitingOnOthersGrouped(data),
       todaysPriorities: buildTodaysPriorities(data),
+      acceptance: (() => {
+        const allAC = data.acceptance_criteria ?? [];
+        const total = allAC.length;
+        const met = allAC.filter((ac) => ac.status === "Met").length;
+        const failed = allAC.filter((ac) => ac.status === "Failed").length;
+        const outstanding = allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length;
+        const pct = total > 0 ? Math.round((met / total) * 100) : 0;
+        const reqs100 = data.requirements.filter((r) => {
+          const acs = allAC.filter((ac) => ac.requirement_id === r.id);
+          return acs.length > 0 && acs.every((ac) => ac.status === "Met" || ac.status === "Waived");
+        }).length;
+        const reqsFailed = data.requirements.filter((r) =>
+          allAC.some((ac) => ac.requirement_id === r.id && ac.status === "Failed"),
+        ).length;
+        return { total, met, failed, outstanding, pct, reqs100, reqsFailed };
+      })(),
     };
   }, [data]);
 
@@ -193,6 +210,7 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} href="/milestones" />
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
           <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
+          <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">

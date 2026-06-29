@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "016_risk_trend";
-export const latestMigration = "016_risk_trend";
+export const schemaVersion = "018_acceptance_criteria";
+export const latestMigration = "018_acceptance_criteria";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -19,6 +19,8 @@ export const allMigrations = [
   "014_email_settings_anon_read",
   "015_project_data_anon_read",
   "016_risk_trend",
+  "017_artefact_links",
+  "018_acceptance_criteria",
 ] as const;
 
 export type SchemaColumn = {
@@ -332,6 +334,23 @@ export const schemaTables: SchemaTable[] = [
       { name: "planned_time", type: "text", required: false },
       { name: "actual_time", type: "text", required: false },
       { name: "status", type: "text", required: true },
+      { name: "notes", type: "text", required: false },
+      createdAt,
+      updatedAt,
+    ],
+  },
+  {
+    name: "acceptance_criteria",
+    seedKey: ["project_id", "ac_ref"],
+    columns: [
+      id, projectId,
+      { name: "requirement_id", type: "uuid", required: true, foreignKey: "requirements.id" },
+      { name: "ac_ref", type: "text", required: true },
+      { name: "criterion", type: "text", required: true },
+      { name: "description", type: "text", required: false },
+      { name: "status", type: "text", required: true },
+      { name: "owner", type: "text", required: false },
+      { name: "evidence", type: "text", required: false },
       { name: "notes", type: "text", required: false },
       createdAt,
       updatedAt,

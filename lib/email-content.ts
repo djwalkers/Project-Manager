@@ -74,6 +74,7 @@ function kpiCell(label: string, value: string, sub?: string) {
 
 function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr: string, in7DaysStr: string, now: Date): { html: string; text: string; priorities: Array<{ label: string; score: number }> } {
   const { deliverables, actions, risks, milestones, decisions, dependencies, discovery_questions, test_cases } = scoped;
+  const allAC = scoped.acceptance_criteria ?? [];
 
   // Project Summary
   const totalDel = deliverables.length;
@@ -149,12 +150,36 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
     ...openDependencies.map((d) => `Dependency: ${d.name}${d.owner ? ` (${d.owner})` : ""}`),
   ];
 
+  // Acceptance Criteria
+  const failedACReqs = scoped.requirements.filter((r) =>
+    allAC.some((ac) => ac.requirement_id === r.id && ac.status === "Failed"),
+  ).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+  const signOffReadyReqs = scoped.requirements.filter((r) => {
+    const acs = allAC.filter((ac) => ac.requirement_id === r.id);
+    return acs.length > 0 && acs.every((ac) => ac.status === "Met" || ac.status === "Waived");
+  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+  const acHtml = allAC.length === 0
+    ? `<p style="margin:0;color:#94a3b8;font-size:13px">No acceptance criteria recorded.</p>`
+    : [
+        `<table style="border-collapse:collapse;font-size:13px;margin-bottom:8px"><tr>
+          <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Total</span> <strong>${allAC.length}</strong></td>
+          <td style="padding:4px 20px 4px 0"><span style="color:#16a34a">Met</span> <strong>${allAC.filter((ac) => ac.status === "Met").length}</strong></td>
+          <td style="padding:4px 20px 4px 0"><span style="color:#dc2626">Failed</span> <strong>${allAC.filter((ac) => ac.status === "Failed").length}</strong></td>
+          <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Outstanding</span> <strong>${allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length}</strong></td>
+        </tr></table>`,
+        failedACReqs.length ? `<p style="margin:4px 0;font-size:12px;font-weight:700;color:#dc2626">Requirements with failed criteria:</p>${briefList(failedACReqs, "")}` : "",
+        signOffReadyReqs.length ? `<p style="margin:8px 0 4px;font-size:12px;font-weight:700;color:#16a34a">Requirements ready for sign-off:</p>${briefList(signOffReadyReqs, "")}` : "",
+      ].join("");
+
+  if (failedACReqs.length > 0) priorities.push({ label: `${failedACReqs.length} requirement(s) with failed acceptance criteria`, score: 95 });
+
   const html = [
     projectHeader,
     briefSection("Project Summary", summaryHtml),
     briefSection("Today's Attention", attentionHtml),
     briefSection("Development", briefList(devItems, "No deliverables in progress.")),
     briefSection("Testing", testHtml),
+    briefSection("Acceptance Criteria", acHtml),
     briefSection("Governance", briefList(govItems, "No open decisions or dependencies.")),
   ].join("");
 
@@ -230,9 +255,25 @@ export function buildAutomatedWeeklySummary(data: DataStore, now = new Date(), w
       ).flatMap(([type, lines]) => [`${type.replace("_", " ").toUpperCase()}`, ...lines.slice(0, 3)])
     : [];
 
+  // Acceptance Criteria weekly summary
+  const allAC = data.acceptance_criteria ?? [];
+  const acTotal = allAC.length;
+  const acMet = allAC.filter((ac) => ac.status === "Met").length;
+  const acPct = acTotal > 0 ? Math.round((acMet / acTotal) * 100) : 0;
+  const acceptanceProgress = acTotal > 0 ? [`${acMet}/${acTotal} criteria met (${acPct}%)`] : [];
+  const topFailingCriteria = allAC.filter((ac) => ac.status === "Failed").slice(0, 5)
+    .map((ac) => `${ac.ac_ref}: ${ac.criterion.slice(0, 80)}`);
+  const reqsAwaitingAcceptance = data.requirements.filter((r) => {
+    const acs = allAC.filter((ac) => ac.requirement_id === r.id);
+    return acs.length > 0 && acs.some((ac) => !["Met", "Waived"].includes(ac.status));
+  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+
   const groups: [string, string[], string][] = [
     ["Project Progress Trends", progressTrends, "Snapshot history is still building."],
     ["Health Changes", healthChanges, "No health changes recorded."],
+    ["Acceptance Progress", acceptanceProgress, "No acceptance criteria recorded."],
+    ["Requirements with Failed Criteria", topFailingCriteria, "No failed acceptance criteria."],
+    ["Requirements Awaiting Acceptance", reqsAwaitingAcceptance.slice(0, 10), "All requirements have acceptance criteria met."],
     ["Risks Added / Closed", risks, "No comparable snapshots are available."],
     ["Decisions Made", decisions, "No decisions were recorded this week."],
     ["Deliverables Completed", deliverables, "No deliverables were completed this week."],

@@ -1,4 +1,5 @@
 import type {
+  AcceptanceCriteria,
   ActionItem,
   ActivityLog,
   Decision,
@@ -366,4 +367,5 @@ export const seedData = {
   email_activity_log,
   go_live_checklists,
   cutover_plan,
+  acceptance_criteria: [] as AcceptanceCriteria[],
 };

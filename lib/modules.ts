@@ -19,6 +19,7 @@ import {
   PackageCheck,
   PanelsTopLeft,
   Settings,
+  ShieldCheck,
   ShieldQuestion,
   Stethoscope,
   TrendingUp,
@@ -49,6 +50,7 @@ export const navItems = [
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
   { href: "/deliverables", label: "Deliverables", icon: PackageCheck },
   { href: "/requirements", label: "Requirements", icon: ListChecks },
+  { href: "/acceptance-criteria", label: "Acceptance Criteria", icon: ShieldCheck },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/decisions", label: "Decisions", icon: ShieldQuestion },
   { href: "/discovery-questions", label: "Discovery Questions", icon: CircleHelp },
@@ -65,6 +67,7 @@ export const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+const acceptanceCriteriaStatusOptions = ["Not Started", "In Progress", "Met", "Failed", "Waived"];
 const statusOptions = ["Discovery", "Open", "In Progress", "Pending", "Blocked", "Approved", "Complete", "Closed"];
 const requirementSourceOptions = [
   "Functional Specification",
@@ -182,6 +185,32 @@ export const modules: ModuleConfig[] = [
       { key: "owner", label: "Owner" },
       { key: "source", label: "Source", type: "select", options: requirementSourceOptions, badge: true },
       { key: "notes", label: "Notes", type: "textarea", rows: 4 },
+    ],
+  },
+  {
+    key: "acceptance_criteria",
+    slug: "acceptance-criteria",
+    title: "Acceptance Criteria",
+    singular: "Acceptance Criterion",
+    description: "Define what 'done' means for each requirement. Evidence used for SIT, UAT and project sign-off.",
+    icon: ShieldCheck,
+    statusField: "status",
+    searchFields: ["ac_ref", "criterion", "owner", "status"],
+    filterFields: ["status", "owner"],
+    columns: [
+      { key: "ac_ref", label: "Ref" },
+      { key: "criterion", label: "Criterion" },
+      { key: "owner", label: "Owner" },
+      { key: "status", label: "Status", type: "status" },
+    ],
+    fields: [
+      { key: "ac_ref", label: "Reference", refPrefix: "AC" },
+      { key: "criterion", label: "Criterion", required: true },
+      { key: "description", label: "Description", type: "textarea" },
+      { key: "status", label: "Status", type: "select", options: acceptanceCriteriaStatusOptions, required: true },
+      { key: "owner", label: "Owner" },
+      { key: "evidence", label: "Evidence", type: "textarea" },
+      { key: "notes", label: "Notes", type: "textarea" },
     ],
   },
   {

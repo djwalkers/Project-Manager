@@ -37,7 +37,7 @@ export type IntelligenceReport = {
 
 export type IntelligenceRuleDefinition = { id: string; category: IntelligenceCategory; sources: string[] };
 
-export const INTELLIGENCE_SOURCES = ["requirements", "risks", "decisions", "actions", "discovery_questions", "milestones", "timeline_items", "deliverables", "test_cases", "project_snapshots", "activity_log", "meetings", "go_live_checklists"] as const;
+export const INTELLIGENCE_SOURCES = ["requirements", "risks", "decisions", "actions", "discovery_questions", "milestones", "timeline_items", "deliverables", "test_cases", "project_snapshots", "activity_log", "meetings", "go_live_checklists", "acceptance_criteria"] as const;
 
 export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "SCH-001", category: "Schedule", sources: ["timeline_items"] },
@@ -80,6 +80,10 @@ export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "REQ-002", category: "Governance", sources: ["requirements"] },
   { id: "REQ-003", category: "Governance", sources: ["requirements"] },
   { id: "REQ-004", category: "Governance", sources: ["requirements"] },
+  { id: "REQ-AC-001", category: "Governance", sources: ["requirements", "acceptance_criteria"] },
+  { id: "REQ-AC-002", category: "Governance", sources: ["acceptance_criteria"] },
+  { id: "REQ-AC-003", category: "Governance", sources: ["requirements", "acceptance_criteria"] },
+  { id: "REQ-AC-004", category: "Governance", sources: ["requirements", "acceptance_criteria"] },
 ];
 
 const DAY_MS = 86_400_000;
@@ -359,6 +363,67 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
       criticalNoOwner.slice(0, 3).map((r) => r.requirement_ref).join(", "),
       100,
       "Assign an accountable owner to every Critical requirement immediately.");
+  }
+
+  // ── Acceptance Criteria rules ─────────────────────────────────────────────────
+  const scopedAC = (data.acceptance_criteria ?? []).filter((ac) => ac.project_id === project.id);
+  if (scopedAC.length > 0) {
+    // REQ-AC-001: Requirement marked Complete but AC incomplete
+    const completeReqs = scoped.requirements.filter((r) => r.status === "Complete");
+    const completeReqsWithOutstandingAC = completeReqs.filter((r) => {
+      const acs = scopedAC.filter((ac) => ac.requirement_id === r.id);
+      return acs.length > 0 && acs.some((ac) => !["Met", "Waived"].includes(ac.status));
+    });
+    if (completeReqsWithOutstandingAC.length) {
+      add(project, "REQ-AC-001", "Governance", "Critical",
+        "Requirements are marked Complete but acceptance criteria are incomplete",
+        `${completeReqsWithOutstandingAC.length} requirement${completeReqsWithOutstandingAC.length > 1 ? "s are" : " is"} Complete with outstanding acceptance criteria.`,
+        completeReqsWithOutstandingAC.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+        100,
+        "Complete or waive acceptance criteria before marking requirements as Complete.");
+    }
+
+    // REQ-AC-002: Acceptance Criterion marked Failed
+    const failedAC = scopedAC.filter((ac) => ac.status === "Failed");
+    if (failedAC.length) {
+      add(project, "REQ-AC-002", "Governance", "Warning",
+        `${failedAC.length} acceptance ${failedAC.length === 1 ? "criterion has" : "criteria have"} failed`,
+        "Failed acceptance criteria must be remediated before sign-off.",
+        failedAC.slice(0, 3).map((ac) => `${ac.ac_ref}: ${ac.criterion.slice(0, 60)}`).join("; "),
+        100,
+        "Investigate failures and agree a remediation or waiver for each failed criterion.");
+    }
+  }
+
+  // REQ-AC-003: Requirements with no acceptance criteria
+  const reqsWithNoAC = scoped.requirements.filter((r) =>
+    !["Complete", "Closed"].includes(r.status) &&
+    !(data.acceptance_criteria ?? []).some((ac) => ac.requirement_id === r.id),
+  );
+  if (reqsWithNoAC.length) {
+    add(project, "REQ-AC-003", "Governance", "Warning",
+      "Requirements have no acceptance criteria",
+      `${reqsWithNoAC.length} active requirement${reqsWithNoAC.length > 1 ? "s have" : " has"} no acceptance criteria defined.`,
+      reqsWithNoAC.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+      100,
+      "Define acceptance criteria for all active requirements to enable sign-off.");
+  }
+
+  // REQ-AC-004: All AC met but requirement still In Progress
+  if (scopedAC.length > 0) {
+    const inProgressReqsAllMet = scoped.requirements.filter((r) => {
+      if (r.status !== "In Progress") return false;
+      const acs = scopedAC.filter((ac) => ac.requirement_id === r.id);
+      return acs.length > 0 && acs.every((ac) => ["Met", "Waived"].includes(ac.status));
+    });
+    if (inProgressReqsAllMet.length) {
+      add(project, "REQ-AC-004", "Governance", "Info",
+        "All acceptance criteria met — requirements can be updated to Complete",
+        `${inProgressReqsAllMet.length} requirement${inProgressReqsAllMet.length > 1 ? "s have" : " has"} all acceptance criteria met but remain In Progress.`,
+        inProgressReqsAllMet.slice(0, 3).map((r) => r.requirement_ref).join(", "),
+        100,
+        "Update requirement status to Complete and capture sign-off evidence.");
+    }
   }
 
   findings.sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || b.confidence - a.confidence || a.ruleId.localeCompare(b.ruleId));
