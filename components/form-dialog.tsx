@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import type { ModuleConfig } from "@/lib/modules";
-import { nextRef } from "@/lib/utils";
+import { nextRef, toDateInputValue } from "@/lib/utils";
 
 type RecordValue = Record<string, unknown>;
 
@@ -120,7 +120,7 @@ export function FormDialog({
               ) : (
                 <Input
                   type={field.type === "date" ? "date" : field.type === "number" ? "number" : "text"}
-                  value={String(form[field.key] ?? "")}
+                  value={field.type === "date" ? toDateInputValue(form[field.key]) : String(form[field.key] ?? "")}
                   onChange={(event) => update(field.key, event.target.value)}
                   onInput={(event) => update(field.key, event.currentTarget.value)}
                   onBlur={field.refPrefix ? () => validateRef(field.key, String(form[field.key] ?? "")) : undefined}
