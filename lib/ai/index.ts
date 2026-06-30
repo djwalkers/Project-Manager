@@ -2,29 +2,42 @@ import type { AIAnalysisResponse } from "@/lib/meeting-intelligence/types";
 import { analyseWithOpenAI, ConfigError } from "@/lib/ai/providers/openai";
 import { analyseWithGemini } from "@/lib/ai/providers/gemini";
 import { analyseWithAnthropic } from "@/lib/ai/providers/anthropic";
+import { loadAISettings, resolveEnvKey, type AIProviderName } from "@/lib/ai/settings";
 
-export type AIProvider = "openai" | "gemini" | "anthropic";
-
+export type { AIProviderName };
 export { ConfigError };
 
-function getProvider(): AIProvider {
-  const raw = (process.env.AI_PROVIDER ?? "openai").toLowerCase().trim();
-  if (raw === "gemini") return "gemini";
-  if (raw === "anthropic") return "anthropic";
-  return "openai";
+function getEnvProvider(): AIProviderName {
+  const raw = (process.env.AI_PROVIDER ?? "none").toLowerCase().trim();
+  if (raw === "openai" || raw === "gemini" || raw === "anthropic") return raw;
+  return "none";
 }
 
 export async function analyseMeeting(
   systemPrompt: string,
   meetingText: string,
 ): Promise<AIAnalysisResponse> {
-  const provider = getProvider();
+  // DB settings take precedence over env vars.
+  const dbSettings = await loadAISettings().catch(() => null);
+
+  const provider: AIProviderName = (dbSettings?.enabled && dbSettings.provider !== "none")
+    ? dbSettings.provider
+    : getEnvProvider();
+
+  if (provider === "none") {
+    throw new ConfigError(
+      "No AI provider is configured. Go to AI Settings to add a provider and API key.",
+    );
+  }
+
+  // Prefer DB key; fall back to env var.
+  const apiKey = (dbSettings?.enabled ? dbSettings.api_key : null)
+    ?? resolveEnvKey(provider)
+    ?? undefined;
+
   switch (provider) {
-    case "gemini":
-      return analyseWithGemini(systemPrompt, meetingText);
-    case "anthropic":
-      return analyseWithAnthropic(systemPrompt, meetingText);
-    default:
-      return analyseWithOpenAI(systemPrompt, meetingText);
+    case "gemini":    return analyseWithGemini(systemPrompt, meetingText, apiKey);
+    case "anthropic": return analyseWithAnthropic(systemPrompt, meetingText, apiKey);
+    default:          return analyseWithOpenAI(systemPrompt, meetingText, apiKey);
   }
 }

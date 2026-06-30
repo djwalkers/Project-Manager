@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, ClipboardCopy, Database, History, MailCheck, Server, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
+import { AlertTriangle, Bot, BrainCircuit, CheckCircle2, ClipboardCopy, Database, History, MailCheck, Server, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
@@ -91,6 +91,7 @@ function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementTyp
 export function SystemHealthPage() {
   const [report, setReport] = useState<SystemHealthReport | null>(null);
   const [resendConfigured, setResendConfigured] = useState(false);
+  const [aiMeta, setAiMeta] = useState<{ provider: string; enabled: boolean; key_configured: boolean } | null>(null);
   const [error, setError] = useState(false);
   const { user } = useAuth();
 
@@ -99,10 +100,12 @@ export function SystemHealthPage() {
     Promise.all([
       getSystemHealth(),
       fetch("/api/email/status").then((r) => r.json()).catch(() => ({ resendConfigured: false })),
-    ]).then(([value, email]) => {
+      fetch("/api/ai-settings").then((r) => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([value, email, ai]) => {
       if (!active) return;
       setReport(value);
       setResendConfigured(Boolean(email.resendConfigured));
+      setAiMeta(ai as typeof aiMeta);
     }).catch(() => active && setError(true));
     return () => { active = false; };
   }, []);
@@ -327,6 +330,28 @@ export function SystemHealthPage() {
           )}
         </section>
       </div>
+
+      {/* AI Provider */}
+      <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="ai-health-title">
+        <SectionHeader icon={Bot} title="AI Provider" subtitle="Meeting Intelligence analysis configuration." />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <MetricCard
+            label="Provider"
+            value={aiMeta?.provider ?? "Not configured"}
+            state={Boolean(aiMeta?.provider && aiMeta.provider !== "none")}
+          />
+          <MetricCard
+            label="API Key"
+            value={aiMeta?.key_configured ? "Configured" : "Not set"}
+            state={Boolean(aiMeta?.key_configured)}
+          />
+          <MetricCard
+            label="Enabled"
+            value={aiMeta?.enabled ? "Yes" : "No"}
+            state={Boolean(aiMeta?.enabled && aiMeta?.key_configured)}
+          />
+        </div>
+      </section>
 
       {/* Intelligence Engine */}
       <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="intelligence-validation-title">

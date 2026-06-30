@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "021_meeting_intelligence";
-export const latestMigration = "021_meeting_intelligence";
+export const schemaVersion = "022_ai_settings";
+export const latestMigration = "022_ai_settings";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -24,6 +24,7 @@ export const allMigrations = [
   "019_evidence_and_signoff",
   "020_delivery_intelligence",
   "021_meeting_intelligence",
+  "022_ai_settings",
 ] as const;
 
 export type SchemaColumn = {
@@ -432,6 +433,8 @@ export const schemaTables: SchemaTable[] = [
       createdAt, updatedAt,
     ],
   },
+  // ai_settings is intentionally excluded from schemaTables —
+  // it is a server-only table (api_key must never reach the client DataStore).
 ];
 
 export const schemaByTable = new Map(schemaTables.map((table) => [table.name, table]));

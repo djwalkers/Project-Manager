@@ -8,8 +8,9 @@ const MODEL = "gemini-1.5-flash";
 export async function analyseWithGemini(
   systemPrompt: string,
   meetingText: string,
+  apiKey?: string,
 ): Promise<AIAnalysisResponse> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  apiKey ??= process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new ConfigError(
       "GEMINI_API_KEY is not set. Add it to .env.local to use the Gemini provider.",

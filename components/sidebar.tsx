@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   BookOpenCheck,
+  Bot,
   Boxes,
   BrainCircuit,
   Rocket,
@@ -101,7 +102,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
       { href: "/email-settings", label: "Email Settings", icon: Mail },
-{ href: "/system-health", label: "System Health", icon: Stethoscope },
+      { href: "/ai-settings", label: "AI Settings", icon: Bot },
+      { href: "/system-health", label: "System Health", icon: Stethoscope },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },

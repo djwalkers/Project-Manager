@@ -7,8 +7,9 @@ const MODEL = "gpt-4o-mini";
 export async function analyseWithOpenAI(
   systemPrompt: string,
   meetingText: string,
+  apiKey?: string,
 ): Promise<AIAnalysisResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  apiKey ??= process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new ConfigError(
       "OPENAI_API_KEY is not set. Add it to .env.local to use the OpenAI provider.",
