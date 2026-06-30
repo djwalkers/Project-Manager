@@ -92,9 +92,10 @@ export function chunkMeetingText(text: string): MeetingChunk[] {
     pieces = splitAtParagraphs(trimmed);
   }
 
-  // Pieces that are themselves too large get hard-split before grouping
+  // Any piece larger than CHUNK_SIZE gets hard-split so groupPieces never
+  // receives an oversized piece when current is empty (which would bypass splitting).
   const finePieces = pieces.flatMap((p) =>
-    p.length > CHUNK_SIZE * 1.5 ? hardSplit(p, CHUNK_SIZE, CHUNK_OVERLAP) : [p],
+    p.length > CHUNK_SIZE ? hardSplit(p, CHUNK_SIZE, CHUNK_OVERLAP) : [p],
   );
 
   const rawChunks =
