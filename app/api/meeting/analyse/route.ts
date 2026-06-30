@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyseMeeting, ConfigError } from "@/lib/ai";
+import { AnalysisError } from "@/lib/ai/errors";
 
 export async function POST(req: NextRequest) {
   let body: { systemPrompt: string; meetingText: string };
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   const { systemPrompt, meetingText } = body;
   if (!meetingText?.trim()) {
-    return NextResponse.json({ error: "meetingText is required" }, { status: 400 });
+    return NextResponse.json({ error: "Meeting notes are empty." }, { status: 400 });
   }
 
   try {
@@ -21,9 +22,13 @@ export async function POST(req: NextRequest) {
     if (err instanceof ConfigError) {
       return NextResponse.json({ error: err.message }, { status: 503 });
     }
-    console.error("Meeting analysis error:", err);
+    if (err instanceof AnalysisError) {
+      // Safe message from provider — return it verbatim so the UI can show the real reason.
+      return NextResponse.json({ error: err.message }, { status: 422 });
+    }
+    console.error("[meeting/analyse] unexpected error:", err);
     return NextResponse.json(
-      { error: "Failed to process meeting notes. Please try again." },
+      { error: "AI provider request failed. Check AI Settings and try again." },
       { status: 500 },
     );
   }

@@ -35,8 +35,13 @@ export async function analyseMeeting(
     ?? resolveEnvKey(provider)
     ?? undefined;
 
+  // Model override from DB settings (optional — providers fall back to their default).
+  const model = dbSettings?.enabled ? (dbSettings.model ?? null) : null;
+
+  console.log(`[ai] analyseMeeting provider=${provider} modelOverride=${model ?? "default"}`);
+
   switch (provider) {
-    case "gemini":    return analyseWithGemini(systemPrompt, meetingText, apiKey);
+    case "gemini":    return analyseWithGemini(systemPrompt, meetingText, apiKey, model);
     case "anthropic": return analyseWithAnthropic(systemPrompt, meetingText, apiKey);
     default:          return analyseWithOpenAI(systemPrompt, meetingText, apiKey);
   }
