@@ -14,14 +14,15 @@ import {
   XCircle,
 } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { deleteRecord, saveRecord } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
-import { buildAnalysisPrompt, MAX_MEETING_TEXT_LENGTH } from "@/lib/meeting-intelligence/prompt";
+import { buildCompactContext } from "@/lib/meeting-intelligence/prompt";
+import { estimateChunkCount, CHUNK_SIZE } from "@/lib/meeting-intelligence/chunker";
 import { matchSuggestionsToExisting, type EnrichedSuggestion } from "@/lib/meeting-intelligence/matcher";
 import type {
   MeetingIntelligence,
@@ -30,6 +31,27 @@ import type {
   SuggestionAction,
 } from "@/lib/types";
 import type { AIAnalysisResponse } from "@/lib/meeting-intelligence/types";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type AIMeta = { provider: string; model: string | null; enabled: boolean; key_configured: boolean } | null;
+
+type Stage = { label: string; done: boolean };
+
+type AnalyseErrorInfo = {
+  message: string;
+  isRateLimit?: boolean;
+  retryAfter?: number | null;
+  hint?: string | null;
+  failedChunk?: number;
+  totalChunks?: number;
+};
+
+type SSEEvent =
+  | { type: "log"; label: string }
+  | { type: "result"; summary: string; suggestions: AIAnalysisResponse["suggestions"] }
+  | { type: "rate_limit"; message: string; retryAfter: number | null; hint: string; failedChunk: number; totalChunks: number }
+  | { type: "error"; message: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +104,20 @@ const STATUS_BADGE: Record<string, string> = {
   Archived: "border-muted bg-muted/40 text-muted-foreground",
 };
 
+function parseSSEBuffer(buffer: string): { events: SSEEvent[]; remaining: string } {
+  const parts = buffer.split("\n\n");
+  const remaining = parts.pop() ?? "";
+  const events: SSEEvent[] = [];
+  for (const part of parts) {
+    const line = part.split("\n").find((l) => l.startsWith("data: "));
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line.slice(6)) as SSEEvent);
+    } catch { /* ignore malformed */ }
+  }
+  return { events, remaining };
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function MeetingDetailPage() {
@@ -90,17 +126,26 @@ export default function MeetingDetailPage() {
 
   const [showRaw, setShowRaw] = useState(false);
   const [analysing, setAnalysing] = useState(false);
-  type AnalyseErrorInfo = { message: string; isRateLimit?: boolean; retryAfter?: number | null; hint?: string | null };
+  const [stages, setStages] = useState<Stage[]>([]);
   const [analyseError, setAnalyseError] = useState<AnalyseErrorInfo | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [aiMeta, setAIMeta] = useState<AIMeta>(null);
 
   // Per-suggestion edit state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
+
+  // Load AI provider meta once
+  useEffect(() => {
+    void fetch("/api/ai-settings")
+      .then((r) => r.ok ? r.json() as Promise<AIMeta> : null)
+      .then((meta) => { if (meta) setAIMeta(meta); })
+      .catch(() => null);
+  }, []);
 
   const meeting = useMemo(
     () => (data?.meeting_intelligence ?? []).find((m) => m.id === id) as MeetingIntelligence | undefined,
@@ -111,7 +156,10 @@ export default function MeetingDetailPage() {
     [data, id],
   );
   const pendingSuggestions = useMemo(() => suggestions.filter((s) => s.status === "Pending"), [suggestions]);
-  const appliedSuggestions = useMemo(() => suggestions.filter((s) => ["Accepted", "Applied"].includes(s.status)), [suggestions]);
+  const appliedSuggestions = useMemo(
+    () => suggestions.filter((s) => ["Accepted", "Applied"].includes(s.status)),
+    [suggestions],
+  );
 
   const groupedPending = useMemo(() => {
     const groups: Partial<Record<SuggestionEntityType, MeetingSuggestion[]>> = {};
@@ -145,6 +193,10 @@ export default function MeetingDetailPage() {
     );
   }
 
+  const meetingLength = meeting.raw_input?.length ?? 0;
+  const estimatedChunks = estimateChunkCount(meetingLength);
+  const isLong = meetingLength > CHUNK_SIZE;
+
   // ── Analyse ────────────────────────────────────────────────────────────────
   async function handleAnalyse() {
     if (!meeting || !data) return;
@@ -152,85 +204,131 @@ export default function MeetingDetailPage() {
       setAnalyseError({ message: "No meeting notes to analyse. Please add meeting notes first." });
       return;
     }
+
     setAnalysing(true);
     setAnalyseError(null);
+    setStages([]);
+
     try {
-      const systemPrompt = buildAnalysisPrompt(data, meeting.raw_input);
+      const compactContext = buildCompactContext(data);
+
       const res = await fetch("/api/meeting/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemPrompt, meetingText: meeting.raw_input }),
+        body: JSON.stringify({ compactContext, meetingText: meeting.raw_input }),
       });
+
       if (!res.ok) {
-        const err = await res.json() as { error?: string; retryAfter?: number | null; hint?: string };
-        if (res.status === 429) {
-          setAnalyseError({
-            message: err.error ?? "Rate limit reached. Please wait before retrying.",
-            isRateLimit: true,
-            retryAfter: err.retryAfter ?? null,
-            hint: err.hint ?? null,
-          });
-          return;
-        }
+        const err = await res.json() as { error?: string };
         setAnalyseError({ message: err.error ?? `HTTP ${res.status}` });
         return;
       }
-      const result = await res.json() as AIAnalysisResponse;
 
-      // Run matcher to enrich suggestions with existing record matches
-      const enriched: EnrichedSuggestion[] = matchSuggestionsToExisting(result.suggestions, data);
-
-      // Update meeting with AI summary and status
-      const updatedMeeting = await saveRecord("meeting_intelligence", {
-        ...meeting,
-        ai_summary: result.summary,
-        processing_status: "Analysed",
-      }) as MeetingIntelligence;
-
-      // Delete old pending suggestions for this meeting (re-analysis)
-      const oldPending = suggestions.filter((s) => s.status === "Pending");
-      for (const s of oldPending) {
-        await deleteRecord("meeting_suggestions", s.id);
+      if (!res.body) {
+        setAnalyseError({ message: "No response body from server." });
+        return;
       }
 
-      // Save new suggestions
-      const saved: MeetingSuggestion[] = [];
-      for (const s of enriched) {
-        const rec = await saveRecord("meeting_suggestions", {
-          project_id: meeting.project_id,
-          meeting_id: meeting.id,
-          entity_type: s.entity_type,
-          action: s.action,
-          title: s.title,
-          description: s.description,
-          confidence: s.confidence,
-          reason: s.reason,
-          status: "Pending",
-          existing_record_id: s.matched_existing_id,
-          existing_record_ref: s.matched_existing_ref ?? s.existing_record_ref,
-          data_payload: s.data_payload,
-          feedback: null,
-        }) as MeetingSuggestion;
-        saved.push(rec);
-      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      // Update local DataStore
-      setData((prev) => {
-        if (!prev) return prev;
-        const meetings = (prev.meeting_intelligence ?? []).map((m) =>
-          m.id === id ? updatedMeeting : m,
-        );
-        const otherSuggestions = (prev.meeting_suggestions ?? []).filter(
-          (s) => s.meeting_id !== id || s.status !== "Pending",
-        );
-        return {
-          ...prev,
-          meeting_intelligence: meetings,
-          meeting_suggestions: [...otherSuggestions, ...saved],
-        };
-      });
+      outer: while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const { events, remaining } = parseSSEBuffer(buffer);
+        buffer = remaining;
+
+        for (const event of events) {
+          if (event.type === "log") {
+            setStages((prev) => {
+              // Mark any current active stage done, add new active stage
+              const updated = prev.map((s) => s.done ? s : { ...s, done: true });
+              return [...updated, { label: event.label, done: false }];
+            });
+            continue;
+          }
+
+          if (event.type === "rate_limit") {
+            setAnalyseError({
+              message: event.message,
+              isRateLimit: true,
+              retryAfter: event.retryAfter,
+              hint: event.hint,
+              failedChunk: event.failedChunk,
+              totalChunks: event.totalChunks,
+            });
+            setStages((prev) => prev.map((s) => s.done ? s : { ...s, label: `${s.label} — rate limited`, done: true }));
+            break outer;
+          }
+
+          if (event.type === "error") {
+            setAnalyseError({ message: event.message });
+            setStages((prev) => prev.map((s) => s.done ? s : { ...s, label: `${s.label} — failed`, done: true }));
+            break outer;
+          }
+
+          if (event.type === "result") {
+            // Mark all stages done
+            setStages((prev) => prev.map((s) => ({ ...s, done: true })));
+
+            const enriched: EnrichedSuggestion[] = matchSuggestionsToExisting(event.suggestions, data);
+
+            const updatedMeeting = await saveRecord("meeting_intelligence", {
+              ...meeting,
+              ai_summary: event.summary,
+              processing_status: "Analysed",
+            }) as MeetingIntelligence;
+
+            const oldPending = suggestions.filter((s) => s.status === "Pending");
+            for (const s of oldPending) {
+              await deleteRecord("meeting_suggestions", s.id);
+            }
+
+            const saved: MeetingSuggestion[] = [];
+            for (const s of enriched) {
+              const rec = await saveRecord("meeting_suggestions", {
+                project_id: meeting.project_id,
+                meeting_id: meeting.id,
+                entity_type: s.entity_type,
+                action: s.action,
+                title: s.title,
+                description: s.description,
+                confidence: s.confidence,
+                reason: s.reason,
+                status: "Pending",
+                existing_record_id: s.matched_existing_id,
+                existing_record_ref: s.matched_existing_ref ?? s.existing_record_ref,
+                data_payload: s.data_payload,
+                feedback: null,
+              }) as MeetingSuggestion;
+              saved.push(rec);
+            }
+
+            setData((prev) => {
+              if (!prev) return prev;
+              const meetings = (prev.meeting_intelligence ?? []).map((m) =>
+                m.id === id ? updatedMeeting : m,
+              );
+              const otherSuggestions = (prev.meeting_suggestions ?? []).filter(
+                (s) => s.meeting_id !== id || s.status !== "Pending",
+              );
+              return {
+                ...prev,
+                meeting_intelligence: meetings,
+                meeting_suggestions: [...otherSuggestions, ...saved],
+              };
+            });
+
+            break outer;
+          }
+        }
+      }
     } catch (e) {
       setAnalyseError({ message: e instanceof Error ? e.message : "Analysis failed." });
+      setStages((prev) => prev.map((s) => s.done ? s : { ...s, done: true }));
     } finally {
       setAnalysing(false);
     }
@@ -274,10 +372,8 @@ export default function MeetingDetailPage() {
     try {
       const toApply = suggestions.filter((s) => s.status === "Accepted");
       for (const s of toApply) {
-        // Mark suggestion as Applied
         await saveRecord("meeting_suggestions", { ...s, status: "Applied" });
       }
-      // Mark meeting as Applied
       const updatedMeeting = await saveRecord("meeting_intelligence", {
         ...meeting, processing_status: "Applied",
       }) as MeetingIntelligence;
@@ -303,6 +399,11 @@ export default function MeetingDetailPage() {
   }
 
   const acceptedCount = suggestions.filter((s) => s.status === "Accepted").length;
+
+  // ── Provider label ─────────────────────────────────────────────────────────
+  const providerLabel = aiMeta?.enabled && aiMeta.provider !== "none"
+    ? `${aiMeta.provider}${aiMeta.model ? ` · ${aiMeta.model}` : ""}`
+    : null;
 
   return (
     <AppShell>
@@ -342,12 +443,31 @@ export default function MeetingDetailPage() {
         </div>
       </div>
 
+      {/* Pre-analysis info strip */}
+      {meetingLength > 0 && !analysing && meeting.processing_status !== "Applied" && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <span>{meetingLength.toLocaleString()} chars</span>
+          {isLong && <span>{estimatedChunks} chunks</span>}
+          {isLong && <span>~{estimatedChunks} AI calls</span>}
+          {providerLabel && <span>{providerLabel}</span>}
+          {!aiMeta?.enabled && <span className="text-amber-600">No AI provider configured</span>}
+        </div>
+      )}
+
+      {/* Error banner */}
       {analyseError && (analyseError.isRateLimit ? (
         <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
           <div className="flex items-start gap-2">
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <div className="space-y-1">
-              <p className="font-medium">{analyseError.message}</p>
+              <p className="font-medium">
+                {analyseError.message}
+                {analyseError.failedChunk != null && analyseError.totalChunks != null && (
+                  <span className="ml-1 font-normal">
+                    (failed at chunk {analyseError.failedChunk} of {analyseError.totalChunks})
+                  </span>
+                )}
+              </p>
               {analyseError.hint && <p className="text-amber-700">{analyseError.hint}</p>}
             </div>
           </div>
@@ -359,11 +479,31 @@ export default function MeetingDetailPage() {
         </div>
       ))}
 
-      {/* Input length warning */}
-      {meeting.raw_input && meeting.raw_input.length > MAX_MEETING_TEXT_LENGTH && (
-        <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Meeting notes are long ({meeting.raw_input.length.toLocaleString()} chars). Notes beyond {MAX_MEETING_TEXT_LENGTH.toLocaleString()} characters will be trimmed before analysis to reduce prompt size.
+      {/* Progress stages panel */}
+      {(analysing || stages.length > 0) && (
+        <div className="mt-4 rounded-lg border bg-card px-4 py-3">
+          <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            {analysing ? "Analysing meeting…" : "Analysis complete"}
+          </p>
+          <div className="space-y-1.5">
+            {stages.map((stage, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                {stage.done
+                  ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                  : <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                }
+                <span className={stage.done ? "text-foreground" : "text-primary font-medium"}>
+                  {stage.label}
+                </span>
+              </div>
+            ))}
+            {analysing && stages.length === 0 && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Starting…
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -382,7 +522,7 @@ export default function MeetingDetailPage() {
             className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium"
             onClick={() => setShowRaw((v) => !v)}
           >
-            <span>Meeting Notes</span>
+            <span>Meeting Notes ({meetingLength.toLocaleString()} chars{isLong ? ` · ${estimatedChunks} chunks` : ""})</span>
             {showRaw ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
           {showRaw && (
@@ -402,7 +542,9 @@ export default function MeetingDetailPage() {
               <button onClick={() => setShowPreview(false)}><X className="h-5 w-5 text-muted-foreground" /></button>
             </div>
             <div className="max-h-[60vh] overflow-y-auto px-5 py-4 space-y-2">
-              <p className="text-xs text-muted-foreground mb-3">The following changes will be marked as Applied. Note: suggestions do not auto-create records — navigate to the relevant module to create or update items based on the accepted suggestions.</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                The following changes will be marked as Applied. Note: suggestions do not auto-create records — navigate to the relevant module to create or update items based on the accepted suggestions.
+              </p>
               {ENTITY_ORDER.map((type) => {
                 const g = previewGroups[type];
                 if (!g) return null;
@@ -442,9 +584,7 @@ export default function MeetingDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
-                  for (const s of pendingSuggestions) await handleAccept(s);
-                }}
+                onClick={async () => { for (const s of pendingSuggestions) await handleAccept(s); }}
                 className="gap-1 text-xs"
               >
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
@@ -453,9 +593,7 @@ export default function MeetingDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
-                  for (const s of pendingSuggestions) await handleReject(s);
-                }}
+                onClick={async () => { for (const s of pendingSuggestions) await handleReject(s); }}
                 className="gap-1 text-xs"
               >
                 <XCircle className="h-3.5 w-3.5 text-destructive" />
@@ -540,7 +678,9 @@ export default function MeetingDetailPage() {
       )}
 
       {/* Empty state after analysis */}
-      {meeting.processing_status !== "Draft" && pendingSuggestions.length === 0 && appliedSuggestions.length === 0 && suggestions.filter((s) => s.status === "Rejected").length === 0 && (
+      {meeting.processing_status !== "Draft" && !analysing &&
+        pendingSuggestions.length === 0 && appliedSuggestions.length === 0 &&
+        suggestions.filter((s) => s.status === "Rejected").length === 0 && (
         <div className="mt-8 rounded-lg border border-dashed p-8 text-center">
           <Sparkles className="mx-auto h-8 w-8 text-muted-foreground/40" />
           <p className="mt-3 text-sm">No suggestions were generated.</p>
@@ -608,11 +748,7 @@ function SuggestionCard({
 
           {isEditing ? (
             <div className="space-y-2">
-              <Input
-                value={editTitle}
-                onChange={(e) => onEditTitle(e.target.value)}
-                className="text-sm"
-              />
+              <Input value={editTitle} onChange={(e) => onEditTitle(e.target.value)} className="text-sm" />
               <Textarea
                 value={editDesc}
                 onChange={(e) => onEditDesc(e.target.value)}
@@ -636,32 +772,19 @@ function SuggestionCard({
 
         {!isEditing && (
           <div className="flex shrink-0 gap-1">
-            <button
-              onClick={onAccept}
-              className="rounded-md p-1.5 text-green-600 hover:bg-green-50 transition-colors"
-              title="Accept"
-            >
+            <button onClick={onAccept} className="rounded-md p-1.5 text-green-600 hover:bg-green-50 transition-colors" title="Accept">
               <CheckCircle2 className="h-4 w-4" />
             </button>
-            <button
-              onClick={onStartEdit}
-              className="rounded-md p-1.5 text-blue-600 hover:bg-blue-50 transition-colors"
-              title="Edit"
-            >
+            <button onClick={onStartEdit} className="rounded-md p-1.5 text-blue-600 hover:bg-blue-50 transition-colors" title="Edit">
               <Edit3 className="h-4 w-4" />
             </button>
-            <button
-              onClick={onReject}
-              className="rounded-md p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
-              title="Reject"
-            >
+            <button onClick={onReject} className="rounded-md p-1.5 text-destructive hover:bg-destructive/10 transition-colors" title="Reject">
               <XCircle className="h-4 w-4" />
             </button>
           </div>
         )}
       </div>
 
-      {/* Reject feedback input */}
       {!isEditing && (
         <div className="mt-2">
           <Input
@@ -673,19 +796,18 @@ function SuggestionCard({
         </div>
       )}
 
-      {/* Data payload preview */}
       {s.data_payload && Object.keys(s.data_payload).length > 0 && !isEditing && (
         <div className="mt-2 rounded-md bg-muted/40 px-3 py-2">
           <p className="mb-1 text-xs font-semibold text-muted-foreground">Suggested field values</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {Object.entries(s.data_payload).map(([k, v]) => (
-              v != null && (
+            {Object.entries(s.data_payload).map(([k, v]) =>
+              v != null ? (
                 <span key={k} className="text-xs">
                   <span className="font-medium text-muted-foreground">{k}:</span>{" "}
                   <span>{String(v)}</span>
                 </span>
-              )
-            ))}
+              ) : null,
+            )}
           </div>
         </div>
       )}

@@ -1,44 +1,124 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { analyseMeeting, ConfigError } from "@/lib/ai";
 import { AnalysisError, RateLimitError } from "@/lib/ai/errors";
+import { chunkMeetingText } from "@/lib/meeting-intelligence/chunker";
+import { buildChunkPrompt } from "@/lib/meeting-intelligence/prompt";
+import { mergeAnalysisResults } from "@/lib/meeting-intelligence/merger";
+import type { AIAnalysisResponse } from "@/lib/meeting-intelligence/types";
+
+// SSE event shapes sent to the client
+export type AnalyseSSEEvent =
+  | { type: "log"; label: string }
+  | { type: "result"; summary: string; suggestions: AIAnalysisResponse["suggestions"] }
+  | { type: "rate_limit"; message: string; retryAfter: number | null; hint: string; failedChunk: number; totalChunks: number }
+  | { type: "error"; message: string };
 
 export async function POST(req: NextRequest) {
-  let body: { systemPrompt: string; meetingText: string };
+  let body: { compactContext: string; meetingText: string };
   try {
     body = await req.json() as typeof body;
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return new Response(JSON.stringify({ error: "Invalid request body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
-  const { systemPrompt, meetingText } = body;
+  const { compactContext, meetingText } = body;
   if (!meetingText?.trim()) {
-    return NextResponse.json({ error: "Meeting notes are empty." }, { status: 400 });
+    return new Response(JSON.stringify({ error: "Meeting notes are empty." }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
-  try {
-    const result = await analyseMeeting(systemPrompt, meetingText);
-    return NextResponse.json(result);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return NextResponse.json({ error: err.message }, { status: 503 });
-    }
-    if (err instanceof RateLimitError) {
-      return NextResponse.json(
-        {
-          error: err.message,
-          retryAfter: err.retryAfterSeconds ?? null,
-          hint: "Try switching to gemini-2.0-flash or gemini-1.5-flash-latest in AI Settings — these models have higher free-tier quotas.",
-        },
-        { status: 429 },
-      );
-    }
-    if (err instanceof AnalysisError) {
-      return NextResponse.json({ error: err.message }, { status: 422 });
-    }
-    console.error("[meeting/analyse] unexpected error:", err);
-    return NextResponse.json(
-      { error: "AI provider request failed. Check AI Settings and try again." },
-      { status: 500 },
-    );
-  }
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+
+      const send = (event: AnalyseSSEEvent) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch {
+          closed = true;
+        }
+      };
+
+      try {
+        const chunks = chunkMeetingText(meetingText);
+        const total = chunks.length;
+
+        send({ type: "log", label: `Preparing ${total} chunk${total > 1 ? "s" : ""}` });
+
+        const results: AIAnalysisResponse[] = [];
+
+        for (const chunk of chunks) {
+          const chunkLabel =
+            total > 1
+              ? `Analysing chunk ${chunk.index + 1} of ${total}`
+              : "Analysing meeting notes";
+
+          send({ type: "log", label: chunkLabel });
+
+          const systemPrompt = buildChunkPrompt(compactContext, chunk.index, total);
+
+          try {
+            const result = await analyseMeeting(systemPrompt, chunk.text);
+            results.push(result);
+          } catch (err) {
+            if (err instanceof RateLimitError) {
+              send({
+                type: "rate_limit",
+                message: err.message,
+                retryAfter: err.retryAfterSeconds ?? null,
+                hint: "Try switching to gemini-2.0-flash or gemini-1.5-flash-latest in AI Settings — these models have higher free-tier quotas.",
+                failedChunk: chunk.index + 1,
+                totalChunks: total,
+              });
+              return;
+            }
+            if (err instanceof ConfigError) {
+              send({ type: "error", message: err.message });
+              return;
+            }
+            if (err instanceof AnalysisError) {
+              send({ type: "error", message: err.message });
+              return;
+            }
+            console.error(`[analyse] chunk ${chunk.index} unexpected error:`, err);
+            send({
+              type: "error",
+              message: `Analysis failed at chunk ${chunk.index + 1} of ${total}. Please try again.`,
+            });
+            return;
+          }
+        }
+
+        if (total > 1) {
+          send({ type: "log", label: "Merging findings" });
+        }
+        const merged = mergeAnalysisResults(results);
+
+        send({ type: "log", label: "Preparing review" });
+        send({ type: "result", summary: merged.summary, suggestions: merged.suggestions });
+      } catch (err) {
+        console.error("[analyse] stream error:", err);
+        send({ type: "error", message: "Analysis failed unexpectedly. Please try again." });
+      } finally {
+        closed = true;
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
 }
