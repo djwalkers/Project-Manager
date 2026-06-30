@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyseMeeting, ConfigError } from "@/lib/ai";
-import { AnalysisError } from "@/lib/ai/errors";
+import { AnalysisError, RateLimitError } from "@/lib/ai/errors";
 
 export async function POST(req: NextRequest) {
   let body: { systemPrompt: string; meetingText: string };
@@ -22,8 +22,17 @@ export async function POST(req: NextRequest) {
     if (err instanceof ConfigError) {
       return NextResponse.json({ error: err.message }, { status: 503 });
     }
+    if (err instanceof RateLimitError) {
+      return NextResponse.json(
+        {
+          error: err.message,
+          retryAfter: err.retryAfterSeconds ?? null,
+          hint: "Try switching to gemini-2.0-flash or gemini-1.5-flash-latest in AI Settings — these models have higher free-tier quotas.",
+        },
+        { status: 429 },
+      );
+    }
     if (err instanceof AnalysisError) {
-      // Safe message from provider — return it verbatim so the UI can show the real reason.
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
     console.error("[meeting/analyse] unexpected error:", err);

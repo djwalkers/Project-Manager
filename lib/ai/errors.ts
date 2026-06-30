@@ -6,3 +6,14 @@ export class AnalysisError extends Error {
     this.name = "AnalysisError";
   }
 }
+
+/** Thrown when the provider returns 429. Carries the Retry-After seconds if provided. */
+export class RateLimitError extends Error {
+  readonly isRateLimitError = true;
+  readonly retryAfterSeconds?: number;
+  constructor(message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "RateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}

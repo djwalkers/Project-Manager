@@ -1,7 +1,7 @@
 import type { AIAnalysisResponse } from "@/lib/meeting-intelligence/types";
 import { normaliseResponse } from "@/lib/ai/normalise";
 import { ConfigError } from "@/lib/ai/providers/openai";
-import { AnalysisError } from "@/lib/ai/errors";
+import { AnalysisError, RateLimitError } from "@/lib/ai/errors";
 
 const DEFAULT_MODEL = "gemini-2.0-flash";
 
@@ -60,9 +60,24 @@ export async function analyseWithGemini(
     }),
   });
 
+  const retryAfterHeader = res.headers.get("Retry-After");
+  console.log(
+    `[gemini] status=${res.status} retryAfter=${retryAfterHeader ?? "none"}`,
+  );
+
   if (!res.ok) {
     const body = await res.text();
-    console.error(`[gemini] API error status=${res.status} body=${body.slice(0, 200)}`);
+    console.error(`[gemini] error body=${body.slice(0, 200)}`);
+
+    if (res.status === 429) {
+      const retryAfterSeconds = retryAfterHeader
+        ? Math.ceil(parseFloat(retryAfterHeader))
+        : undefined;
+      const waitStr = retryAfterSeconds
+        ? ` Please wait ${retryAfterSeconds} seconds before retrying.`
+        : " Please wait a moment before retrying.";
+      throw new RateLimitError(`Rate limit reached.${waitStr}`, retryAfterSeconds);
+    }
     if (res.status === 404) {
       throw new AnalysisError(
         `Gemini model not found. Check the model name in AI Settings (using "${resolvedModel}").`,

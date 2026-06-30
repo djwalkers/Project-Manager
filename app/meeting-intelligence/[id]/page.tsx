@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Clock,
   Edit3,
   Loader2,
   RefreshCw,
@@ -20,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { deleteRecord, saveRecord } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
-import { buildAnalysisPrompt } from "@/lib/meeting-intelligence/prompt";
+import { buildAnalysisPrompt, MAX_MEETING_TEXT_LENGTH } from "@/lib/meeting-intelligence/prompt";
 import { matchSuggestionsToExisting, type EnrichedSuggestion } from "@/lib/meeting-intelligence/matcher";
 import type {
   MeetingIntelligence,
@@ -89,7 +90,8 @@ export default function MeetingDetailPage() {
 
   const [showRaw, setShowRaw] = useState(false);
   const [analysing, setAnalysing] = useState(false);
-  const [analyseError, setAnalyseError] = useState<string | null>(null);
+  type AnalyseErrorInfo = { message: string; isRateLimit?: boolean; retryAfter?: number | null; hint?: string | null };
+  const [analyseError, setAnalyseError] = useState<AnalyseErrorInfo | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -147,7 +149,7 @@ export default function MeetingDetailPage() {
   async function handleAnalyse() {
     if (!meeting || !data) return;
     if (!meeting.raw_input?.trim()) {
-      setAnalyseError("No meeting notes to analyse. Please add meeting notes first.");
+      setAnalyseError({ message: "No meeting notes to analyse. Please add meeting notes first." });
       return;
     }
     setAnalysing(true);
@@ -160,8 +162,18 @@ export default function MeetingDetailPage() {
         body: JSON.stringify({ systemPrompt, meetingText: meeting.raw_input }),
       });
       if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? `HTTP ${res.status}`);
+        const err = await res.json() as { error?: string; retryAfter?: number | null; hint?: string };
+        if (res.status === 429) {
+          setAnalyseError({
+            message: err.error ?? "Rate limit reached. Please wait before retrying.",
+            isRateLimit: true,
+            retryAfter: err.retryAfter ?? null,
+            hint: err.hint ?? null,
+          });
+          return;
+        }
+        setAnalyseError({ message: err.error ?? `HTTP ${res.status}` });
+        return;
       }
       const result = await res.json() as AIAnalysisResponse;
 
@@ -218,7 +230,7 @@ export default function MeetingDetailPage() {
         };
       });
     } catch (e) {
-      setAnalyseError(e instanceof Error ? e.message : "Analysis failed.");
+      setAnalyseError({ message: e instanceof Error ? e.message : "Analysis failed." });
     } finally {
       setAnalysing(false);
     }
@@ -330,10 +342,28 @@ export default function MeetingDetailPage() {
         </div>
       </div>
 
-      {analyseError && (
+      {analyseError && (analyseError.isRateLimit ? (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+          <div className="flex items-start gap-2">
+            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div className="space-y-1">
+              <p className="font-medium">{analyseError.message}</p>
+              {analyseError.hint && <p className="text-amber-700">{analyseError.hint}</p>}
+            </div>
+          </div>
+        </div>
+      ) : (
         <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          {analyseError}
+          {analyseError.message}
+        </div>
+      ))}
+
+      {/* Input length warning */}
+      {meeting.raw_input && meeting.raw_input.length > MAX_MEETING_TEXT_LENGTH && (
+        <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          Meeting notes are long ({meeting.raw_input.length.toLocaleString()} chars). Notes beyond {MAX_MEETING_TEXT_LENGTH.toLocaleString()} characters will be trimmed before analysis to reduce prompt size.
         </div>
       )}
 

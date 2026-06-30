@@ -31,7 +31,10 @@ function computeFeedbackBias(data: DataStore, projectId: string): string {
     : "";
 }
 
-function truncate(s: string, max = 100) {
+/** Characters — notes beyond this length are truncated before sending to the AI. */
+export const MAX_MEETING_TEXT_LENGTH = 6000;
+
+function truncate(s: string, max = 80) {
   return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
@@ -44,44 +47,49 @@ export function buildAnalysisPrompt(data: DataStore, meetingText: string): strin
 
   const actions = scoped.actions
     .filter((a) => !["Complete", "Closed"].includes(a.status))
-    .slice(0, 25)
+    .slice(0, 15)
     .map((a) => `  ${a.action_ref}: ${truncate(a.description)} [${a.status}${a.owner ? ` · ${a.owner}` : ""}]`)
     .join("\n");
 
   const decisions = scoped.decisions
     .filter((d) => !["Approved", "Closed"].includes(d.status))
-    .slice(0, 20)
+    .slice(0, 12)
     .map((d) => `  ${d.decision_ref}: ${truncate(d.question)} [${d.status}]`)
     .join("\n");
 
   const risks = scoped.risks
     .filter((r) => !["Complete", "Closed"].includes(r.status))
-    .slice(0, 20)
+    .slice(0, 12)
     .map((r) => `  ${r.risk_ref}: ${truncate(r.description)} [${r.impact} impact · ${r.status}]`)
     .join("\n");
 
   const queries = scoped.discovery_questions
     .filter((q) => !["Answered", "Closed"].includes(q.status))
-    .slice(0, 20)
+    .slice(0, 12)
     .map((q) => `  ${q.question_ref}: ${truncate(q.question)} [${q.status}]`)
     .join("\n");
 
   const requirements = scoped.requirements
-    .slice(0, 20)
+    .slice(0, 12)
     .map((r) => `  ${r.requirement_ref}: ${truncate(r.title)} [${r.status}]`)
     .join("\n");
 
   const milestones = scoped.milestones
     .filter((m) => !["Complete", "Closed"].includes(m.status))
-    .slice(0, 15)
+    .slice(0, 10)
     .map((m) => `  ${m.milestone_ref}: ${truncate(m.title)} [${m.status}${m.target_date ? ` · due ${m.target_date}` : ""}]`)
     .join("\n");
 
   const dependencies = scoped.dependencies
     .filter((d) => !["Complete", "Closed"].includes(d.status))
-    .slice(0, 15)
+    .slice(0, 10)
     .map((d) => `  ${truncate(d.name)} [${d.status}]`)
     .join("\n");
+
+  // Truncate the meeting notes so very long inputs don't exceed model context limits.
+  const trimmedMeetingText = meetingText.length > MAX_MEETING_TEXT_LENGTH
+    ? meetingText.slice(0, MAX_MEETING_TEXT_LENGTH) + "\n[... notes truncated to reduce prompt size ...]"
+    : meetingText;
 
   return `You are an expert project manager assistant. Analyse the provided meeting notes and identify actionable project updates.
 
@@ -130,5 +138,5 @@ INSTRUCTIONS:
    - Dependencies: name, description, owner, status
 
 MEETING NOTES:
-${meetingText}`;
+${trimmedMeetingText}`;
 }
