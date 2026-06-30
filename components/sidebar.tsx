@@ -29,6 +29,7 @@ import {
   Pin,
   Settings,
   ShieldQuestion,
+  Sparkles,
   Star,
   Stethoscope,
   TrendingUp,
@@ -89,6 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Operations",
     items: [
       { href: "/meetings", label: "Meetings", icon: CalendarDays },
+      { href: "/meeting-intelligence", label: "Meeting Intelligence", icon: Sparkles },
       { href: "/documents", label: "Documents", icon: FileText },
       { href: "/audit-trail", label: "Audit Trail", icon: History },
     ],

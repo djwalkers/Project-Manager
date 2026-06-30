@@ -42,6 +42,7 @@ export const ROLE_NAV_ACCESS: Record<UserRole, "all" | string[]> = {
     "/dependencies",
     "/testing",
     "/meetings",
+    "/meeting-intelligence",
     "/documents",
     "/audit-trail",
     "/system-health",
