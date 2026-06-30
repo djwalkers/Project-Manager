@@ -36,8 +36,14 @@ const PROVIDER_LABELS: Record<AIProviderName, string> = {
 const PROVIDER_MODELS: Record<AIProviderName, string> = {
   none: "",
   openai: "gpt-4o-mini",
-  gemini: "gemini-1.5-flash",
+  gemini: "gemini-2.0-flash",
   anthropic: "claude-haiku-4-5-20251001",
+};
+
+const PROVIDER_MODEL_SUGGESTIONS: Partial<Record<AIProviderName, string[]>> = {
+  gemini: ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-2.5-flash"],
+  openai: ["gpt-4o-mini", "gpt-4o"],
+  anthropic: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
 };
 
 const KEY_PLACEHOLDER: Record<AIProviderName, string> = {
@@ -226,7 +232,15 @@ export default function AISettingsPage() {
                   onChange={(e) => setModel(e.target.value)}
                   placeholder={PROVIDER_MODELS[provider]}
                   className="max-w-xs font-mono text-sm"
+                  list={`model-suggestions-${provider}`}
                 />
+                {PROVIDER_MODEL_SUGGESTIONS[provider] && (
+                  <datalist id={`model-suggestions-${provider}`}>
+                    {PROVIDER_MODEL_SUGGESTIONS[provider]!.map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
+                )}
                 <p className="mt-1 text-xs text-muted-foreground">Leave blank to use the default model.</p>
               </div>
 

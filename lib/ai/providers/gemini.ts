@@ -3,7 +3,7 @@ import { normaliseResponse } from "@/lib/ai/normalise";
 import { ConfigError } from "@/lib/ai/providers/openai";
 import { AnalysisError } from "@/lib/ai/errors";
 
-const DEFAULT_MODEL = "gemini-1.5-flash";
+const DEFAULT_MODEL = "gemini-2.0-flash";
 
 /** Strip markdown code fences Gemini sometimes adds despite responseMimeType:json. */
 function stripFences(text: string): string {
@@ -63,6 +63,14 @@ export async function analyseWithGemini(
   if (!res.ok) {
     const body = await res.text();
     console.error(`[gemini] API error status=${res.status} body=${body.slice(0, 200)}`);
+    if (res.status === 404) {
+      throw new AnalysisError(
+        `Gemini model not found. Check the model name in AI Settings (using "${resolvedModel}").`,
+      );
+    }
+    if (res.status === 400) {
+      throw new AnalysisError(`Gemini rejected the request (400). Check the model name in AI Settings.`);
+    }
     throw new AnalysisError(`Gemini API error: ${res.status}`);
   }
 

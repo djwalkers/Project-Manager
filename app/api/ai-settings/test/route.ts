@@ -12,13 +12,33 @@ async function testOpenAI(apiKey: string): Promise<TestResult> {
   return { ok: false, message: `OpenAI returned ${res.status}: ${body.slice(0, 120)}` };
 }
 
-async function testGemini(apiKey: string): Promise<TestResult> {
-  const res = await fetch(
+async function testGemini(apiKey: string, model?: string | null): Promise<TestResult> {
+  // First validate the key by listing models.
+  const listRes = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
   );
-  if (res.ok) return { ok: true, message: "Connected to Google Gemini successfully." };
-  const body = await res.text();
-  return { ok: false, message: `Gemini returned ${res.status}: ${body.slice(0, 120)}` };
+  if (!listRes.ok) {
+    const body = await listRes.text();
+    return { ok: false, message: `Gemini API key rejected (${listRes.status}): ${body.slice(0, 120)}` };
+  }
+
+  // If a specific model is configured, verify it exists.
+  if (model?.trim()) {
+    const modelRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}?key=${apiKey}`,
+    );
+    if (!modelRes.ok) {
+      return {
+        ok: false,
+        message: modelRes.status === 404
+          ? `Model "${model}" not found. Try: gemini-2.0-flash, gemini-1.5-flash-latest, or gemini-2.5-flash.`
+          : `Could not verify model "${model}" (${modelRes.status}).`,
+      };
+    }
+  }
+
+  const label = model?.trim() ? `model "${model}"` : "default model";
+  return { ok: true, message: `Connected to Google Gemini successfully (${label}).` };
 }
 
 async function testAnthropic(apiKey: string): Promise<TestResult> {
@@ -62,7 +82,7 @@ export async function POST(): Promise<NextResponse> {
     let result: TestResult;
     switch (provider) {
       case "openai":    result = await testOpenAI(apiKey); break;
-      case "gemini":    result = await testGemini(apiKey); break;
+      case "gemini":    result = await testGemini(apiKey, settings?.model); break;
       case "anthropic": result = await testAnthropic(apiKey); break;
       default:          result = { ok: false, message: "Unknown provider." };
     }
