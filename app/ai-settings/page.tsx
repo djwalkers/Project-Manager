@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   AlertTriangle,
   Bot,
   CheckCircle2,
@@ -62,6 +63,15 @@ export default function AISettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [generatingTest, setGeneratingTest] = useState(false);
+  const [generateTestResult, setGenerateTestResult] = useState<{
+    ok: boolean;
+    status: number | null;
+    model: string | null;
+    retryAfter: string | null;
+    responseTextLength: number | null;
+    message: string;
+  } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
 
@@ -144,6 +154,18 @@ export default function AISettingsPage() {
       setTestResult(data);
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function handleGenerateTest() {
+    setGeneratingTest(true);
+    setGenerateTestResult(null);
+    try {
+      const res = await fetch("/api/ai-settings/generate-test", { method: "POST" });
+      const data = await res.json() as typeof generateTestResult;
+      setGenerateTestResult(data);
+    } finally {
+      setGeneratingTest(false);
     }
   }
 
@@ -333,6 +355,20 @@ export default function AISettingsPage() {
               {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Test Connection
             </Button>
+            {provider === "gemini" && (
+              <Button
+                variant="outline"
+                onClick={() => void handleGenerateTest()}
+                disabled={generatingTest}
+                className="gap-2"
+              >
+                {generatingTest
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Activity className="h-4 w-4" />
+                }
+                Test Generate
+              </Button>
+            )}
           </div>
 
           {/* Feedback */}
@@ -359,6 +395,42 @@ export default function AISettingsPage() {
                 : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
               }
               {testResult.message}
+            </div>
+          )}
+          {generateTestResult && (
+            <div className={`rounded-md border px-3 py-2.5 text-xs ${
+              generateTestResult.ok
+                ? "border-green-200 bg-green-50 text-green-800"
+                : "border-red-200 bg-red-50 text-red-800"
+            }`}>
+              <div className="flex items-start gap-2">
+                {generateTestResult.ok
+                  ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                }
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    {generateTestResult.ok ? "Generate test passed" : "Generate test failed"}
+                  </p>
+                  <div className="font-mono space-y-0.5 text-[11px] opacity-80">
+                    {generateTestResult.status != null && (
+                      <p>HTTP status: {generateTestResult.status}</p>
+                    )}
+                    {generateTestResult.model && (
+                      <p>Model: {generateTestResult.model}</p>
+                    )}
+                    {generateTestResult.retryAfter && (
+                      <p>Retry-After: {generateTestResult.retryAfter}s</p>
+                    )}
+                    {generateTestResult.responseTextLength != null && (
+                      <p>Response length: {generateTestResult.responseTextLength} chars</p>
+                    )}
+                  </div>
+                  {!generateTestResult.ok && (
+                    <p className="break-all">{generateTestResult.message}</p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
