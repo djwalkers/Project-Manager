@@ -2,6 +2,8 @@
 export const CHUNK_SIZE = 5000;
 /** Overlap carried into the next chunk to avoid losing context at boundaries. */
 export const CHUNK_OVERLAP = 300;
+/** Inputs at or below this length are sent as a single AI call even if above CHUNK_SIZE. */
+export const SINGLE_CALL_THRESHOLD = 8000;
 
 export interface MeetingChunk {
   text: string;

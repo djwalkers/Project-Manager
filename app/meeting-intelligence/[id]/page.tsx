@@ -22,7 +22,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { deleteRecord, saveRecord } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
 import { buildCompactContext } from "@/lib/meeting-intelligence/prompt";
-import { estimateChunkCount, CHUNK_SIZE } from "@/lib/meeting-intelligence/chunker";
+import { estimateChunkCount, CHUNK_SIZE, SINGLE_CALL_THRESHOLD } from "@/lib/meeting-intelligence/chunker";
 import { matchSuggestionsToExisting, type EnrichedSuggestion } from "@/lib/meeting-intelligence/matcher";
 import type {
   MeetingIntelligence,
@@ -45,12 +45,14 @@ type AnalyseErrorInfo = {
   hint?: string | null;
   failedChunk?: number;
   totalChunks?: number;
+  isDuplicate?: boolean;
 };
 
 type SSEEvent =
   | { type: "log"; label: string }
   | { type: "result"; summary: string; suggestions: AIAnalysisResponse["suggestions"] }
   | { type: "rate_limit"; message: string; retryAfter: number | null; hint: string; failedChunk: number; totalChunks: number }
+  | { type: "duplicate"; message: string }
   | { type: "error"; message: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -194,7 +196,8 @@ export default function MeetingDetailPage() {
   }
 
   const meetingLength = meeting.raw_input?.length ?? 0;
-  const estimatedChunks = estimateChunkCount(meetingLength);
+  const isSingleCallMode = meetingLength > 0 && meetingLength <= SINGLE_CALL_THRESHOLD;
+  const estimatedChunks = isSingleCallMode ? 1 : estimateChunkCount(meetingLength);
   const isLong = meetingLength > CHUNK_SIZE;
 
   // ── Analyse ────────────────────────────────────────────────────────────────
@@ -215,7 +218,7 @@ export default function MeetingDetailPage() {
       const res = await fetch("/api/meeting/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ compactContext, meetingText: meeting.raw_input }),
+        body: JSON.stringify({ compactContext, meetingText: meeting.raw_input, meeting_id: meeting.id }),
       });
 
       if (!res.ok) {
@@ -261,6 +264,12 @@ export default function MeetingDetailPage() {
               totalChunks: event.totalChunks,
             });
             setStages((prev) => prev.map((s) => s.done ? s : { ...s, label: `${s.label} — rate limited`, done: true }));
+            break outer;
+          }
+
+          if (event.type === "duplicate") {
+            setAnalyseError({ message: event.message, isDuplicate: true });
+            setStages((prev) => prev.map((s) => s.done ? s : { ...s, done: true }));
             break outer;
           }
 
@@ -447,15 +456,15 @@ export default function MeetingDetailPage() {
       {meetingLength > 0 && !analysing && meeting.processing_status !== "Applied" && (
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <span>{meetingLength.toLocaleString()} chars</span>
-          {isLong && <span>{estimatedChunks} chunks</span>}
-          {isLong && <span>~{estimatedChunks} AI calls</span>}
+          {isLong && !isSingleCallMode && <span>{estimatedChunks} chunks · ~{estimatedChunks} AI calls</span>}
+          {isSingleCallMode && isLong && <span>single-call mode · 1 AI call</span>}
           {providerLabel && <span>{providerLabel}</span>}
           {!aiMeta?.enabled && <span className="text-amber-600">No AI provider configured</span>}
         </div>
       )}
 
       {/* Error banner */}
-      {analyseError && (analyseError.isRateLimit ? (
+      {analyseError && (analyseError.isRateLimit || analyseError.isDuplicate ? (
         <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
           <div className="flex items-start gap-2">
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
