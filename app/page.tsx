@@ -1,615 +1,437 @@
 "use client";
 
 import {
-  Activity,
   AlertTriangle,
+  ArrowRight,
   BriefcaseBusiness,
-  CalendarClock,
-  CalendarRange,
+  CalendarDays,
+  CheckCircle2,
   CircleHelp,
   ClipboardCheck,
-  Clock,
   Flag,
-  Gauge,
-  HeartPulse,
-  ListChecks,
-  PackageCheck,
-  ShieldCheck,
+  Lightbulb,
+  Plus,
   Sparkles,
   Target,
-  Timer,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
-import { ControlTowerKpi } from "@/components/control-tower-kpi";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
-import { InsightPanel } from "@/components/insight-panel";
 import { StatusBadge } from "@/components/status-badge";
-import {
-  buildManagementSummary,
-  buildNeedsAttention,
-  buildTodaysPriorities,
-  buildUpcomingThisWeek,
-  buildWaitingOnOthersGrouped,
-  calculateProgress,
-  calculateProjectHealth,
-} from "@/lib/control-tower";
-import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
-import type { ProjectSnapshot } from "@/lib/types";
-import { calculateDeliveryReadiness, deliverablesRequiringAttention } from "@/lib/delivery";
-import { computeReadiness } from "@/components/requirement-readiness";
+import { buildTodaysPriorities } from "@/lib/control-tower";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
-import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
-import { ProjectTrendsPanel } from "@/components/trend-chart";
-import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
+import { buildRecommendations, type Recommendation } from "@/lib/recommendations";
+import { selectActiveProject } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
+import { useAuth } from "@/contexts/auth-context";
 import { isOverdue } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
-function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function greeting(name: string) {
+  const h = new Date().getHours();
+  if (h < 12) return `Good morning, ${name.split(" ")[0]}`;
+  if (h < 17) return `Good afternoon, ${name.split(" ")[0]}`;
+  return `Good evening, ${name.split(" ")[0]}`;
+}
+
+function urgencyColor(urgency: Recommendation["urgency"]) {
+  return {
+    critical: "border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20",
+    high: "border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/20",
+    medium: "border-blue-200 bg-blue-50 dark:border-blue-900/60 dark:bg-blue-950/20",
+    low: "border-muted bg-muted/40",
+  }[urgency];
+}
+
+function urgencyDot(urgency: Recommendation["urgency"]) {
+  return {
+    critical: "bg-red-500",
+    high: "bg-amber-500",
+    medium: "bg-blue-500",
+    low: "bg-muted-foreground/40",
+  }[urgency];
+}
+
+function urgencyLabel(urgency: Recommendation["urgency"]) {
+  return { critical: "Critical", high: "High", medium: "Medium", low: "Low" }[urgency];
+}
+
+type RecTypeIcon = Recommendation["type"];
+const TYPE_ICONS: Record<RecTypeIcon, React.ElementType> = {
+  action: ClipboardCheck,
+  risk: AlertTriangle,
+  decision: Flag,
+  milestone: Flag,
+  question: CircleHelp,
+  meeting: CalendarDays,
+  intelligence: Sparkles,
+};
+
+// ── Stat Card ─────────────────────────────────────────────────────────────────
+
+function StatCard({
+  label,
+  value,
+  href,
+  tone = "neutral",
+  icon: Icon,
+}: {
+  label: string;
+  value: number | string;
+  href: string;
+  tone?: "danger" | "warn" | "good" | "neutral";
+  icon: React.ElementType;
+}) {
+  const colorMap = {
+    danger: "text-red-600 dark:text-red-400",
+    warn: "text-amber-600 dark:text-amber-400",
+    good: "text-green-700 dark:text-green-400",
+    neutral: "text-foreground",
+  };
   return (
-    <section className="rounded-lg border bg-card p-4 shadow-operational">
-      <h3 className="text-base font-semibold">{title}</h3>
-      {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-      <div className="mt-4">{children}</div>
-    </section>
+    <Link href={href} className="flex items-center gap-3 rounded-lg border bg-card p-4 shadow-sm transition-colors hover:bg-muted/50">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
+        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+      </span>
+      <div>
+        <p className={cn("text-2xl font-bold tabular-nums leading-none", colorMap[tone])}>{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+      </div>
+    </Link>
   );
 }
 
-function ListPanel({
-  items,
-  render,
-  emptyMessage = "No records to show.",
-}: {
-  items: unknown[];
-  render: (item: Record<string, unknown>) => React.ReactNode;
-  emptyMessage?: string;
-}) {
-  if (items.length === 0) return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+// ── Quick Create ──────────────────────────────────────────────────────────────
+
+function QuickCreate() {
+  const items = [
+    { label: "Action", href: "/actions", icon: ClipboardCheck },
+    { label: "Risk", href: "/risks", icon: AlertTriangle },
+    { label: "Decision", href: "/decisions", icon: Flag },
+    { label: "Question", href: "/discovery-questions", icon: CircleHelp },
+    { label: "Milestone", href: "/milestones", icon: Flag },
+  ];
   return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div key={String((item as Record<string, unknown>).id)} className="rounded-md border bg-muted/40 p-3">
-          {render(item as Record<string, unknown>)}
-        </div>
+    <div className="flex flex-wrap gap-2">
+      {items.map(({ label, href, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+          {label}
+        </Link>
       ))}
     </div>
   );
 }
 
-export default function DashboardPage() {
-  const { data, setData, error, reload } = useProjectData();
-  const [snapshotting, setSnapshotting] = useState(false);
+// ── Section wrapper ───────────────────────────────────────────────────────────
 
-  const takeSnapshot = useCallback(async (d: NonNullable<typeof data>) => {
-    setSnapshotting(true);
-    try {
-      const saved = await captureSnapshot(d);
-      if (saved) {
-        setData((prev) => {
-          if (!prev) return prev;
-          const existing = (prev.project_snapshots ?? []).find((s) => s.id === saved.id);
-          return {
-            ...prev,
-            project_snapshots: existing
-              ? prev.project_snapshots.map((s) => (s.id === saved.id ? saved : s))
-              : [...(prev.project_snapshots ?? []), saved],
-          };
-        });
-      }
-    } finally {
-      setSnapshotting(false);
-    }
-  }, [setData]);
+function Section({
+  title,
+  href,
+  linkLabel = "View all",
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  href?: string;
+  linkLabel?: string;
+  icon?: React.ElementType;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border bg-card p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="h-4 w-4 text-primary" aria-hidden="true" />}
+          <h2 className="text-sm font-semibold">{title}</h2>
+        </div>
+        {href && (
+          <Link href={href} className="flex items-center gap-1 text-xs text-primary hover:underline">
+            {linkLabel} <ArrowRight className="h-3 w-3" />
+          </Link>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
 
-  // Auto-capture once per day when the page loads
-  useEffect(() => {
-    if (!data) return;
+// ── Workbench page ────────────────────────────────────────────────────────────
+
+export default function WorkbenchPage() {
+  const { data, error, reload } = useProjectData();
+  const { user } = useAuth();
+
+  const wb = useMemo(() => {
+    if (!data) return null;
     const project = selectActiveProject(data);
-    if (!project) return;
-    if (!todaySnapshotExists(data, project.id)) {
-      void takeSnapshot(data);
-    }
-  // Only run on initial data load
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!data]);
+    if (!project) return null;
 
-  const tower = useMemo(() => {
-    const project = data ? selectActiveProject(data) : null;
-    if (!data || !project) return null;
-
-    const timelineScope = selectTimelineItems(data, project);
-    const schedule = calculateSchedule(project, timelineScope.items);
-    const scheduleVariance = schedule.variance ?? -1;
-    const overdueActions = data.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const overdueDecisions = data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
-    const overdueItems = overdueActions + overdueDecisions;
-    const health = calculateProjectHealth(overdueItems, blockedMilestones, scheduleVariance);
-    const scheduleHealth = schedule.health;
-    const progress = calculateProgress(data, scheduleVariance);
-    const projectDeliverables = data.deliverables.filter((item) => item.project_id === project.id);
+    const overdueActions = data.actions.filter(
+      (a) => isOverdue(a.due_date, a.status),
+    );
+    const openRisks = data.risks.filter(
+      (r) => !["Complete", "Closed"].includes(r.status),
+    );
+    const highRisks = openRisks.filter((r) => ["High", "Critical"].includes(r.impact));
+    const awaitingQuestions = data.discovery_questions.filter((q) =>
+      ["Awaiting Business", "Awaiting Development", "Awaiting Response"].includes(q.status),
+    );
+    const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked");
+    const upcomingMeetings = [...(data.meeting_intelligence ?? [])]
+      .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""))
+      .slice(0, 5);
+    const pendingSuggestions = (data.meeting_suggestions ?? []).filter(
+      (s) => s.status === "Pending",
+    );
+    const confidence = computeDeliveryConfidence(data);
+    const recommendations = buildRecommendations(data, 5);
+    const priorities = buildTodaysPriorities(data);
+    const recentActivity = data.activity_log.slice(0, 8);
 
     return {
       project,
-      scheduleVariance,
       overdueActions,
-      overdueDecisions,
-      overdueItems,
+      openRisks: openRisks.length,
+      highRisks: highRisks.length,
+      awaitingQuestions,
       blockedMilestones,
-      health,
-      scheduleHealth,
-      progress,
-      deliveryReadiness: calculateDeliveryReadiness(projectDeliverables),
-      deliverableAttention: deliverablesRequiringAttention(projectDeliverables),
-      schedule,
-      needsAttention: buildNeedsAttention(data),
-      upcomingThisWeek: buildUpcomingThisWeek(data),
-      summary: buildManagementSummary(project, health, data, overdueActions, schedule),
-      openRisks: data.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
-      openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
-      activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
-      recentActivity: data.activity_log.slice(0, 5),
-      openDecisions: data.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).slice(0, 5),
-      requirements: {
-        total: data.requirements.length,
-        discovery: data.requirements.filter((r) => r.status === "Discovery").length,
-        inProgress: data.requirements.filter((r) => r.status === "In Progress").length,
-        approved: data.requirements.filter((r) => r.status === "Approved").length,
-        complete: data.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
-      },
-      waitingOnOthers: buildWaitingOnOthersGrouped(data),
-      todaysPriorities: buildTodaysPriorities(data),
-      acceptance: (() => {
-        const allAC = data.acceptance_criteria ?? [];
-        const total = allAC.length;
-        const met = allAC.filter((ac) => ac.status === "Met").length;
-        const failed = allAC.filter((ac) => ac.status === "Failed").length;
-        const outstanding = allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length;
-        const pct = total > 0 ? Math.round((met / total) * 100) : 0;
-        const reqs100 = data.requirements.filter((r) => {
-          const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-          return acs.length > 0 && acs.every((ac) => ac.status === "Met" || ac.status === "Waived");
-        }).length;
-        const reqsFailed = data.requirements.filter((r) =>
-          allAC.some((ac) => ac.requirement_id === r.id && ac.status === "Failed"),
-        ).length;
-        return { total, met, failed, outstanding, pct, reqs100, reqsFailed };
-      })(),
-      projectReadiness: computeReadiness(
-        data.acceptance_criteria ?? [],
-        data.evidence ?? [],
-        data.requirement_sign_offs ?? [],
-        data.test_cases ?? [],
-      ),
-      confidence: computeDeliveryConfidence(data),
-      snapshots: (data.project_snapshots ?? [])
-        .filter((s) => s.project_id === project.id)
-        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)),
+      upcomingMeetings,
+      pendingSuggestions,
+      confidence,
+      recommendations,
+      priorities,
+      recentActivity,
     };
   }, [data]);
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
-  if (!tower) {
+  if (!wb) {
     return (
       <AppShell>
-        <EmptyState title="No projects found" description="Add a project before using the control tower." icon={BriefcaseBusiness} />
+        <EmptyState title="No projects found" description="Add a project to use your workbench." icon={BriefcaseBusiness} />
       </AppShell>
     );
   }
 
-  const { project, progress, schedule } = tower;
-  const varianceLabel = schedule.variance === null ? "Review" : schedule.variance > 0 ? `+${schedule.variance}%` : `${schedule.variance}%`;
-
-  // Trend helpers — compare current value to the most recent prior snapshot
-  const prevSnapshot = tower.snapshots.length >= 2
-    ? tower.snapshots[tower.snapshots.length - 2]
-    : tower.snapshots.length === 1
-      ? tower.snapshots[0]
-      : null;
-
-  function snapTrend(
-    current: number,
-    prevKey: keyof ProjectSnapshot,
-    higherIsBetter = true,
-  ): { direction: "up" | "flat" | "down"; label: string } | undefined {
-    if (!prevSnapshot) return undefined;
-    const prev = Number(prevSnapshot[prevKey] ?? current);
-    const diff = current - prev;
-    if (diff === 0) return { direction: "flat", label: `Stable vs ${prevSnapshot.snapshot_date.slice(5)}` };
-    const direction = diff > 0 ? "up" : "down";
-    const sign = diff > 0 ? "+" : "";
-    return {
-      direction: higherIsBetter ? direction : (direction === "up" ? "down" : "up"),
-      label: `${sign}${diff} vs ${prevSnapshot.snapshot_date.slice(5)}`,
-    };
-  }
-
-  // Momentum: confidence delta over last 7 snapshots
-  const momentum = (() => {
-    const snaps = tower.snapshots.filter((s) => s.delivery_confidence != null);
-    if (snaps.length < 2) return null;
-    const recent = snaps[snaps.length - 1];
-    const lookback = snaps.length >= 8 ? snaps[snaps.length - 8] : snaps[0];
-    const delta = (recent.delivery_confidence ?? 0) - (lookback.delivery_confidence ?? 0);
-    const label =
-      delta > 0 ? "Improving" : delta < 0 ? "Declining" : "Stable";
-    return { delta, label, since: lookback.snapshot_date.slice(5) };
-  })();
+  const name = user?.fullName ?? "there";
 
   return (
     <AppShell>
-      <section aria-labelledby="control-tower-title">
-        <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-          <div>
-            <p className="text-sm font-medium text-primary">Executive Control Tower</p>
-            <h2 id="control-tower-title" className="mt-1 text-2xl font-semibold tracking-normal">Project Control Centre</h2>
-            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              {project.name} · {project.customer} · {project.workstream}
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card p-3 text-sm sm:grid-cols-4">
-            <div>
-              <p className="text-muted-foreground">Phase</p>
-              <StatusBadge value={project.status} />
-            </div>
-            <div>
-              <p className="text-muted-foreground">Auto Health</p>
-              <StatusBadge value={tower.health} />
-            </div>
-            <div>
-              <p className="text-muted-foreground">Schedule variance</p>
-              <p className="font-semibold tabular-nums">{varianceLabel}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Project end</p>
-              <p className="font-semibold tabular-nums">{formatScheduleDate(schedule.projectEnd)}</p>
-            </div>
-          </div>
-        </div>
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      <div className="mb-6">
+        <p className="text-sm font-medium text-primary">My Workbench</p>
+        <h1 className="mt-1 text-2xl font-semibold">{greeting(name)}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {wb.project.name} · {wb.project.customer}
+        </p>
+      </div>
 
-        <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational" aria-labelledby="management-summary-title">
-          <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <Activity className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h3 id="management-summary-title" className="text-base font-semibold">Management Summary</h3>
-              <p className="mt-2 max-w-5xl text-sm leading-6 text-muted-foreground">{tower.summary}</p>
-            </div>
-          </div>
-        </section>
+      {/* ── Quick-stat bar ───────────────────────────────────────────────────── */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Overdue Actions" value={wb.overdueActions.length} href="/actions" tone={wb.overdueActions.length > 0 ? "danger" : "good"} icon={ClipboardCheck} />
+        <StatCard label="Open Risks" value={wb.openRisks} href="/risks" tone={wb.highRisks > 0 ? "warn" : "neutral"} icon={AlertTriangle} />
+        <StatCard label="Awaiting Answers" value={wb.awaitingQuestions.length} href="/discovery-questions" tone={wb.awaitingQuestions.length > 0 ? "warn" : "good"} icon={CircleHelp} />
+        <StatCard label="Blocked Milestones" value={wb.blockedMilestones.length} href="/milestones" tone={wb.blockedMilestones.length > 0 ? "danger" : "good"} icon={Flag} />
+      </div>
 
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <ControlTowerKpi title="Project Health" rag={tower.health} helper="Calculated from overdue work, blockers and schedule variance" icon={HeartPulse} tone={tower.health === "Red" ? "danger" : tower.health === "Amber" ? "warn" : "good"} />
-          <ControlTowerKpi title="Project End Date" value={schedule.valid ? formatScheduleDate(schedule.projectEnd) : "Review"} helper={schedule.valid ? "Editable planned delivery end date" : "Schedule dates need review"} icon={CalendarRange} tone={schedule.valid ? "neutral" : "warn"} />
-          <ControlTowerKpi title="Days Remaining" value={schedule.daysRemaining ?? "Review"} helper={schedule.valid ? "Calendar days to planned project end" : "Schedule dates need review"} icon={CalendarClock} tone={schedule.daysRemaining === 0 && !schedule.projectComplete ? "danger" : "neutral"} />
-          <ControlTowerKpi title="Planned Progress" value={schedule.plannedProgress === null ? "Review" : `${schedule.plannedProgress}%`} helper="Elapsed calendar days across the project baseline" icon={Target} progress={schedule.plannedProgress ?? undefined} />
-          <ControlTowerKpi title="Actual Progress" value={schedule.actualProgress === null ? "Review" : `${schedule.actualProgress}%`} helper="Duration-weighted progress across timeline phases" icon={Gauge} progress={schedule.actualProgress ?? undefined} />
-          <ControlTowerKpi title="Schedule Variance" value={schedule.variance === null ? "Review" : varianceLabel} helper="Actual progress minus planned progress" icon={Activity} tone={schedule.health === "Red" ? "danger" : schedule.health === "Amber" ? "warn" : "good"} />
-          <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth ?? undefined} value="Review" helper={schedule.valid ? `${varianceLabel} against the editable schedule` : "Schedule dates need review"} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : schedule.valid ? "good" : "warn"} />
-          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} trend={snapTrend(tower.openRisks, "open_risks", false)} href="/risks?status=Open" />
-          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} trend={snapTrend(tower.overdueActions, "overdue_actions", false)} href="/actions?status=Blocked" />
-          <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} href="/decisions?status=Open" />
-          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} trend={snapTrend(tower.openQuestions, "open_questions", false)} href="/discovery-questions?status=Awaiting Business" />
-          <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} href="/milestones" />
-          <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
-          <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
-          <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} trend={snapTrend(tower.acceptance.pct, "acceptance_complete")} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
-          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={snapTrend(tower.projectReadiness.overall, "project_readiness")} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
-          <ControlTowerKpi
-            title="Delivery Confidence"
-            value={`${tower.confidence.score}%`}
-            helper={tower.confidence.reasons.length ? tower.confidence.reasons.join(" · ") : "No confidence gaps detected."}
-            icon={Target}
-            progress={tower.confidence.score}
-            trend={snapTrend(tower.confidence.score, "delivery_confidence")}
-            tone={tower.confidence.rag === "Green" ? "good" : tower.confidence.rag === "Amber" ? "warn" : "danger"}
-          />
-        </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        {/* ── Left column ───────────────────────────────────────────────────── */}
+        <div className="space-y-5">
 
-        {/* Part 4 — Delivery Confidence + Part 5 — Project Momentum */}
-        <div className="mt-5 grid gap-5 xl:grid-cols-3">
-          {/* Delivery Confidence reasoning */}
-          <section className="col-span-2 rounded-lg border bg-card p-5 shadow-operational">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold">Delivery Confidence</h3>
-              <span className={`text-3xl font-bold tabular-nums ${tower.confidence.rag === "Green" ? "text-green-700" : tower.confidence.rag === "Amber" ? "text-amber-600" : "text-red-600"}`}>
-                {tower.confidence.score}%
-              </span>
-            </div>
-            {tower.confidence.reasons.length === 0 ? (
-              <p className="mt-3 text-sm text-green-700">All confidence checks passed — delivery is on track.</p>
-            ) : (
-              <div className="mt-3">
-                <p className="text-sm text-muted-foreground">Confidence reduced because:</p>
-                <ul className="mt-2 space-y-1.5">
-                  {tower.confidence.reasons.map((reason) => (
-                    <li key={reason} className="flex items-center gap-2 text-sm">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                      {reason}
-                    </li>
-                  ))}
-                </ul>
+          {/* Recommendations */}
+          <Section title="Today's Recommendations" icon={Lightbulb}>
+            {wb.recommendations.length === 0 ? (
+              <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                No critical items — the project is on track.
               </div>
+            ) : (
+              <ol className="space-y-2.5">
+                {wb.recommendations.map((rec, i) => {
+                  const Icon = TYPE_ICONS[rec.type];
+                  return (
+                    <li key={rec.id}>
+                      <Link href={rec.href} className={cn("flex items-start gap-3 rounded-md border p-3 transition-colors hover:opacity-90", urgencyColor(rec.urgency))}>
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-xs font-bold text-foreground shadow-sm">
+                          {i + 1}
+                        </span>
+                        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium leading-snug">{rec.title}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{rec.reason}</p>
+                        </div>
+                        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                          <span className={cn("h-1.5 w-1.5 rounded-full", urgencyDot(rec.urgency))} />
+                          {urgencyLabel(rec.urgency)}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+          </Section>
+
+          {/* Today's priorities */}
+          {wb.priorities.length > 0 && (
+            <Section title="Today's Priorities" icon={Zap}>
+              <ol className="space-y-2">
+                {wb.priorities.slice(0, 5).map((p) => (
+                  <li key={p.rank} className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                      {p.rank}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold">{p.title}</p>
+                      {p.detail && <p className="mt-0.5 text-xs text-muted-foreground">{p.detail}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </Section>
+          )}
+
+          {/* Overdue Actions */}
+          {wb.overdueActions.length > 0 && (
+            <Section title={`Overdue Actions (${wb.overdueActions.length})`} href="/actions" icon={ClipboardCheck}>
+              <div className="space-y-2">
+                {wb.overdueActions.slice(0, 6).map((a) => (
+                  <div key={a.id} className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/20">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-red-700 dark:text-red-400">{a.action_ref}</span>
+                        <StatusBadge value={a.status} />
+                      </div>
+                      <p className="mt-1 text-sm">{a.description}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Due {a.due_date} · {a.owner}</p>
+                    </div>
+                  </div>
+                ))}
+                {wb.overdueActions.length > 6 && (
+                  <Link href="/actions" className="block text-center text-xs text-primary hover:underline">
+                    +{wb.overdueActions.length - 6} more overdue actions
+                  </Link>
+                )}
+              </div>
+            </Section>
+          )}
+
+          {/* Questions awaiting response */}
+          {wb.awaitingQuestions.length > 0 && (
+            <Section title={`Questions Awaiting Response (${wb.awaitingQuestions.length})`} href="/discovery-questions" icon={CircleHelp}>
+              <div className="space-y-2">
+                {wb.awaitingQuestions.slice(0, 4).map((q) => (
+                  <div key={q.id} className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-muted-foreground">{q.question_ref}</span>
+                        <StatusBadge value={q.status} />
+                      </div>
+                      <p className="mt-1 text-sm">{q.question}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+        </div>
+
+        {/* ── Right column ──────────────────────────────────────────────────── */}
+        <div className="space-y-5">
+
+          {/* Delivery Confidence */}
+          <section className="rounded-lg border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" aria-hidden="true" />
+                <h2 className="text-sm font-semibold">Delivery Confidence</h2>
+              </div>
+              <Link href="/control-tower" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                Full view <ArrowRight className="h-3 w-3" />
+              </Link>
+            </div>
+            <div className="mt-4 text-center">
+              <span className={cn("text-5xl font-bold tabular-nums", wb.confidence.rag === "Green" ? "text-green-700" : wb.confidence.rag === "Amber" ? "text-amber-600" : "text-red-600")}>
+                {wb.confidence.score}%
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground">{wb.confidence.rag} · {wb.confidence.reasons.length === 0 ? "All checks passed" : `${wb.confidence.reasons.length} gap${wb.confidence.reasons.length > 1 ? "s" : ""} detected`}</p>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
               <div
-                className={`h-full rounded-full transition-[width] duration-500 ${tower.confidence.rag === "Green" ? "bg-green-600" : tower.confidence.rag === "Amber" ? "bg-amber-500" : "bg-red-500"}`}
-                style={{ width: `${tower.confidence.score}%` }}
+                className={cn("h-full rounded-full transition-[width] duration-500", wb.confidence.rag === "Green" ? "bg-green-600" : wb.confidence.rag === "Amber" ? "bg-amber-500" : "bg-red-500")}
+                style={{ width: `${wb.confidence.score}%` }}
               />
             </div>
-          </section>
-
-          {/* Project Momentum */}
-          <section className="rounded-lg border bg-card p-5 shadow-operational">
-            <h3 className="text-base font-semibold">Project Momentum</h3>
-            {momentum === null ? (
-              <p className="mt-3 text-sm text-muted-foreground">Not enough snapshots yet — momentum calculates after 2+ daily captures.</p>
-            ) : (
-              <div className="mt-4 text-center">
-                <p className={`text-sm font-semibold ${momentum.delta > 0 ? "text-green-700" : momentum.delta < 0 ? "text-red-600" : "text-muted-foreground"}`}>
-                  {momentum.label}
-                </p>
-                <p className={`mt-1 text-5xl font-bold tabular-nums ${momentum.delta > 0 ? "text-green-700" : momentum.delta < 0 ? "text-red-600" : "text-muted-foreground"}`}>
-                  {momentum.delta > 0 ? "+" : ""}{momentum.delta}%
-                </p>
-                <p className="mt-3 text-xs text-muted-foreground">Delivery Confidence change since {momentum.since}</p>
-              </div>
+            {wb.confidence.reasons.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {wb.confidence.reasons.slice(0, 3).map((r) => (
+                  <li key={r} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="h-1 w-1 shrink-0 rounded-full bg-amber-500" />
+                    {r}
+                  </li>
+                ))}
+              </ul>
             )}
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                disabled={snapshotting || !data}
-                onClick={() => data && void takeSnapshot(data)}
-                className="rounded-md border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
-              >
-                {snapshotting ? "Saving…" : "Take Snapshot Now"}
-              </button>
-            </div>
           </section>
-        </div>
 
-        {/* Part 2 — Trend Charts */}
-        {tower.snapshots.length >= 2 && (
-          <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational">
-            <ProjectTrendsPanel snapshots={tower.snapshots} />
+          {/* Quick Create */}
+          <section className="rounded-lg border bg-card p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <Plus className="h-4 w-4 text-primary" aria-hidden="true" />
+              <h2 className="text-sm font-semibold">Quick Create</h2>
+            </div>
+            <QuickCreate />
           </section>
-        )}
 
-        {/* Part 9 — Latest Meeting Intelligence */}
-        <MeetingIntelligencePanel data={data} />
-
-        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-          <InsightPanel title="Needs Attention" description="Automatically prioritised by severity." items={tower.needsAttention} emptyMessage="No blockers or aged items need attention." />
-          <InsightPanel title="Upcoming This Week" description="Actions, decisions and milestones due in the next seven days." items={tower.upcomingThisWeek} emptyMessage="Nothing is due in the next seven days." />
-        </div>
-
-        <div className="mt-5 grid gap-5 xl:grid-cols-2">
-          <Panel title="Dashboard Timeline" description="Live phase position and duration-weighted schedule progress.">
-            {!schedule.valid ? (
-              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">Schedule dates need review</div>
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-md bg-muted/60 p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Active phases</p>
-                <div className="mt-2 space-y-2">
-                  {schedule.active.length ? schedule.active.map((phase) => (
-                    <div key={phase.id}>
-                      <p className="text-sm font-medium">{phase.phase_name}</p>
-                      <StatusBadge value={phase.status} className="mt-1" />
-                    </div>
-                  )) : <p className="text-sm text-muted-foreground">No active phase</p>}
-                </div>
-              </div>
-              <div className="rounded-md bg-muted/60 p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Upcoming phases</p>
-                <div className="mt-2 space-y-2">
-                  {schedule.upcoming.slice(0, 3).map((phase) => <div key={phase.id}><p className="text-sm font-medium">{phase.phase_name}</p><p className="text-xs text-muted-foreground">Starts {formatScheduleDate(phase.start_date)}</p></div>)}
-                  {!schedule.upcoming.length ? <p className="text-sm text-muted-foreground">No upcoming phase</p> : null}
-                </div>
-              </div>
-              <div className="rounded-md bg-muted/60 p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">At risk / blocked</p>
-                <p className="mt-2 text-2xl font-semibold tabular-nums">{schedule.atRisk.length} / {schedule.blocked.length}</p>
-                <p className="mt-1 text-xs text-muted-foreground">At risk phases / blocked phases</p>
-              </div>
-              <div className="rounded-md bg-muted/60 p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Planned vs actual</p>
-                <p className="mt-2 text-lg font-semibold tabular-nums">{schedule.plannedProgress ?? "—"}% / {schedule.actualProgress ?? "—"}%</p>
-                <p className="mt-1 text-xs text-muted-foreground">Variance {schedule.variance === null ? "needs review" : varianceLabel}</p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-3">
-              <div><div className="mb-1 flex justify-between text-xs"><span>Planned</span><span>{schedule.plannedProgress ?? 0}%</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-slate-500" style={{ width: `${schedule.plannedProgress ?? 0}%` }} /></div></div>
-              <div><div className="mb-1 flex justify-between text-xs"><span>Actual</span><span>{schedule.actualProgress ?? 0}%</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${schedule.actualProgress ?? 0}%` }} /></div></div>
-            </div>
-          </Panel>
-
-          <Panel title="Project Status Summary" description="Automatic status based on control-tower thresholds.">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/40 p-3">
-              <div>
-                <p className="text-sm font-medium">Current automatic status</p>
-                <p className="mt-1 text-xs text-muted-foreground">{tower.overdueItems} overdue items · {tower.blockedMilestones} blocked milestones · {varianceLabel} schedule variance</p>
-              </div>
-              <StatusBadge value={tower.health} className="min-h-9 px-3 text-sm" />
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-5">
-              {progress.components.map((component) => (
-                <div key={component.label} className="rounded-md bg-muted/60 p-3 text-center">
-                  <p className="text-xs font-medium text-muted-foreground">{component.label}</p>
-                  <p className="mt-1 text-lg font-semibold tabular-nums">{Math.round(component.score * 100)}%</p>
-                  <p className="text-xs text-muted-foreground">Weight {component.weight}%</p>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-
-        <div className="mt-5">
-          <div className="mb-3 flex items-center gap-2">
-            <Timer className="h-4 w-4 text-primary" aria-hidden="true" />
-            <h2 className="text-lg font-semibold">Operational Detail</h2>
-          </div>
-          <div className="mb-5">
-            <Panel title="Today's Priorities" description="Automatically calculated from overdue work, blocked items, high risks and upcoming deadlines.">
-              {tower.todaysPriorities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No critical priorities identified — the project is on track.</p>
-              ) : (
-                <ol className="space-y-3">
-                  {tower.todaysPriorities.map((p) => (
-                    <li key={p.rank} className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{p.rank}</span>
-                      <div>
-                        <p className="text-sm font-semibold">{p.title}</p>
-                        {p.detail && <p className="mt-1 text-xs text-muted-foreground">{p.detail}</p>}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </Panel>
-          </div>
-          <div className="grid gap-5 xl:grid-cols-4">
-            <Panel title="Requirements">
+          {/* Meeting Intelligence */}
+          {wb.upcomingMeetings.length > 0 && (
+            <Section title="Recent Meetings" href="/meeting-intelligence" icon={Sparkles}>
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm">
-                  <span className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Total</span>
-                  <strong className="tabular-nums">{tower.requirements.total}</strong>
-                </div>
-                <Link href="/requirements?status=Discovery" className="flex items-center justify-between rounded-md bg-amber-50 p-3 text-sm hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-950/30">
-                  <span>Discovery</span>
-                  <strong className="tabular-nums text-amber-700 dark:text-amber-400">{tower.requirements.discovery}</strong>
-                </Link>
-                <div className="flex items-center justify-between rounded-md bg-blue-50 p-3 text-sm dark:bg-blue-950/20">
-                  <span>In Progress</span>
-                  <strong className="tabular-nums text-blue-700 dark:text-blue-400">{tower.requirements.inProgress}</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-purple-50 p-3 text-sm dark:bg-purple-950/20">
-                  <span>Approved</span>
-                  <strong className="tabular-nums text-purple-700 dark:text-purple-400">{tower.requirements.approved}</strong>
-                </div>
-                <div className="flex items-center justify-between rounded-md bg-green-50 p-3 text-sm dark:bg-green-950/20">
-                  <span>Complete</span>
-                  <strong className="tabular-nums text-green-700 dark:text-green-400">{tower.requirements.complete}</strong>
-                </div>
-              </div>
-            </Panel>
-            <Panel title="Waiting on Others">
-              {tower.waitingOnOthers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No outstanding items waiting on others.</p>
-              ) : (
-                <div className="space-y-3">
-                  {tower.waitingOnOthers.map((group) => (
-                    <div key={group.owner} className="rounded-md border bg-muted/40 p-3">
-                      <p className="text-xs font-semibold text-muted-foreground">{group.owner}</p>
-                      <div className="mt-2 space-y-1">
-                        {group.items.map((item) => (
-                          <Link key={item.href + item.label} href={item.href} className="flex items-center justify-between text-sm hover:text-primary">
-                            <span>{item.label}</span>
-                            <span className="text-xs text-muted-foreground">→</span>
-                          </Link>
-                        ))}
-                      </div>
+                {wb.upcomingMeetings.map((m) => (
+                  <Link key={m.id} href={`/meeting-intelligence/${m.id}`} className="flex items-start gap-2 rounded-md border bg-muted/40 p-3 hover:bg-muted/70 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium leading-snug">{m.title}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{m.meeting_date ?? "No date"} · {m.processing_status}</p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-            <Panel title="Recent Activity">
-              <ListPanel emptyMessage="No recent activity logged." items={tower.recentActivity} render={(item) => (
-                <>
-                  <p className="font-medium">{String(item.activity_type)}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{String(item.description)}</p>
-                </>
-              )} />
-            </Panel>
-            <Panel title="Open Decisions">
-              <ListPanel emptyMessage="No open decisions — all decisions are resolved." items={tower.openDecisions} render={(item) => (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="font-medium">{String(item.decision_ref)}</p>
-                    <StatusBadge value={String(item.status)} />
+                  </Link>
+                ))}
+                {wb.pendingSuggestions.length > 0 && (
+                  <div className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300">
+                    {wb.pendingSuggestions.length} suggestion{wb.pendingSuggestions.length > 1 ? "s" : ""} pending review
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">{String(item.question)}</p>
-                  <p className="mt-2 text-xs font-medium">Due {String(item.due_date || "not set")} / {String(item.owner)}</p>
-                </>
-              )} />
-            </Panel>
-            <Panel title="Control Coverage">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Requirements</span><strong>{data.requirements.length}</strong></div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Planned tests</span><strong>{data.test_cases.length}</strong></div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Discovery questions</span><strong>{data.discovery_questions.length}</strong></div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Milestones</span><strong>{data.milestones.length}</strong></div>
-                <div className="flex items-center justify-between rounded-md bg-muted p-3 text-sm"><span>Deliverables</span><strong>{data.deliverables.length}</strong></div>
+                )}
               </div>
-            </Panel>
-            <Panel title="Delivery Watch">
-              {tower.deliverableAttention.length ? <div className="space-y-3">{tower.deliverableAttention.slice(0, 5).map((item) => <div key={item.id} className="rounded-md border bg-muted/40 p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-muted-foreground">{item.deliverable.deliverable_ref}</p><StatusBadge value={item.severity} /></div><p className="mt-2 text-sm font-medium">{item.deliverable.title}</p><p className="mt-1 text-xs text-muted-foreground">{item.reason}</p></div>)}</div> : <p className="text-sm text-muted-foreground">No deliverables require attention.</p>}
-            </Panel>
-          </div>
+            </Section>
+          )}
+
+          {/* Recent Activity */}
+          {wb.recentActivity.length > 0 && (
+            <Section title="Recent Activity" icon={TrendingUp}>
+              <div className="space-y-2">
+                {wb.recentActivity.map((a) => (
+                  <div key={a.id} className="rounded-md border bg-muted/40 p-3">
+                    <p className="text-xs font-medium">{a.activity_type}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{a.description}</p>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
         </div>
-      </section>
+      </div>
     </AppShell>
-  );
-}
-
-// ── Meeting Intelligence Dashboard Panel (Part 9) ─────────────────────────────
-
-import type { DataStore } from "@/lib/data-store";
-
-function MeetingIntelligencePanel({ data }: { data: DataStore }) {
-  const meetings = (data.meeting_intelligence ?? [])
-    .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""));
-  if (meetings.length === 0) return null;
-
-  const lastMeeting = meetings[0];
-  const pendingSuggestions = (data.meeting_suggestions ?? []).filter(
-    (s) => s.status === "Pending",
-  );
-  const recentlyApplied = (data.meeting_suggestions ?? []).filter(
-    (s) => s.status === "Applied",
-  ).length;
-  const awaitingReview = meetings.filter((m) => m.processing_status === "Analysed").length;
-
-  return (
-    <section className="mt-5 rounded-lg border bg-card p-5 shadow-operational">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <h3 className="text-base font-semibold">Latest Meeting Intelligence</h3>
-        </div>
-        <Link href="/meeting-intelligence" className="text-xs font-medium text-primary hover:underline">
-          View all
-        </Link>
-      </div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-md border bg-muted/40 p-3">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Last Meeting</p>
-          <p className="mt-1 text-sm font-medium">{lastMeeting.title}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{lastMeeting.meeting_date ?? "No date"} · {lastMeeting.source}</p>
-        </div>
-        <div className="rounded-md border bg-muted/40 p-3">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Awaiting Review</p>
-          <p className={`mt-1 text-2xl font-bold tabular-nums ${awaitingReview ? "text-amber-600" : ""}`}>{awaitingReview}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">meetings with pending suggestions</p>
-        </div>
-        <div className="rounded-md border bg-muted/40 p-3">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Suggestions</p>
-          <p className={`mt-1 text-2xl font-bold tabular-nums ${pendingSuggestions.length ? "text-amber-600" : ""}`}>{pendingSuggestions.length}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{recentlyApplied} applied total</p>
-        </div>
-      </div>
-      {pendingSuggestions.length > 0 && (
-        <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <Clock className="h-3.5 w-3.5 shrink-0" />
-          {pendingSuggestions.length} suggestion{pendingSuggestions.length > 1 ? "s" : ""} pending review —{" "}
-          <Link href="/meeting-intelligence" className="font-semibold underline">review now</Link>
-        </div>
-      )}
-    </section>
   );
 }

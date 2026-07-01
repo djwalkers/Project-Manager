@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, Menu, User } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notification-bell";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import { ROLE_COLORS } from "@/lib/auth";
@@ -85,6 +86,7 @@ export function Header({ onMenuOpen }: { onMenuOpen?: () => void }) {
             </div>
           )}
 
+          <NotificationBell />
           <ThemeToggle />
         </div>
       </header>

@@ -23,6 +23,8 @@ import {
   Newspaper,
   PackageCheck,
   PanelsTopLeft,
+  PrinterCheck,
+  Radio,
   Rocket,
   Settings,
   ShieldQuestion,
@@ -45,7 +47,7 @@ export type NavGroup = {
 };
 
 export const STANDALONE_ITEMS: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/", label: "Workbench", icon: LayoutDashboard, keywords: "home dashboard workbench" },
   { href: "/project-workspace", label: "Workspace", icon: PanelsTopLeft },
   { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
 ];
@@ -89,6 +91,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/project-trends", label: "Trends", icon: TrendingUp },
       { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
       { href: "/manager-summary", label: "Manager Summary", icon: ClipboardList },
+      { href: "/control-tower", label: "Control Tower", icon: Radio, keywords: "control tower kpi dashboard" },
+      { href: "/reports", label: "Reports", icon: PrinterCheck, keywords: "executive report print export" },
     ],
   },
   {
