@@ -7,12 +7,14 @@ import {
   ChevronUp,
   Clock,
   Edit3,
+  Info,
   Loader2,
   RefreshCw,
   Sparkles,
   X,
   XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -199,6 +201,13 @@ export default function MeetingDetailPage() {
   const isSingleCallMode = meetingLength > 0 && meetingLength <= SINGLE_CALL_THRESHOLD;
   const estimatedChunks = isSingleCallMode ? 1 : estimateChunkCount(meetingLength);
   const isLong = meetingLength > CHUNK_SIZE;
+
+  // AI readiness
+  const aiEnabled = aiMeta !== null
+    && aiMeta.enabled
+    && aiMeta.key_configured
+    && aiMeta.provider !== "none";
+  const aiUnconfigured = aiMeta !== null && !aiEnabled;
 
   // ── Analyse ────────────────────────────────────────────────────────────────
   async function handleAnalyse() {
@@ -436,7 +445,7 @@ export default function MeetingDetailPage() {
           {meeting.processing_status !== "Applied" && (
             <Button
               onClick={() => void handleAnalyse()}
-              disabled={analysing}
+              disabled={analysing || !aiEnabled}
               className="gap-2"
             >
               {analysing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -460,6 +469,27 @@ export default function MeetingDetailPage() {
           {isSingleCallMode && isLong && <span>single-call mode · 1 AI call</span>}
           {providerLabel && <span>{providerLabel}</span>}
           {!aiMeta?.enabled && <span className="text-amber-600">No AI provider configured</span>}
+        </div>
+      )}
+
+      {/* AI disabled banner */}
+      {aiUnconfigured && !analysing && (
+        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
+          <div className="flex items-start gap-2">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+            <div>
+              <p className="font-medium">AI analysis is currently disabled.</p>
+              <p className="mt-0.5 text-blue-700">
+                {aiMeta?.provider === "none"
+                  ? "No AI provider is configured. "
+                  : !aiMeta?.key_configured
+                    ? "No API key is configured. "
+                    : "AI analysis has been disabled. "}
+                <Link href="/ai-settings" className="underline hover:text-blue-900">Configure AI Settings</Link>
+                {" "}to enable automatic meeting analysis.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

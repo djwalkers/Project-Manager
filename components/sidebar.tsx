@@ -4,148 +4,86 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  AlertTriangle,
-  BookOpenCheck,
-  Bot,
   Boxes,
-  BrainCircuit,
-  Rocket,
-  BriefcaseBusiness,
-  CalendarDays,
-  CalendarRange,
   ChevronDown,
-  CircleHelp,
-  ClipboardCheck,
-  ClipboardList,
-  FileText,
-  Flag,
-  GitBranch,
-  History,
-  LayoutDashboard,
-  ListChecks,
-  Mail,
-  Newspaper,
-  PackageCheck,
-  PanelsTopLeft,
-  Pin,
-  Settings,
-  ShieldQuestion,
-  Sparkles,
+  Clock,
+  Search,
   Star,
-  Stethoscope,
-  TrendingUp,
   X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { ROLE_NAV_ACCESS } from "@/lib/auth";
+import { ALL_ITEMS, NAV_GROUPS, STANDALONE_ITEMS, type NavGroup, type NavItem } from "@/lib/nav-data";
 import { cn } from "@/lib/utils";
 
-// ── Nav data ──────────────────────────────────────────────────────────────────
+// ── Storage ───────────────────────────────────────────────────────────────────
 
-type NavItem = { href: string; label: string; icon: React.ElementType };
-
-type NavGroup = {
-  id: string;
-  label: string;
-  items: NavItem[];
-};
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    id: "overview",
-    label: "Overview",
-    items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/project-workspace", label: "Workspace", icon: PanelsTopLeft },
-      { href: "/project-intelligence", label: "Intelligence", icon: BrainCircuit },
-      { href: "/project-trends", label: "Trends", icon: TrendingUp },
-      { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
-      { href: "/manager-summary", label: "Manager Summary", icon: ClipboardList },
-    ],
-  },
-  {
-    id: "delivery",
-    label: "Delivery",
-    items: [
-      { href: "/deliverables", label: "Deliverables", icon: PackageCheck },
-      { href: "/go-live-readiness", label: "Go-Live Readiness", icon: Rocket },
-      { href: "/timeline", label: "Timeline", icon: CalendarRange },
-      { href: "/milestones", label: "Milestones", icon: Flag },
-      { href: "/testing", label: "Testing", icon: BookOpenCheck },
-    ],
-  },
-  {
-    id: "governance",
-    label: "Governance",
-    items: [
-      { href: "/requirements", label: "Requirements", icon: ListChecks },
-      { href: "/risks", label: "Risks", icon: AlertTriangle },
-      { href: "/decisions", label: "Decisions", icon: ShieldQuestion },
-      { href: "/actions", label: "Actions", icon: ClipboardCheck },
-      { href: "/discovery-questions", label: "Discovery Questions", icon: CircleHelp },
-      { href: "/dependencies", label: "Dependencies", icon: GitBranch },
-    ],
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    items: [
-      { href: "/meetings", label: "Meetings", icon: CalendarDays },
-      { href: "/meeting-intelligence", label: "Meeting Intelligence", icon: Sparkles },
-      { href: "/documents", label: "Documents", icon: FileText },
-      { href: "/audit-trail", label: "Audit Trail", icon: History },
-    ],
-  },
-  {
-    id: "settings",
-    label: "Settings",
-    items: [
-      { href: "/projects", label: "Projects", icon: BriefcaseBusiness },
-      { href: "/email-settings", label: "Email Settings", icon: Mail },
-      { href: "/ai-settings", label: "AI Settings", icon: Bot },
-      { href: "/system-health", label: "System Health", icon: Stethoscope },
-      { href: "/settings", label: "Settings", icon: Settings },
-    ],
-  },
-];
-
-const ALL_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
-
-const DEFAULT_FAVOURITES = [
-  "/project-workspace",
-  "/",
-  "/deliverables",
-  "/risks",
-  "/timeline",
-];
-
-const MAX_FAVOURITES = 5;
-
-const STORAGE_COLLAPSED = "nav_collapsed_groups";
+const STORAGE_COLLAPSED  = "nav_collapsed_groups";
 const STORAGE_FAVOURITES = "nav_favourites";
+const STORAGE_RECENT     = "nav_recent_pages";
+const STORAGE_SCROLL     = "nav_scroll_top";
+
+const DEFAULT_FAVOURITES = ["/project-workspace", "/", "/deliverables", "/risks", "/timeline"];
+const MAX_FAVOURITES = 5;
+const MAX_RECENT = 5;
 
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    return raw !== null ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
   }
 }
 
-function save(key: string, value: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+function loadOrNull<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw !== null ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+function save(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota */ }
+}
 
-function NavLink({ item, active, pinned, onPin, compact = false }: {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isActive(item: NavItem, pathname: string): boolean {
+  return item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+}
+
+function findActiveGroupId(pathname: string): string | null {
+  for (const group of NAV_GROUPS) {
+    if (group.items.some((item) => isActive(item, pathname))) return group.id;
+  }
+  return null;
+}
+
+function getInitialCollapsed(pathname: string): Record<string, boolean> {
+  const saved = loadOrNull<Record<string, boolean>>(STORAGE_COLLAPSED);
+  if (saved !== null) return saved;
+  // First visit — expand only the group containing the active page.
+  const activeId = findActiveGroupId(pathname) ?? "operations";
+  return Object.fromEntries(NAV_GROUPS.map((g) => [g.id, g.id !== activeId]));
+}
+
+// ── NavLink ───────────────────────────────────────────────────────────────────
+
+function NavLink({
+  item,
+  active,
+  starred,
+  onStar,
+}: {
   item: NavItem;
   active: boolean;
-  pinned: boolean;
-  onPin: (href: string) => void;
-  compact?: boolean;
+  starred: boolean;
+  onStar: (href: string) => void;
 }) {
   const Icon = item.icon;
   return (
@@ -153,43 +91,55 @@ function NavLink({ item, active, pinned, onPin, compact = false }: {
       <Link
         href={item.href}
         className={cn(
-          "flex min-h-9 flex-1 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          active && "bg-secondary text-secondary-foreground",
-          compact && "px-2",
+          "flex min-h-9 flex-1 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active ? "bg-secondary text-secondary-foreground" : "text-muted-foreground",
         )}
       >
         <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="truncate">{item.label}</span>
       </Link>
       <button
-        onClick={() => onPin(item.href)}
-        aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
+        onClick={(e) => { e.preventDefault(); onStar(item.href); }}
+        aria-label={starred ? `Remove ${item.label} from favourites` : `Add ${item.label} to favourites`}
         className={cn(
           "absolute right-1 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          pinned ? "text-primary opacity-100" : "text-muted-foreground hover:text-foreground",
+          starred
+            ? "text-amber-500 opacity-100"
+            : "text-muted-foreground/40 hover:text-muted-foreground",
         )}
       >
-        <Pin className="h-3 w-3" aria-hidden="true" />
+        <Star
+          className={cn("h-3 w-3", starred ? "fill-amber-500 text-amber-500" : "")}
+          aria-hidden="true"
+        />
       </button>
     </div>
   );
 }
 
-function NavGroupSection({ group, pathname, collapsed, onToggle, favourites, onPin, visibleHrefs }: {
+// ── NavGroupSection ───────────────────────────────────────────────────────────
+
+function NavGroupSection({
+  group,
+  pathname,
+  collapsed,
+  onToggle,
+  favourites,
+  onStar,
+  visibleHrefs,
+}: {
   group: NavGroup;
   pathname: string;
   collapsed: boolean;
   onToggle: () => void;
   favourites: string[];
-  onPin: (href: string) => void;
+  onStar: (href: string) => void;
   visibleHrefs: Set<string>;
 }) {
   const visibleItems = group.items.filter((item) => visibleHrefs.has(item.href));
   if (!visibleItems.length) return null;
 
-  const hasActive = visibleItems.some((item) =>
-    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href),
-  );
+  const hasActive = visibleItems.some((item) => isActive(item, pathname));
 
   return (
     <div>
@@ -197,38 +147,46 @@ function NavGroupSection({ group, pathname, collapsed, onToggle, favourites, onP
         onClick={onToggle}
         aria-expanded={!collapsed}
         className={cn(
-          "flex w-full items-center justify-between px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md",
-          hasActive && !collapsed && "text-primary/70",
+          "flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          hasActive && !collapsed
+            ? "text-primary/70"
+            : "text-muted-foreground/70",
         )}
       >
         {group.label}
         <ChevronDown
-          className={cn("h-3.5 w-3.5 transition-transform", collapsed && "-rotate-90")}
+          className={cn(
+            "h-3.5 w-3.5 transition-transform duration-200",
+            collapsed && "-rotate-90",
+          )}
           aria-hidden="true"
         />
       </button>
 
-      {!collapsed && (
-        <div className="mt-0.5 space-y-0.5">
-          {visibleItems.map((item) => {
-            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            return (
+      {/* Animated expand/collapse via CSS grid */}
+      <div
+        className="grid transition-[grid-template-rows] duration-200"
+        style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-0.5 space-y-0.5 pb-1">
+            {visibleItems.map((item) => (
               <NavLink
                 key={item.href}
                 item={item}
-                active={active}
-                pinned={favourites.includes(item.href)}
-                onPin={onPin}
+                active={isActive(item, pathname)}
+                starred={favourites.includes(item.href)}
+                onStar={onStar}
               />
-            );
-          })}
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-// ── Main sidebar inner ────────────────────────────────────────────────────────
+// ── SidebarContent ────────────────────────────────────────────────────────────
 
 function SidebarContent({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
@@ -244,12 +202,45 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [favourites, setFavourites] = useState<string[]>(DEFAULT_FAVOURITES);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Hydrate from localStorage after mount (SSR-safe)
   useEffect(() => {
-    setCollapsed(load(STORAGE_COLLAPSED, {}));
+    setCollapsed(getInitialCollapsed(pathname));
     setFavourites(load(STORAGE_FAVOURITES, DEFAULT_FAVOURITES));
+    setRecent(load(STORAGE_RECENT, []));
     setHydrated(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore scroll position after hydration
+  useEffect(() => {
+    if (!hydrated || !scrollRef.current) return;
+    const saved = load<number>(STORAGE_SCROLL, 0);
+    scrollRef.current.scrollTop = saved;
+  }, [hydrated]);
+
+  // Track recent pages on navigation
+  useEffect(() => {
+    if (!hydrated) return;
+    setRecent((prev) => {
+      const next = [pathname, ...prev.filter((p) => p !== pathname)].slice(0, MAX_RECENT);
+      save(STORAGE_RECENT, next);
+      return next;
+    });
+  }, [pathname, hydrated]);
+
+  // Persist scroll position (debounced)
+  const handleScroll = useCallback(() => {
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      if (scrollRef.current) save(STORAGE_SCROLL, scrollRef.current.scrollTop);
+    }, 100);
   }, []);
 
   const toggleGroup = useCallback((id: string) => {
@@ -260,7 +251,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     });
   }, []);
 
-  const togglePin = useCallback((href: string) => {
+  const toggleStar = useCallback((href: string) => {
     setFavourites((prev) => {
       let next: string[];
       if (prev.includes(href)) {
@@ -275,9 +266,30 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     });
   }, []);
 
-  const pinnedItems = favourites
-    .map((href) => ALL_ITEMS.find((item) => item.href === href))
-    .filter((item): item is NavItem => Boolean(item) && visibleHrefs.has(item!.href));
+  // Derived
+  const favouriteItems = favourites
+    .map((href) => ALL_ITEMS.find((i) => i.href === href))
+    .filter((i): i is NavItem => Boolean(i) && visibleHrefs.has(i!.href));
+
+  const recentItems = recent
+    .filter((href) => href !== pathname)
+    .map((href) => ALL_ITEMS.find((i) => i.href === href))
+    .filter((i): i is NavItem => Boolean(i) && visibleHrefs.has(i!.href))
+    .slice(0, MAX_RECENT);
+
+  const searchQuery = query.trim().toLowerCase();
+  const searchResults = searchQuery
+    ? ALL_ITEMS.filter((item) => {
+        if (!visibleHrefs.has(item.href)) return false;
+        return (
+          item.label.toLowerCase().includes(searchQuery) ||
+          item.href.toLowerCase().includes(searchQuery) ||
+          (item.keywords?.toLowerCase().includes(searchQuery) ?? false)
+        );
+      })
+    : [];
+
+  const visibleStandaloneItems = STANDALONE_ITEMS.filter((i) => visibleHrefs.has(i.href));
 
   if (!hydrated) return null;
 
@@ -305,55 +317,149 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
         )}
       </div>
 
-      {/* Scrollable nav */}
-      <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Main navigation">
+      {/* Search */}
+      <div className="shrink-0 border-b px-3 py-2">
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60"
+            aria-hidden="true"
+          />
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search pages…"
+            aria-label="Search navigation"
+            className="h-8 w-full rounded-md border bg-muted/40 pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {query && (
+            <button
+              onClick={() => { setQuery(""); searchRef.current?.focus(); }}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground focus-visible:outline-none"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
 
-        {/* Quick Access */}
-        {pinnedItems.length > 0 && (
-          <div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5">
-              <Star className="h-3 w-3 text-amber-500" aria-hidden="true" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-                Quick Access
-              </span>
-            </div>
-            <div className="mt-0.5 space-y-0.5">
-              {pinnedItems.map((item) => {
-                const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-                return (
+      {/* Scrollable nav area */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-3"
+        style={{ scrollbarWidth: "thin" }}
+      >
+        <nav className="space-y-4" aria-label="Main navigation">
+
+          {searchQuery ? (
+            /* ── Search results ── */
+            <div>
+              <div className="px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {searchResults.length > 0
+                  ? `${searchResults.length} result${searchResults.length !== 1 ? "s" : ""}`
+                  : "No results"}
+              </div>
+              <div className="mt-0.5 space-y-0.5">
+                {searchResults.map((item) => (
                   <NavLink
                     key={item.href}
                     item={item}
-                    active={active}
-                    pinned
-                    onPin={togglePin}
+                    active={isActive(item, pathname)}
+                    starred={favourites.includes(item.href)}
+                    onStar={toggleStar}
                   />
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <>
+              {/* ── Favourites ── */}
+              {favouriteItems.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+                    <Star className="h-3 w-3 fill-amber-500 text-amber-500" aria-hidden="true" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                      Favourites
+                    </span>
+                  </div>
+                  <div className="mt-0.5 space-y-0.5">
+                    {favouriteItems.map((item) => (
+                      <NavLink
+                        key={item.href}
+                        item={item}
+                        active={isActive(item, pathname)}
+                        starred
+                        onStar={toggleStar}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
 
-        {/* Grouped sections */}
-        {NAV_GROUPS.map((group) => (
-          <NavGroupSection
-            key={group.id}
-            group={group}
-            pathname={pathname}
-            collapsed={collapsed[group.id] ?? false}
-            onToggle={() => toggleGroup(group.id)}
-            favourites={favourites}
-            onPin={togglePin}
-            visibleHrefs={visibleHrefs}
-          />
-        ))}
-      </nav>
+              {/* ── Recent pages ── */}
+              {recentItems.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+                    <Clock className="h-3 w-3 text-muted-foreground/60" aria-hidden="true" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                      Recent
+                    </span>
+                  </div>
+                  <div className="mt-0.5 space-y-0.5">
+                    {recentItems.map((item) => (
+                      <NavLink
+                        key={item.href}
+                        item={item}
+                        active={false}
+                        starred={favourites.includes(item.href)}
+                        onStar={toggleStar}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
 
-      {/* Footer hint */}
-      <div className="shrink-0 border-t px-4 py-3">
-        <p className="text-xs text-muted-foreground/60">
-          <Pin className="mr-1 inline h-2.5 w-2.5" aria-hidden="true" />
-          Pin pages to Quick Access (up to {MAX_FAVOURITES})
+              {/* ── Standalone items (Dashboard, Workspace, Projects) ── */}
+              {visibleStandaloneItems.length > 0 && (
+                <div className="space-y-0.5">
+                  {visibleStandaloneItems.map((item) => (
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      active={isActive(item, pathname)}
+                      starred={favourites.includes(item.href)}
+                      onStar={toggleStar}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* ── Collapsible groups ── */}
+              {NAV_GROUPS.map((group) => (
+                <NavGroupSection
+                  key={group.id}
+                  group={group}
+                  pathname={pathname}
+                  collapsed={collapsed[group.id] ?? false}
+                  onToggle={() => toggleGroup(group.id)}
+                  favourites={favourites}
+                  onStar={toggleStar}
+                  visibleHrefs={visibleHrefs}
+                />
+              ))}
+            </>
+          )}
+        </nav>
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 border-t px-4 py-2.5">
+        <p className="text-xs text-muted-foreground/50">
+          <Star className="mr-1 inline h-2.5 w-2.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+          Star any page to add it to Favourites
         </p>
       </div>
     </div>
@@ -375,7 +481,6 @@ export function Sidebar() {
 export function MobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -383,7 +488,6 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  // Lock body scroll
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
@@ -393,14 +497,12 @@ export function MobileNav({ open, onClose }: { open: boolean; onClose: () => voi
 
   return (
     <div className="fixed inset-0 z-50 lg:hidden">
-      {/* Backdrop */}
       <div
         ref={overlayRef}
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Drawer */}
       <div className="absolute inset-y-0 left-0 w-72 bg-card shadow-xl">
         <SidebarContent onClose={onClose} />
       </div>
