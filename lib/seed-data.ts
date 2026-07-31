@@ -37,6 +37,10 @@ export const projects: Project[] = [
     schedule_variance: -4,
     planned_start_date: "2026-06-22",
     planned_end_date: "2026-07-24",
+    go_live_date: null,
+    uat_complete_date: null,
+    hypercare_start_date: null,
+    hypercare_end_date: null,
     description:
       "Control centre for the Replenishment workstream changes needed to support delivery date range selection.",
     created_at: now,

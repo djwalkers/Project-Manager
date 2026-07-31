@@ -26,6 +26,10 @@ export type Project = {
   schedule_variance: number;
   planned_start_date: string | null;
   planned_end_date: string | null;
+  go_live_date: string | null;
+  uat_complete_date: string | null;
+  hypercare_start_date: string | null;
+  hypercare_end_date: string | null;
   description: string | null;
   created_at: string;
   updated_at: string;

@@ -4,6 +4,7 @@ import type { AuditLog, Project } from "@/lib/types";
 import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/manager-summary";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
+import { resolveGoLiveDate } from "@/lib/project-dates";
 import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
 
@@ -81,7 +82,8 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
   const totalDel = deliverables.length;
   const doneDel = deliverables.filter((d) => d.status === "Deployed").length;
   const progressPct = totalDel > 0 ? Math.round((doneDel / totalDel) * 100) : 0;
-  const days = project.planned_end_date ? daysFromNow(project.planned_end_date, now) : null;
+  const goLive = resolveGoLiveDate(scoped, project);
+  const days = goLive.date ? daysFromNow(goLive.date, now) : null;
   const daysLabel = days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
 
   // Today's Attention
@@ -117,7 +119,7 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
 
   const summaryHtml = `<table style="border-collapse:collapse"><tr>
     ${kpiCell("Progress", `${progressPct}%`, `${doneDel}/${totalDel} deployed`)}
-    ${kpiCell("Go-Live", daysLabel, project.planned_end_date ?? undefined)}
+    ${kpiCell("Go-Live", daysLabel, goLive.date ?? undefined)}
     ${kpiCell("Health", project.health)}
     ${kpiCell("Status", project.status)}
   </tr></table>`;

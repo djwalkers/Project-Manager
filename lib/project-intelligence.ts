@@ -1,6 +1,7 @@
 import type { DataStore } from "@/lib/data-store";
 import { deliverableDaysUntil, isDeliverableComplete, isDevelopmentComplete, isSitComplete, isUatComplete } from "@/lib/delivery";
 import { isDecisionOpen } from "@/lib/lifecycle";
+import { resolveGoLiveDate } from "@/lib/project-dates";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
 import type { AuditLog, Project, ProjectSnapshot } from "@/lib/types";
@@ -198,8 +199,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   // ── Go-Live Readiness rules ───────────────────────────────────────────────────
   const goLiveChecklists = (data.go_live_checklists ?? []).filter((c) => c.project_id === project.id);
   if (goLiveChecklists.length > 0) {
-    const goLiveMilestone = scoped.milestones.find((m) => /go.?live/i.test(m.title));
-    const goLiveDate = goLiveMilestone?.target_date ?? project.planned_end_date;
+    const goLiveDate = resolveGoLiveDate(data, project).date;
     const daysToGoLive = daysUntil(goLiveDate, now);
 
     // GLR-001: UAT incomplete within 7 days of go-live

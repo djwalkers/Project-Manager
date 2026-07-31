@@ -1,5 +1,6 @@
 import type { DataStore } from "@/lib/data-store";
 import { isDecisionOpen } from "@/lib/lifecycle";
+import { resolveGoLiveDate } from "@/lib/project-dates";
 import type { GoLiveChecklist, GoLiveChecklistCategory, Project, Risk } from "@/lib/types";
 import { scopeProjectData } from "@/lib/project-scope";
 
@@ -80,9 +81,8 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   const outstandingDeliverables = scoped.deliverables.filter((d) => !["Deployed", "Blocked"].includes(d.status) || d.status === "Blocked").length;
   const outstandingTesting = scoped.test_cases.filter((t) => !["Passed", "Blocked"].includes(t.status)).length;
 
-  // Go-live date: look for milestone named "Go-Live" or "Go Live"
-  const goLiveMilestone = scoped.milestones.find((m) => /go.?live/i.test(m.title));
-  const goLiveDate = goLiveMilestone?.target_date ?? project.planned_end_date ?? null;
+  // Go-live date: single shared resolver — see lib/project-dates.ts
+  const goLiveDate = resolveGoLiveDate(data, project).date;
   const daysToGoLive = daysUntil(goLiveDate, now);
 
   // WMS readiness checks — match against checklist items by category + fuzzy item name

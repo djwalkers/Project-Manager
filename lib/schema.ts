@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "022_ai_settings";
-export const latestMigration = "022_ai_settings";
+export const schemaVersion = "024_project_key_dates";
+export const latestMigration = "024_project_key_dates";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -25,6 +25,8 @@ export const allMigrations = [
   "020_delivery_intelligence",
   "021_meeting_intelligence",
   "022_ai_settings",
+  "023_go_live_security_hardening",
+  "024_project_key_dates",
 ] as const;
 
 export type SchemaColumn = {
@@ -60,6 +62,10 @@ export const schemaTables: SchemaTable[] = [
       { name: "schedule_variance", type: "numeric", required: true },
       { name: "planned_start_date", type: "date", required: false },
       { name: "planned_end_date", type: "date", required: false },
+      { name: "go_live_date", type: "date", required: false },
+      { name: "uat_complete_date", type: "date", required: false },
+      { name: "hypercare_start_date", type: "date", required: false },
+      { name: "hypercare_end_date", type: "date", required: false },
       { name: "description", type: "text", required: false },
       createdAt,
       updatedAt,
