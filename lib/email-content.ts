@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen } from "@/lib/lifecycle";
 import type { AuditLog, Project } from "@/lib/types";
 import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/manager-summary";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
@@ -102,7 +103,7 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
   const pendingTests = test_cases.filter((t) => t.status === "Pending").length;
 
   // Governance
-  const openDecisions = decisions.filter((d) => d.status !== "Complete" && d.status !== "Closed" && d.status !== "Approved");
+  const openDecisions = decisions.filter((d) => isDecisionOpen(d.status));
   const openDependencies = dependencies.filter((d) => d.status !== "Complete" && d.status !== "Closed");
 
   // Build priorities (returned for top-3 aggregation)

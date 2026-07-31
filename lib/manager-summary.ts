@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOverdue } from "@/lib/lifecycle";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { isOverdue } from "@/lib/utils";
@@ -40,7 +41,7 @@ function classifyProject(data: DataStore, project: Project, now: Date): ManagerP
   const blockedDeliverables = scoped.deliverables.filter(
     (d) => d.status === "Blocked" || [d.development_status, d.sit_status, d.uat_status, d.deployment_status].includes("Blocked"),
   );
-  const overdueDecisions = scoped.decisions.filter((d) => isOverdue(d.due_date, d.status));
+  const overdueDecisions = scoped.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status, now));
   const overdueActions = scoped.actions.filter((a) => isOverdue(a.due_date, a.status));
   const scheduleVariance = schedule.variance ?? 0;
   const daysRemaining = schedule.daysRemaining;
@@ -211,7 +212,7 @@ function buildAttention({ unmitgatedCritical, blockedDeliverables, overdueDecisi
     items.push(`Mitigate ${unmitgatedCritical.length === 1 ? "critical risk" : `${unmitgatedCritical.length} critical risks`}: ${unmitgatedCritical.map((r) => r.risk_ref).join(", ")}`);
   }
   if (overdueDecisions.length > 0) {
-    items.push(`Approve overdue ${overdueDecisions.length === 1 ? "decision" : "decisions"}: ${overdueDecisions.map((d) => d.decision_ref).join(", ")}`);
+    items.push(`Resolve overdue ${overdueDecisions.length === 1 ? "decision" : "decisions"}: ${overdueDecisions.map((d) => d.decision_ref).join(", ")}`);
   }
   if (blockedDeliverables.length > 0) {
     items.push(`Unblock ${blockedDeliverables.length === 1 ? "deliverable" : "deliverables"}: ${blockedDeliverables.map((d) => d.deliverable_ref).join(", ")}`);

@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen } from "@/lib/lifecycle";
 import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
 import type { AISuggestion } from "@/lib/meeting-intelligence/types";
 
@@ -52,7 +53,7 @@ export function matchSuggestionsToExisting(
     action: scoped.actions.filter((a) => !["Complete", "Closed"].includes(a.status)).map((a) => ({
       id: a.id, ref: a.action_ref, text: `${a.description} ${a.owner ?? ""}`,
     })),
-    decision: scoped.decisions.filter((d) => !["Approved", "Closed"].includes(d.status)).map((d) => ({
+    decision: scoped.decisions.filter((d) => isDecisionOpen(d.status)).map((d) => ({
       id: d.id, ref: d.decision_ref, text: `${d.question} ${d.decision ?? ""}`,
     })),
     risk: scoped.risks.filter((r) => !["Complete", "Closed"].includes(r.status)).map((r) => ({

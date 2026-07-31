@@ -1,5 +1,6 @@
 import type { DataStore } from "@/lib/data-store";
 import { deliverableDaysUntil, isDeliverableComplete, isDevelopmentComplete, isSitComplete, isUatComplete } from "@/lib/delivery";
+import { isDecisionOpen } from "@/lib/lifecycle";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
 import type { AuditLog, Project, ProjectSnapshot } from "@/lib/types";
@@ -151,7 +152,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   highRisks.filter((item) => (ageInDays(item.updated_at, now) ?? 0) >= 14).forEach((item) => add(project, "RSK-002", "Risk", "Warning", `${item.risk_ref} has not changed for 14 days`, item.description, `Last updated ${ageInDays(item.updated_at, now)} days ago.`, 92, `Review ${item.risk_ref} with ${item.owner || "the project team"} and confirm its current exposure.`));
   if (latest && previous && latest.open_risks > previous.open_risks) add(project, "RSK-003", "Risk", "Warning", "Open risk count is increasing", `Open risks increased from ${previous.open_risks} to ${latest.open_risks}.`, `Snapshot comparison: ${previous.snapshot_date} to ${latest.snapshot_date}.`, 99, "Review newly opened risks and confirm mitigation owners.");
 
-  const openDecisions = scoped.decisions.filter((item) => !["Approved", "Closed"].includes(item.status));
+  const openDecisions = scoped.decisions.filter((item) => isDecisionOpen(item.status));
   if (openDecisions.length && openDecisions.every((item) => (ageInDays(item.updated_at, now) ?? 0) >= 7)) add(project, "GOV-001", "Governance", "Warning", "Open decisions have not been reviewed recently", `${openDecisions.length} open decisions have no update in the last 7 days.`, `Oldest update is ${Math.max(...openDecisions.map((item) => ageInDays(item.updated_at, now) ?? 0))} days old.`, 90, `Review ${openDecisions[0].decision_ref} and the remaining open decision log.`);
   scoped.discovery_questions.filter((item) => isOverdue(item.due_date, item.status)).forEach((item) => add(project, "GOV-002", "Governance", "Warning", `${item.question_ref} is overdue`, item.question, `Due ${formatScheduleDate(item.due_date)}; status ${item.status}.`, 100, `Obtain an answer or revise the due date for ${item.question_ref}.`));
   scoped.milestones.filter((item) => !item.owner?.trim()).forEach((item) => add(project, "GOV-003", "Governance", "Warning", `${item.milestone_ref} has no owner`, item.title, `Target ${formatScheduleDate(item.target_date)}.`, 100, `Assign an accountable owner to ${item.milestone_ref}.`));

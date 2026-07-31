@@ -21,6 +21,7 @@ import {
   calculateProgress,
 } from "@/lib/control-tower";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { calculateSchedule } from "@/lib/schedule";
 import { selectTimelineItems } from "@/lib/project-scope";
 import { isOverdue } from "@/lib/utils";
@@ -108,7 +109,7 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
   const timelineScope = selectTimelineItems(data, project);
   const schedule = calculateSchedule(project, timelineScope.items);
   const overdueActions = data.actions.filter((a) => isOverdue(a.due_date, a.status)).length;
-  const overdueDecisions = data.decisions.filter((d) => isOverdue(d.due_date, d.status)).length;
+  const overdueDecisions = data.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status)).length;
   const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked").length + schedule.blocked.length;
   const health = calculateProjectHealth(overdueActions + overdueDecisions, blockedMilestones, schedule.variance ?? -1);
   const summary = buildManagementSummary(project, health, data, overdueActions, schedule);
@@ -125,7 +126,7 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
         <p className="text-muted-foreground">{project.customer} · Executive Status Report · {today()}</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           { label: "Project Health", value: health, color: healthColor },
           { label: "Overall Progress", value: `${progress.overall}%`, color: "#334155" },
@@ -204,7 +205,7 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
 function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
   const openRisks = data.risks.filter((r) => !["Complete", "Closed"].includes(r.status));
   const openActions = data.actions.filter((a) => !["Complete", "Closed"].includes(a.status));
-  const openDecisions = data.decisions.filter((d) => !["Approved", "Closed"].includes(d.status));
+  const openDecisions = data.decisions.filter((d) => isDecisionOpen(d.status));
 
   return (
     <div className="report-body space-y-8">
@@ -449,7 +450,7 @@ export default function ReportsPage() {
   );
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
-  if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!data) return <AppShell><LoadingState variant="report" /></AppShell>;
 
   function renderReport() {
     if (!data) return null;
@@ -468,9 +469,17 @@ export default function ReportsPage() {
       <style>{`
         @media print {
           .print\\:hidden { display: none !important; }
-          body { background: white; }
-          .report-body { font-size: 11pt; }
-          table { page-break-inside: avoid; }
+          nav, header, aside { display: none !important; }
+          body, html { background: white !important; margin: 0; padding: 0; }
+          .report-body { font-size: 11pt; line-height: 1.5; color: #111; }
+          .report-body h1 { font-size: 18pt; margin-bottom: 4pt; }
+          .report-body h2 { font-size: 13pt; margin-top: 16pt; margin-bottom: 6pt; page-break-after: avoid; }
+          .report-body table { page-break-inside: auto; width: 100%; border-collapse: collapse; }
+          .report-body tr { page-break-inside: avoid; page-break-after: auto; }
+          .report-body th, .report-body td { border: 1px solid #e2e8f0; padding: 4pt 6pt; font-size: 9pt; }
+          .report-body th { background: #f8fafc !important; font-weight: 600; }
+          .report-body section { page-break-inside: avoid; }
+          @page { margin: 15mm 12mm; }
         }
       `}</style>
 

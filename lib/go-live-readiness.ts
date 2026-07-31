@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen } from "@/lib/lifecycle";
 import type { GoLiveChecklist, GoLiveChecklistCategory, Project, Risk } from "@/lib/types";
 import { scopeProjectData } from "@/lib/project-scope";
 
@@ -75,7 +76,7 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
 
   const openRisks = scoped.risks.filter((r: Risk) => !["Complete", "Closed"].includes(r.status)).length;
   const openCriticalRisks = scoped.risks.filter((r: Risk) => !["Complete", "Closed"].includes(r.status) && ["High", "Critical"].includes(r.impact)).length;
-  const outstandingDecisions = scoped.decisions.filter((d) => !["Approved", "Closed"].includes(d.status)).length;
+  const outstandingDecisions = scoped.decisions.filter((d) => isDecisionOpen(d.status)).length;
   const outstandingDeliverables = scoped.deliverables.filter((d) => !["Deployed", "Blocked"].includes(d.status) || d.status === "Blocked").length;
   const outstandingTesting = scoped.test_cases.filter((t) => !["Passed", "Blocked"].includes(t.status)).length;
 

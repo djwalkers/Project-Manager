@@ -7,6 +7,7 @@ import {
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
 import { formatAuditChange } from "@/lib/audit";
 import type { AuditLog } from "@/lib/types";
@@ -150,7 +151,7 @@ export function buildDailyBrief(data: DataStore, now = new Date(), recentAuditCh
     const scoped = scopeProjectData(data, project);
     const schedule = calculateSchedule(project, scoped.timeline_items, now);
     const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const overdueDecisions = scoped.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
+    const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
     const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
     const variance = schedule.variance ?? -1;
     return {
@@ -161,7 +162,7 @@ export function buildDailyBrief(data: DataStore, now = new Date(), recentAuditCh
       activePhase: schedule.active[0]?.phase_name ?? schedule.atRisk[0]?.phase_name ?? schedule.blocked[0]?.phase_name ?? project.status,
       daysRemaining: schedule.daysRemaining,
       openRisks: scoped.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
-      openDecisions: scoped.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).length,
+      openDecisions: scoped.decisions.filter((item) => isDecisionOpen(item.status)).length,
       overdueActions,
       upcomingMilestone: upcomingMilestone(scoped.milestones, now),
     };

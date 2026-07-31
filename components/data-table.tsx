@@ -240,7 +240,16 @@ export function DataTable({
 
         {filtered.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No records found" description="Adjust the filters or add a new record for this workstream." icon={config.icon} action={openNew} />
+            <EmptyState
+              title={query || status !== "All" ? `No ${config.title.toLowerCase()} match your filters` : `No ${config.title.toLowerCase()} yet`}
+              description={
+                query || status !== "All"
+                  ? `Clear the search or change the status filter to see all ${config.title.toLowerCase()}.`
+                  : `Add the first ${config.singular.toLowerCase()} to start tracking this module.`
+              }
+              icon={config.icon}
+              action={!query && status === "All" ? openNew : undefined}
+            />
           </div>
         ) : (
           <div className="table-scroll overflow-x-auto">

@@ -6,6 +6,7 @@ import {
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
@@ -89,7 +90,7 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
   const scoped = scopeProjectData(data, project);
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-  const overdueDecisions = scoped.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
+  const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
   const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
   const variance = schedule.variance ?? -1;
   const activeItem = schedule.active[0] ?? schedule.atRisk[0] ?? schedule.blocked[0] ?? null;
@@ -123,7 +124,7 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
     activePhaseProgress: activeItem ? Number(activeItem.progress_percent) : null,
     nextMilestone: nextMilestone(scoped.milestones, now),
     attention: buildNeedsAttention(scoped),
-    openDecisions: scoped.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)),
+    openDecisions: scoped.decisions.filter((item) => isDecisionOpen(item.status)),
     openQuestions: scoped.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)),
     actionColumns,
     highRisks: scoped.risks.filter((item) => ["High", "Critical"].includes(item.impact) && !["Complete", "Closed"].includes(item.status)),

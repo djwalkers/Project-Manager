@@ -1,5 +1,7 @@
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { deliverablesRequiringAttention } from "@/lib/delivery";
+import { buildDeliveryInsights } from "@/lib/recommendations";
 import type { Project } from "@/lib/types";
 import { formatScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 
@@ -113,7 +115,7 @@ export function buildNeedsAttention(data: DataStore): InsightItem[] {
   data.actions.filter((item) => daysFromToday(item.due_date) !== null && (daysFromToday(item.due_date) as number) < 0 && !["Complete", "Closed"].includes(item.status)).forEach((item) => {
     items.push({ id: `action-${item.id}`, severity: "High", kind: "Overdue action", title: item.description, meta: `${item.action_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
-  data.decisions.filter((item) => daysFromToday(item.due_date) !== null && (daysFromToday(item.due_date) as number) < 0 && !["Approved", "Closed"].includes(item.status)).forEach((item) => {
+  data.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status)).forEach((item) => {
     items.push({ id: `decision-${item.id}`, severity: "High", kind: "Overdue decision", title: item.question, meta: `${item.decision_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
   data.risks.filter((item) => ["High", "Critical"].includes(item.impact) && !["Complete", "Closed"].includes(item.status)).forEach((item) => {
@@ -143,7 +145,7 @@ export function buildUpcomingThisWeek(data: DataStore): InsightItem[] {
   data.actions.filter((item) => upcoming(item.due_date) && !["Complete", "Closed"].includes(item.status)).forEach((item) => {
     items.push({ id: `action-${item.id}`, severity: "Medium", kind: "Action", title: item.description, meta: `${item.action_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
-  data.decisions.filter((item) => upcoming(item.due_date) && !["Approved", "Closed"].includes(item.status)).forEach((item) => {
+  data.decisions.filter((item) => upcoming(item.due_date) && isDecisionOpen(item.status)).forEach((item) => {
     items.push({ id: `decision-${item.id}`, severity: "Medium", kind: "Decision", title: item.question, meta: `${item.decision_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
   data.milestones.filter((item) => upcoming(item.target_date) && item.status !== "Complete").forEach((item) => {
@@ -166,74 +168,12 @@ export type WaitingGroup = {
 };
 
 export function buildTodaysPriorities(data: DataStore): PriorityItem[] {
-  const scored: { title: string; detail: string; score: number }[] = [];
-
-  const overdueActions = data.actions.filter(
-    (a) => daysFromToday(a.due_date) !== null && (daysFromToday(a.due_date) as number) < 0 && !["Complete", "Closed"].includes(a.status),
-  );
-  if (overdueActions.length > 0) {
-    scored.push({
-      title: overdueActions.length > 1 ? `Complete ${overdueActions.length} overdue actions` : `Complete "${overdueActions[0].description.slice(0, 60)}"`,
-      detail: overdueActions.slice(0, 3).map((a) => `${a.action_ref} (${Math.abs(daysFromToday(a.due_date) as number)}d overdue)`).join(" · "),
-      score: 100 + overdueActions.length * 5,
-    });
-  }
-
-  const blockedActions = data.actions.filter((a) => a.status === "Blocked");
-  if (blockedActions.length > 0) {
-    scored.push({
-      title: blockedActions.length > 1 ? `Unblock ${blockedActions.length} blocked actions` : `Unblock "${blockedActions[0].description.slice(0, 60)}"`,
-      detail: blockedActions.slice(0, 3).map((a) => a.action_ref).join(" · "),
-      score: 90 + blockedActions.length * 3,
-    });
-  }
-
-  const overdueDecisions = data.decisions.filter(
-    (d) => daysFromToday(d.due_date) !== null && (daysFromToday(d.due_date) as number) < 0 && !["Approved", "Closed"].includes(d.status),
-  );
-  if (overdueDecisions.length > 0) {
-    scored.push({
-      title: `Resolve ${overdueDecisions.length} overdue ${overdueDecisions.length === 1 ? "decision" : "decisions"}`,
-      detail: overdueDecisions.slice(0, 3).map((d) => d.decision_ref).join(" · "),
-      score: 75 + overdueDecisions.length * 2,
-    });
-  }
-
-  const highRisks = data.risks.filter(
-    (r) => ["High", "Critical"].includes(r.impact) && !["Complete", "Closed"].includes(r.status),
-  );
-  if (highRisks.length > 0) {
-    scored.push({
-      title: `Mitigate ${highRisks.length} high-exposure ${highRisks.length === 1 ? "risk" : "risks"}`,
-      detail: highRisks.slice(0, 3).map((r) => `${r.risk_ref} (${r.impact})`).join(" · "),
-      score: 80 + highRisks.length * 2,
-    });
-  }
-
-  const awaitingQueries = data.discovery_questions.filter(
-    (q) => ["Awaiting Business", "Awaiting Development", "Awaiting Response"].includes(q.status),
-  );
-  if (awaitingQueries.length > 0) {
-    scored.push({
-      title: `Respond to ${awaitingQueries.length} outstanding ${awaitingQueries.length === 1 ? "query" : "queries"}`,
-      detail: awaitingQueries.slice(0, 3).map((q) => q.question_ref).join(" · "),
-      score: 70 + awaitingQueries.length,
-    });
-  }
-
-  const nearDeliverables = data.deliverables.filter((d) => {
-    const days = daysFromToday(d.planned_completion_date);
-    return days !== null && days >= 0 && days <= 7 && d.status !== "Deployed";
-  });
-  if (nearDeliverables.length > 0) {
-    scored.push({
-      title: nearDeliverables.length > 1 ? `Progress ${nearDeliverables.length} deliverables due this week` : `Progress "${nearDeliverables[0].title.slice(0, 50)}" due in ${daysFromToday(nearDeliverables[0].planned_completion_date)}d`,
-      detail: nearDeliverables.slice(0, 3).map((d) => `${d.deliverable_ref} (${daysFromToday(d.planned_completion_date)}d)`).join(" · "),
-      score: 60 + nearDeliverables.length * 2,
-    });
-  }
-
-  return scored.sort((a, b) => b.score - a.score).slice(0, 3).map((item, i) => ({ ...item, rank: i + 1 }));
+  return buildDeliveryInsights(data, 3).map((item, i) => ({
+    rank: i + 1,
+    title: item.title,
+    detail: `${item.reason} · ${item.currentPhase} relevance ${item.phaseRelevance}% · ${item.confidence}% confidence`,
+    score: item.score,
+  }));
 }
 
 export function buildWaitingOnOthersGrouped(data: DataStore): WaitingGroup[] {
@@ -251,7 +191,7 @@ export function buildWaitingOnOthersGrouped(data: DataStore): WaitingGroup[] {
   qGroups.forEach((count, owner) => add(owner, `${count} ${count === 1 ? "Query" : "Queries"}`, "/discovery-questions"));
 
   const dGroups = new Map<string, number>();
-  data.decisions.filter((d) => ["Open", "Pending"].includes(d.status))
+  data.decisions.filter((d) => isDecisionOpen(d.status))
     .forEach((d) => { const k = (d.owner ?? "").trim() || "Unassigned"; dGroups.set(k, (dGroups.get(k) ?? 0) + 1); });
   dGroups.forEach((count, owner) => add(owner, `${count} ${count === 1 ? "Decision" : "Decisions"}`, "/decisions"));
 
@@ -272,7 +212,7 @@ export function buildWaitingOnOthersGrouped(data: DataStore): WaitingGroup[] {
 
 export function buildManagementSummary(project: Project, health: RagStatus, data: DataStore, overdueActions: number, schedule: ScheduleMetrics) {
   const activePhase = schedule.active[0]?.phase_name ?? schedule.atRisk[0]?.phase_name ?? schedule.blocked[0]?.phase_name ?? "No active phase";
-  const outstandingDecisions = data.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).length;
+  const outstandingDecisions = data.decisions.filter((item) => isDecisionOpen(item.status)).length;
   if (!schedule.valid || schedule.variance === null) {
     return `${project.name.replace(" - Delivery Date Range", "")} is currently ${health}. Schedule dates need review. ${activePhase} is the current phase. ${plural(outstandingDecisions, "decision")} remain outstanding and ${plural(overdueActions, "action")} ${overdueActions === 1 ? "is" : "are"} overdue.`;
   }

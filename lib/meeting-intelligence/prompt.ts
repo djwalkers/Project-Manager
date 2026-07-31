@@ -1,4 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen } from "@/lib/lifecycle";
 import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
 
 // Compute rejection rates from past suggestions to bias the prompt
@@ -48,7 +49,7 @@ export function buildCompactContext(data: DataStore): string {
     .join("\n");
 
   const decisions = scoped.decisions
-    .filter((d) => !["Approved", "Closed"].includes(d.status))
+    .filter((d) => isDecisionOpen(d.status))
     .slice(0, 12)
     .map((d) => `  ${d.decision_ref}: ${truncate(d.question)}`)
     .join("\n");

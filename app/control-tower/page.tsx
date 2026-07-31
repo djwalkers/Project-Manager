@@ -43,6 +43,7 @@ import { computeReadiness } from "@/components/requirement-readiness";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
 import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
 import { ProjectTrendsPanel } from "@/components/trend-chart";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
@@ -123,7 +124,7 @@ export default function DashboardPage() {
     const schedule = calculateSchedule(project, timelineScope.items);
     const scheduleVariance = schedule.variance ?? -1;
     const overdueActions = data.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const overdueDecisions = data.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
+    const overdueDecisions = data.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status)).length;
     const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
     const overdueItems = overdueActions + overdueDecisions;
     const health = calculateProjectHealth(overdueItems, blockedMilestones, scheduleVariance);
@@ -151,7 +152,7 @@ export default function DashboardPage() {
       openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
       activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
       recentActivity: data.activity_log.slice(0, 5),
-      openDecisions: data.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).slice(0, 5),
+      openDecisions: data.decisions.filter((item) => isDecisionOpen(item.status)).slice(0, 5),
       requirements: {
         total: data.requirements.length,
         discovery: data.requirements.filter((r) => r.status === "Discovery").length,
@@ -184,11 +185,67 @@ export default function DashboardPage() {
         data.test_cases ?? [],
       ),
       confidence: computeDeliveryConfidence(data),
-      snapshots: (data.project_snapshots ?? [])
-        .filter((s) => s.project_id === project.id)
-        .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)),
+      snapshots: (() => {
+        return (data.project_snapshots ?? [])
+          .filter((s) => s.project_id === project.id)
+          .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+      })(),
     };
   }, [data]);
+
+  const derived = useMemo(() => {
+    if (!tower) return null;
+    const { schedule, snapshots, confidence } = tower;
+    const varianceLabel =
+      schedule.variance === null ? "Review"
+      : schedule.variance > 0 ? `+${schedule.variance}%`
+      : `${schedule.variance}%`;
+
+    const prevSnapshot =
+      snapshots.length >= 2 ? snapshots[snapshots.length - 2]
+      : snapshots.length === 1 ? snapshots[0]
+      : null;
+
+    function snapTrend(
+      current: number,
+      prevKey: keyof ProjectSnapshot,
+      higherIsBetter = true,
+    ): { direction: "up" | "flat" | "down"; label: string } | undefined {
+      if (!prevSnapshot) return undefined;
+      const prev = Number(prevSnapshot[prevKey] ?? current);
+      const diff = current - prev;
+      if (diff === 0) return { direction: "flat", label: `Stable vs ${prevSnapshot.snapshot_date.slice(5)}` };
+      const direction = diff > 0 ? "up" : "down";
+      const sign = diff > 0 ? "+" : "";
+      return {
+        direction: higherIsBetter ? direction : direction === "up" ? "down" : "up",
+        label: `${sign}${diff} vs ${prevSnapshot.snapshot_date.slice(5)}`,
+      };
+    }
+
+    const momentum = (() => {
+      const snaps = snapshots.filter((s) => s.delivery_confidence != null);
+      if (snaps.length < 2) return null;
+      const recent = snaps[snaps.length - 1];
+      const lookback = snaps.length >= 8 ? snaps[snaps.length - 8] : snaps[0];
+      const delta = (recent.delivery_confidence ?? 0) - (lookback.delivery_confidence ?? 0);
+      return { delta, label: delta > 0 ? "Improving" : delta < 0 ? "Declining" : "Stable", since: lookback.snapshot_date.slice(5) };
+    })();
+
+    return {
+      varianceLabel,
+      momentum,
+      trends: {
+        openRisks: snapTrend(tower.openRisks, "open_risks", false),
+        overdueActions: snapTrend(tower.overdueActions, "overdue_actions", false),
+        openQuestions: snapTrend(tower.openQuestions, "open_questions", false),
+        overallProgress: snapTrend(tower.progress.overall, "progress_percent"),
+        acceptancePct: snapTrend(tower.acceptance.pct, "acceptance_complete"),
+        projectReadiness: snapTrend(tower.projectReadiness.overall, "project_readiness"),
+        confidence: snapTrend(confidence.score, "delivery_confidence"),
+      },
+    };
+  }, [tower]);
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
@@ -200,44 +257,10 @@ export default function DashboardPage() {
     );
   }
 
+  if (!derived) return null; // shouldn't happen when tower is non-null
+
   const { project, progress, schedule } = tower;
-  const varianceLabel = schedule.variance === null ? "Review" : schedule.variance > 0 ? `+${schedule.variance}%` : `${schedule.variance}%`;
-
-  // Trend helpers — compare current value to the most recent prior snapshot
-  const prevSnapshot = tower.snapshots.length >= 2
-    ? tower.snapshots[tower.snapshots.length - 2]
-    : tower.snapshots.length === 1
-      ? tower.snapshots[0]
-      : null;
-
-  function snapTrend(
-    current: number,
-    prevKey: keyof ProjectSnapshot,
-    higherIsBetter = true,
-  ): { direction: "up" | "flat" | "down"; label: string } | undefined {
-    if (!prevSnapshot) return undefined;
-    const prev = Number(prevSnapshot[prevKey] ?? current);
-    const diff = current - prev;
-    if (diff === 0) return { direction: "flat", label: `Stable vs ${prevSnapshot.snapshot_date.slice(5)}` };
-    const direction = diff > 0 ? "up" : "down";
-    const sign = diff > 0 ? "+" : "";
-    return {
-      direction: higherIsBetter ? direction : (direction === "up" ? "down" : "up"),
-      label: `${sign}${diff} vs ${prevSnapshot.snapshot_date.slice(5)}`,
-    };
-  }
-
-  // Momentum: confidence delta over last 7 snapshots
-  const momentum = (() => {
-    const snaps = tower.snapshots.filter((s) => s.delivery_confidence != null);
-    if (snaps.length < 2) return null;
-    const recent = snaps[snaps.length - 1];
-    const lookback = snaps.length >= 8 ? snaps[snaps.length - 8] : snaps[0];
-    const delta = (recent.delivery_confidence ?? 0) - (lookback.delivery_confidence ?? 0);
-    const label =
-      delta > 0 ? "Improving" : delta < 0 ? "Declining" : "Stable";
-    return { delta, label, since: lookback.snapshot_date.slice(5) };
-  })();
+  const { varianceLabel, momentum, trends } = derived;
 
   return (
     <AppShell>
@@ -290,22 +313,22 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Actual Progress" value={schedule.actualProgress === null ? "Review" : `${schedule.actualProgress}%`} helper="Duration-weighted progress across timeline phases" icon={Gauge} progress={schedule.actualProgress ?? undefined} />
           <ControlTowerKpi title="Schedule Variance" value={schedule.variance === null ? "Review" : varianceLabel} helper="Actual progress minus planned progress" icon={Activity} tone={schedule.health === "Red" ? "danger" : schedule.health === "Amber" ? "warn" : "good"} />
           <ControlTowerKpi title="Schedule Health" rag={tower.scheduleHealth ?? undefined} value="Review" helper={schedule.valid ? `${varianceLabel} against the editable schedule` : "Schedule dates need review"} icon={Gauge} tone={tower.scheduleHealth === "Red" ? "danger" : tower.scheduleHealth === "Amber" ? "warn" : schedule.valid ? "good" : "warn"} />
-          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} trend={snapTrend(tower.openRisks, "open_risks", false)} href="/risks?status=Open" />
-          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} trend={snapTrend(tower.overdueActions, "overdue_actions", false)} href="/actions?status=Blocked" />
+          <ControlTowerKpi title="Open Risks" value={tower.openRisks} helper="Active risks across the project" icon={AlertTriangle} tone={tower.openRisks ? "danger" : "good"} trend={trends.openRisks} href="/risks?status=Open" />
+          <ControlTowerKpi title="Overdue Actions" value={tower.overdueActions} helper="Actions past their due date" icon={ClipboardCheck} tone={tower.overdueActions ? "danger" : "good"} trend={trends.overdueActions} href="/actions?status=Blocked" />
           <ControlTowerKpi title="Overdue Decisions" value={tower.overdueDecisions} helper="Decisions past their due date" icon={CalendarClock} tone={tower.overdueDecisions ? "danger" : "good"} href="/decisions?status=Open" />
-          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} trend={snapTrend(tower.openQuestions, "open_questions", false)} href="/discovery-questions?status=Awaiting Business" />
+          <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} trend={trends.openQuestions} href="/discovery-questions?status=Awaiting Business" />
           <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} href="/milestones" />
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
           <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
-          <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} trend={snapTrend(tower.acceptance.pct, "acceptance_complete")} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
-          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={snapTrend(tower.projectReadiness.overall, "project_readiness")} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
+          <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} trend={trends.acceptancePct} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
+          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={trends.projectReadiness} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
           <ControlTowerKpi
             title="Delivery Confidence"
             value={`${tower.confidence.score}%`}
             helper={tower.confidence.reasons.length ? tower.confidence.reasons.join(" · ") : "No confidence gaps detected."}
             icon={Target}
             progress={tower.confidence.score}
-            trend={snapTrend(tower.confidence.score, "delivery_confidence")}
+            trend={trends.confidence}
             tone={tower.confidence.rag === "Green" ? "good" : tower.confidence.rag === "Amber" ? "warn" : "danger"}
           />
         </div>

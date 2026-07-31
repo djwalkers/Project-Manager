@@ -3,6 +3,7 @@ import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
 import { saveRecord } from "@/lib/supabase/data-store";
 import { computeReadiness } from "@/components/requirement-readiness";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import type { ProjectSnapshot } from "@/lib/types";
 
 export function todaySnapshotExists(data: DataStore, projectId: string): boolean {
@@ -46,10 +47,8 @@ export async function captureSnapshot(data: DataStore): Promise<ProjectSnapshot 
     overdue_actions: scoped.actions.filter(
       (a) => a.due_date && a.due_date < todayStr && !["Complete", "Closed"].includes(a.status),
     ).length,
-    open_decisions: scoped.decisions.filter(
-      (d) => !["Approved", "Closed"].includes(d.status),
-    ).length,
-    overdue_decisions: 0,
+    open_decisions: scoped.decisions.filter((d) => isDecisionOpen(d.status)).length,
+    overdue_decisions: scoped.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status)).length,
     open_questions: scoped.discovery_questions.filter(
       (q) => !["Answered", "Closed"].includes(q.status),
     ).length,

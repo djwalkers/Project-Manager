@@ -2,6 +2,7 @@
 
 import { calculateProgress, calculateProjectHealth } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
+import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule } from "@/lib/schedule";
 import { upsertRecord } from "@/lib/supabase/data-store";
@@ -19,9 +20,9 @@ export function calculateProjectSnapshot(data: DataStore, project: Project, now 
   const scoped = scopeProjectData(data, project);
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-  const overdueDecisions = scoped.decisions.filter((item) => isOverdue(item.due_date, item.status)).length;
+  const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
   const openActions = scoped.actions.filter((item) => !["Complete", "Closed"].includes(item.status)).length;
-  const openDecisions = scoped.decisions.filter((item) => !["Approved", "Closed"].includes(item.status)).length;
+  const openDecisions = scoped.decisions.filter((item) => isDecisionOpen(item.status)).length;
   const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
   const variance = schedule.variance ?? 0;
   const activeMilestone = scoped.milestones.find((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status))

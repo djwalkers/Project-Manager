@@ -217,7 +217,7 @@ export default function WorkbenchPage() {
   }, [data]);
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
-  if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!data) return <AppShell><LoadingState variant="workbench" /></AppShell>;
   if (!wb) {
     return (
       <AppShell>

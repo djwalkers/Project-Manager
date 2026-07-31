@@ -74,7 +74,7 @@ export function FormDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35">
-      <div className="h-full w-full max-w-xl overflow-y-auto border-l bg-background shadow-2xl">
+      <div className="h-full w-full overflow-y-auto border-l bg-background shadow-2xl sm:max-w-xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-5 py-4">
           <div>
             <p className="text-sm font-medium text-muted-foreground">{record?.id ? "Edit" : "Add"}</p>
