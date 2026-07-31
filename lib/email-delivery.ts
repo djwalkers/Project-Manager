@@ -61,8 +61,8 @@ export function isAuthorisedCron(
   }
   const secret = process.env.CRON_SECRET;
   if (!secret) {
-    console.log("[cron-auth] No CRON_SECRET configured — allowing request");
-    return true;
+    console.log("[cron-auth] No CRON_SECRET configured — rejecting request (fail closed)");
+    return false;
   }
   if (authHeader === `Bearer ${secret}`) {
     console.log("[cron-auth] Accepted via Authorization Bearer token");

@@ -10,7 +10,8 @@
     "test:intelligence": "node tests/delivery-intelligence.test.mjs",
     "test:project-state": "node tests/project-state.test.mjs",
     "test:lifecycle": "node tests/lifecycle-modules.test.mjs",
-    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle"
+    "test:security": "node tests/security-phase2.test.mjs",
+    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

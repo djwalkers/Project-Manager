@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/api-auth";
 import { loadAISettings, resolveEnvKey } from "@/lib/ai/settings";
 
 const DEFAULT_MODEL = "gemini-2.0-flash";
@@ -17,7 +18,10 @@ type GenerateTestResult = {
  *  Calls generateContent with a minimal probe prompt to confirm quota/key health
  *  independently of Meeting Intelligence prompt size.
  */
-export async function POST(): Promise<NextResponse<GenerateTestResult>> {
+export async function POST(): Promise<NextResponse<GenerateTestResult | { error: string }>> {
+  const authError = await requireAuthenticatedUser();
+  if (authError) return authError;
+
   try {
     const settings = await loadAISettings();
 

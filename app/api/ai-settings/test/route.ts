@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/api-auth";
 import { loadAISettings, resolveEnvKey, type AIProviderName } from "@/lib/ai/settings";
 
 type TestResult = { ok: boolean; message: string };
@@ -55,6 +56,9 @@ async function testAnthropic(apiKey: string): Promise<TestResult> {
 
 /** POST /api/ai-settings/test — test the active provider connection. */
 export async function POST(): Promise<NextResponse> {
+  const authError = await requireAuthenticatedUser();
+  if (authError) return authError;
+
   try {
     const settings = await loadAISettings();
 

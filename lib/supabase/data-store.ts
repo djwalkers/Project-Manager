@@ -16,6 +16,21 @@ type RecordValue = Record<string, unknown>;
 
 const tableOrder = schemaTables.map((table) => table.name);
 
+// go_live_checklists and cutover_plan are served through authenticated
+// server routes (service-role client, no anon RLS access) rather than the
+// anon-key client used for every other table — see supabase/migrations/023.
+const AUTH_ROUTED_TABLE_PATHS: Partial<Record<EntityName, string>> = {
+  go_live_checklists: "/api/go-live/checklists",
+  cutover_plan: "/api/go-live/cutover",
+};
+
+async function fetchAuthRoutedTable(path: string, init?: RequestInit) {
+  const res = await fetch(path, init);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((body as { error?: string } | null)?.error ?? `Request to ${path} failed (${res.status})`);
+  return body;
+}
+
 function cleanRecord(table: EntityName, record: RecordValue) {
   const columns = schemaByTable.get(table)?.columns ?? [];
   return Object.fromEntries(
@@ -58,6 +73,11 @@ export async function loadData(): Promise<DataStore> {
 
   const results = await Promise.all(
     tableOrder.map(async (table) => {
+      const authRoutePath = AUTH_ROUTED_TABLE_PATHS[table];
+      if (authRoutePath) {
+        const data = await fetchAuthRoutedTable(authRoutePath);
+        return [table, data ?? []] as const;
+      }
       const orderColumn = table === "documents" ? "uploaded_at" : "created_at";
       const { data, error } = await client.from(table).select("*").order(orderColumn, { ascending: true });
       if (error) throw errorMessage(`Failed to load ${table}`, error);
@@ -76,6 +96,16 @@ export async function createRecord<K extends EntityName>(table: K, record: Recor
     const created = prepareLocalRecord(table, value) as EntityMap[K];
     saveLocalData({ ...data, [table]: [created, ...data[table]] });
     return created;
+  }
+
+  const authRoutePath = AUTH_ROUTED_TABLE_PATHS[table];
+  if (authRoutePath) {
+    const data = await fetchAuthRoutedTable(authRoutePath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    });
+    return data as EntityMap[K];
   }
 
   const { data, error } = await supabase.from(table).insert(value).select().single();
@@ -107,6 +137,16 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
       [table]: current.map((item) => (item.id === record.id ? updated : item)),
     });
     return updated;
+  }
+
+  const authRoutePath = AUTH_ROUTED_TABLE_PATHS[table];
+  if (authRoutePath) {
+    const data = await fetchAuthRoutedTable(authRoutePath, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    });
+    return data as EntityMap[K];
   }
 
   // Fetch old record for change detection (only for auditable tables)
@@ -173,6 +213,12 @@ export async function deleteRecord<K extends EntityName>(table: K, id: string) {
       ...data,
       [table]: data[table].filter((record) => record.id !== id),
     });
+    return;
+  }
+
+  const authRoutePath = AUTH_ROUTED_TABLE_PATHS[table];
+  if (authRoutePath) {
+    await fetchAuthRoutedTable(`${authRoutePath}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     return;
   }
 

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireAuthenticatedUser } from "@/lib/api-auth";
 import { analyseMeeting, ConfigError } from "@/lib/ai";
 import { AnalysisError, RateLimitError } from "@/lib/ai/errors";
 import { chunkMeetingText, SINGLE_CALL_THRESHOLD } from "@/lib/meeting-intelligence/chunker";
@@ -24,6 +25,9 @@ const SSE_HEADERS = {
 };
 
 export async function POST(req: NextRequest) {
+  const authError = await requireAuthenticatedUser();
+  if (authError) return authError;
+
   let body: { compactContext: string; meetingText: string; meeting_id?: string };
   try {
     body = await req.json() as typeof body;
