@@ -40,7 +40,10 @@ export type ManagerExceptionReport = {
 
 // ── Classification ────────────────────────────────────────────────────────────
 
-function classifyProject(data: DataStore, project: Project, now: Date): ManagerProjectSummary {
+// Exported so lib/project-state.ts can classify a single, explicit project
+// directly — the same function buildManagerExceptionReport already uses
+// per-project internally, not a second implementation of the RAG rule.
+export function classifyProject(data: DataStore, project: Project, now: Date): ManagerProjectSummary {
   const scoped = scopeProjectData(data, project);
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const phase = deriveProjectPhase(data, project, now);

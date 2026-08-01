@@ -1,17 +1,14 @@
 import {
   buildNeedsAttention,
-  calculateProgress,
-  calculateProjectHealth,
   type InsightItem,
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
-import { isActionClosed, isDecisionOpen, isDecisionOverdue, isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
+import { isActionClosed, isDecisionOpen, isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
-import { scopeProjectData } from "@/lib/project-scope";
-import { calculateSchedule, formatScheduleDate, parseScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
+import { buildProjectState } from "@/lib/project-state";
+import { formatScheduleDate, parseScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 import type { ActionItem, Milestone, Project } from "@/lib/types";
-import { isOverdue } from "@/lib/utils";
 
 const DAY_MS = 86_400_000;
 
@@ -90,11 +87,9 @@ function buildNarrative(model: Omit<WorkspaceModel, "narrative">) {
 }
 
 export function buildProjectWorkspace(data: DataStore, project: Project, now = new Date()): WorkspaceModel {
-  const scoped = scopeProjectData(data, project);
-  const schedule = calculateSchedule(project, scoped.timeline_items, now);
-  const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-  const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
-  const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
+  const state = buildProjectState(data, project, now);
+  const scoped = state.scoped;
+  const schedule = state.schedule;
   const activeItem = schedule.active[0] ?? schedule.atRisk[0] ?? schedule.blocked[0] ?? null;
   const upcomingMilestones = scoped.milestones
     .filter((item) => item.status !== "Complete")
@@ -119,9 +114,9 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
     project,
     scoped,
     schedule,
-    projectHealth: calculateProjectHealth(overdueActions + overdueDecisions, blocked, schedule.health),
-    scheduleHealth: schedule.health ?? "Review" as RagStatus | "Review",
-    progress: calculateProgress(scoped, schedule.health).overall,
+    projectHealth: state.projectHealth,
+    scheduleHealth: state.scheduleHealth ?? "Review" as RagStatus | "Review",
+    progress: state.progress.overall,
     activePhase: activeItem?.phase_name ?? "No active phase",
     activePhaseProgress: activeItem ? Number(activeItem.progress_percent) : null,
     nextMilestone: nextMilestone(scoped.milestones, now),

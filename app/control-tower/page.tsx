@@ -33,20 +33,17 @@ import {
   buildTodaysPriorities,
   buildUpcomingThisWeek,
   buildWaitingOnOthersGrouped,
-  calculateProgress,
-  calculateProjectHealth,
 } from "@/lib/control-tower";
-import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
+import { formatScheduleDate } from "@/lib/schedule";
 import type { ProjectSnapshot } from "@/lib/types";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention } from "@/lib/delivery";
 import { computeReadiness } from "@/components/requirement-readiness";
-import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
 import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
 import { ProjectTrendsPanel } from "@/components/trend-chart";
-import { isAcceptanceCriteriaFailed, isAcceptanceCriteriaMet, isDecisionOpen, isDecisionOverdue, isRiskOpen } from "@/lib/lifecycle";
-import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
+import { isAcceptanceCriteriaFailed, isAcceptanceCriteriaMet, isDecisionOpen } from "@/lib/lifecycle";
+import { selectActiveProject } from "@/lib/project-scope";
+import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
-import { isOverdue } from "@/lib/utils";
 
 function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -119,77 +116,72 @@ export default function DashboardPage() {
   const tower = useMemo(() => {
     const project = data ? selectActiveProject(data) : null;
     if (!data || !project) return null;
-
-    const timelineScope = selectTimelineItems(data, project);
-    const schedule = calculateSchedule(project, timelineScope.items);
+    const state = buildProjectState(data, project);
+    const scoped = state.scoped;
+    const schedule = state.schedule;
     const scheduleVariance = schedule.variance ?? -1;
-    const overdueActions = data.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const overdueDecisions = data.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status)).length;
-    const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
-    const overdueItems = overdueActions + overdueDecisions;
-    const health = calculateProjectHealth(overdueItems, blockedMilestones, schedule.health);
-    const scheduleHealth = schedule.health;
-    const progress = calculateProgress(data, schedule.health);
-    const projectDeliverables = data.deliverables.filter((item) => item.project_id === project.id);
 
     return {
       project,
       scheduleVariance,
-      overdueActions,
-      overdueDecisions,
-      overdueItems,
-      blockedMilestones,
-      health,
-      scheduleHealth,
-      progress,
-      deliveryReadiness: calculateDeliveryReadiness(projectDeliverables),
-      deliverableAttention: deliverablesRequiringAttention(projectDeliverables),
+      overdueActions: state.rollups.actions.overdue,
+      overdueDecisions: state.rollups.decisions.overdue,
+      overdueItems: state.rollups.actions.overdue + state.rollups.decisions.overdue,
+      blockedMilestones: state.blockedMilestones,
+      health: state.projectHealth,
+      scheduleHealth: state.scheduleHealth,
+      progress: state.progress,
+      deliveryReadiness: calculateDeliveryReadiness(scoped.deliverables),
+      deliverableAttention: deliverablesRequiringAttention(scoped.deliverables),
       schedule,
-      needsAttention: buildNeedsAttention(data),
-      upcomingThisWeek: buildUpcomingThisWeek(data),
-      summary: buildManagementSummary(project, health, data, overdueActions, schedule),
-      openRisks: data.risks.filter((item) => isRiskOpen(item.status)).length,
-      openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
-      activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
-      recentActivity: data.activity_log.slice(0, 5),
-      openDecisions: data.decisions.filter((item) => isDecisionOpen(item.status)).slice(0, 5),
+      // Scoped to this exact project via state.scoped — previously these five
+      // (needsAttention/upcomingThisWeek/summary's outstanding-decisions count/
+      // waitingOnOthers/recentActivity/openDecisions/requirements breakdown/
+      // acceptance breakdown/projectReadiness) read raw, unscoped `data.*`,
+      // so a second canonical project in the store would leak into this
+      // project's figures. Fixed as a direct consequence of routing through
+      // ProjectState.
+      needsAttention: buildNeedsAttention(scoped),
+      upcomingThisWeek: buildUpcomingThisWeek(scoped),
+      summary: buildManagementSummary(project, state.projectHealth, scoped, state.rollups.actions.overdue, schedule),
+      openRisks: state.rollups.risks.open,
+      openQuestions: scoped.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
+      activeMilestones: scoped.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
+      recentActivity: scoped.activity_log.slice(0, 5),
+      openDecisions: scoped.decisions.filter((item) => isDecisionOpen(item.status)).slice(0, 5),
       requirements: {
-        total: data.requirements.length,
-        discovery: data.requirements.filter((r) => r.status === "Discovery").length,
-        inProgress: data.requirements.filter((r) => r.status === "In Progress").length,
-        approved: data.requirements.filter((r) => r.status === "Approved").length,
-        complete: data.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
+        total: scoped.requirements.length,
+        discovery: scoped.requirements.filter((r) => r.status === "Discovery").length,
+        inProgress: scoped.requirements.filter((r) => r.status === "In Progress").length,
+        approved: scoped.requirements.filter((r) => r.status === "Approved").length,
+        complete: scoped.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
       },
-      waitingOnOthers: buildWaitingOnOthersGrouped(data),
-      todaysPriorities: buildTodaysPriorities(data),
+      waitingOnOthers: buildWaitingOnOthersGrouped(scoped),
+      todaysPriorities: buildTodaysPriorities(data, project),
       acceptance: (() => {
-        const allAC = data.acceptance_criteria ?? [];
+        const allAC = scoped.acceptance_criteria ?? [];
         const total = allAC.length;
         const met = allAC.filter((ac) => ac.status === "Met").length;
         const failed = allAC.filter((ac) => isAcceptanceCriteriaFailed(ac.status)).length;
         const outstanding = allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length;
         const pct = total > 0 ? Math.round((met / total) * 100) : 0;
-        const reqs100 = data.requirements.filter((r) => {
+        const reqs100 = scoped.requirements.filter((r) => {
           const acs = allAC.filter((ac) => ac.requirement_id === r.id);
           return acs.length > 0 && acs.every((ac) => isAcceptanceCriteriaMet(ac.status));
         }).length;
-        const reqsFailed = data.requirements.filter((r) =>
+        const reqsFailed = scoped.requirements.filter((r) =>
           allAC.some((ac) => ac.requirement_id === r.id && isAcceptanceCriteriaFailed(ac.status)),
         ).length;
         return { total, met, failed, outstanding, pct, reqs100, reqsFailed };
       })(),
       projectReadiness: computeReadiness(
-        data.acceptance_criteria ?? [],
-        data.evidence ?? [],
-        data.requirement_sign_offs ?? [],
-        data.test_cases ?? [],
+        scoped.acceptance_criteria ?? [],
+        scoped.evidence ?? [],
+        scoped.requirement_sign_offs ?? [],
+        scoped.test_cases ?? [],
       ),
-      confidence: computeDeliveryConfidence(data),
-      snapshots: (() => {
-        return (data.project_snapshots ?? [])
-          .filter((s) => s.project_id === project.id)
-          .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
-      })(),
+      confidence: state.confidence,
+      snapshots: [...(scoped.project_snapshots ?? [])].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)),
     };
   }, [data]);
 

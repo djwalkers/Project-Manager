@@ -841,8 +841,11 @@ function diagnosticWarnings(data: DataStore, phase: ProjectPhaseEvidence, projec
   return warnings;
 }
 
-export function buildDeliveryInsightAnalysis(data: DataStore, maxCount = 5, now = new Date()): DeliveryInsightAnalysis {
-  const project = selectActiveProject(data);
+// project defaults to selectActiveProject(data) — every existing caller that
+// doesn't pass one keeps today's behaviour unchanged. Callers that have
+// already resolved an exact project (e.g. lib/project-state.ts) pass it
+// explicitly so this never re-selects a different project underneath them.
+export function buildDeliveryInsightAnalysis(data: DataStore, maxCount = 5, now = new Date(), project = selectActiveProject(data)): DeliveryInsightAnalysis {
   if (!project) return { project: null, phase: null, insights: [] };
 
   const { phase, generated } = scoreInsights(data, project, now);
@@ -853,8 +856,8 @@ export function buildDeliveryInsightAnalysis(data: DataStore, maxCount = 5, now 
   return { project, phase, insights };
 }
 
-export function buildDeliveryInsights(data: DataStore, maxCount = 5, now = new Date()): DeliveryInsight[] {
-  return buildDeliveryInsightAnalysis(data, maxCount, now).insights;
+export function buildDeliveryInsights(data: DataStore, maxCount = 5, now = new Date(), project = selectActiveProject(data)): DeliveryInsight[] {
+  return buildDeliveryInsightAnalysis(data, maxCount, now, project).insights;
 }
 
 export function buildDeliveryDiagnostics(data: DataStore, project = selectActiveProject(data), now = new Date()): DeliveryInsightDiagnostics {
@@ -900,16 +903,16 @@ export function buildDeliveryDiagnostics(data: DataStore, project = selectActive
   };
 }
 
-export function buildRecommendationAnalysis(data: DataStore, maxCount = 5, now = new Date()): RecommendationAnalysis {
-  const analysis = buildDeliveryInsightAnalysis(data, maxCount, now);
+export function buildRecommendationAnalysis(data: DataStore, maxCount = 5, now = new Date(), project = selectActiveProject(data)): RecommendationAnalysis {
+  const analysis = buildDeliveryInsightAnalysis(data, maxCount, now, project);
   return {
     ...analysis,
     recommendations: analysis.insights.map(toRecommendation),
   };
 }
 
-export function buildRecommendations(data: DataStore, maxCount = 5): Recommendation[] {
-  return buildRecommendationAnalysis(data, maxCount).recommendations;
+export function buildRecommendations(data: DataStore, maxCount = 5, project = selectActiveProject(data)): Recommendation[] {
+  return buildRecommendationAnalysis(data, maxCount, new Date(), project).recommendations;
 }
 
 export function recommendationPenalty(item: DeliveryInsight | Recommendation): number {

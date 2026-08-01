@@ -10,6 +10,7 @@ import {
 } from "@/lib/lifecycle";
 import { deliverablesRequiringAttention } from "@/lib/delivery";
 import { buildDeliveryInsights } from "@/lib/recommendations";
+import { selectActiveProject } from "@/lib/project-scope";
 import type { Project } from "@/lib/types";
 import { formatScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 
@@ -184,8 +185,12 @@ export type WaitingGroup = {
   items: { label: string; href: string }[];
 };
 
-export function buildTodaysPriorities(data: DataStore): PriorityItem[] {
-  return buildDeliveryInsights(data, 3).map((item, i) => ({
+// project defaults to selectActiveProject(data) — every existing caller
+// that doesn't pass one keeps today's behaviour unchanged. Callers that
+// have already resolved an exact project pass it explicitly so this never
+// re-selects a different project underneath them.
+export function buildTodaysPriorities(data: DataStore, project = selectActiveProject(data)): PriorityItem[] {
+  return buildDeliveryInsights(data, 3, new Date(), project).map((item, i) => ({
     rank: i + 1,
     title: item.title,
     detail: `${item.reason} · ${item.currentPhase} relevance ${item.phaseRelevance}% · ${item.confidence}% confidence`,

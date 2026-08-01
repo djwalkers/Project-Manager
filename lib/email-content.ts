@@ -11,12 +11,11 @@ import {
   isRiskOpen,
   isTestPassed,
 } from "@/lib/lifecycle";
-import type { AuditLog, Project } from "@/lib/types";
+import type { AuditLog } from "@/lib/types";
 import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/manager-summary";
-import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
-import { resolveGoLiveDate } from "@/lib/project-dates";
-import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
+import { buildProjectState, type ProjectState } from "@/lib/project-state";
+import { selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
 
 export type EmailContent = { subject: string; html: string; text: string };
@@ -85,15 +84,18 @@ function kpiCell(label: string, value: string, sub?: string) {
   return `<td style="padding:0 16px 0 0;vertical-align:top"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">${escapeHtml(label)}</div><div style="font-size:22px;font-weight:700;color:#0f172a">${escapeHtml(value)}</div>${sub ? `<div style="font-size:11px;color:#64748b">${escapeHtml(sub)}</div>` : ""}</td>`;
 }
 
-function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr: string, in7DaysStr: string, now: Date): { html: string; text: string; priorities: Array<{ label: string; score: number }> } {
+function buildProjectBriefSection(state: ProjectState, todayStr: string, in7DaysStr: string): { html: string; text: string; priorities: Array<{ label: string; score: number }> } {
+  const { project, scoped, generatedAt: now } = state;
   const { deliverables, actions, risks, milestones, decisions, dependencies, discovery_questions, test_cases } = scoped;
   const allAC = scoped.acceptance_criteria ?? [];
 
-  // Project Summary
-  const totalDel = deliverables.length;
-  const doneDel = deliverables.filter((d) => isDeliverableComplete(d)).length;
+  // Project Summary — deliverable-completion %, a distinct metric from
+  // Control Tower's weighted overall progress; only the input counts are
+  // shared via state.rollups, not the percentage itself.
+  const totalDel = state.rollups.deliverables.total;
+  const doneDel = state.rollups.deliverables.complete;
   const progressPct = totalDel > 0 ? Math.round((doneDel / totalDel) * 100) : 0;
-  const goLive = resolveGoLiveDate(scoped, project);
+  const goLive = state.goLiveDate;
   const days = goLive.date ? daysFromNow(goLive.date, now) : null;
   const daysLabel = days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
 
@@ -280,8 +282,8 @@ export function buildAutomatedDailyBrief(data: DataStore, now = new Date(), rece
   const projectTexts: string[] = [];
 
   for (const project of projects) {
-    const scoped = scopeProjectData(data, project);
-    const block = buildProjectBriefSection(project, scoped, todayStr, in7DaysStr, now);
+    const state = buildProjectState(data, project, now);
+    const block = buildProjectBriefSection(state, todayStr, in7DaysStr);
     projectBlocks.push(block.html);
     projectTexts.push(block.text);
     allPriorities.push(...block.priorities);
@@ -428,7 +430,7 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
 
   // Go-live alerts: only RED readiness, delayed go-live, missing approvals, critical blockers
   const goLiveAlerts = selectCanonicalProjects(data).flatMap((project) => {
-    const dashboard = buildGoLiveDashboard(data, project, now);
+    const dashboard = buildProjectState(data, project, now).goLive;
     const alerts: string[] = [];
     if (dashboard.status === "Red") alerts.push(`${project.name}: Go-live readiness is RED (${dashboard.readinessPercent}%).`);
     if (dashboard.daysToGoLive !== null && dashboard.daysToGoLive < 0) alerts.push(`${project.name}: Go-live date has passed — delayed.`);

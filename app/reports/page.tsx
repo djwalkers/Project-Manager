@@ -13,25 +13,20 @@ import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { selectActiveProject } from "@/lib/project-scope";
+import { buildProjectState } from "@/lib/project-state";
 import {
   buildManagementSummary,
   buildNeedsAttention,
   buildUpcomingThisWeek,
-  calculateProjectHealth,
-  calculateProgress,
 } from "@/lib/control-tower";
-import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
 import {
   isAcceptanceCriteriaMet,
   isActionOpen,
   isDecisionOpen,
-  isDecisionOverdue,
   isDeliverableComplete,
   isRiskHighOrCritical,
   isRiskOpen,
 } from "@/lib/lifecycle";
-import { calculateSchedule } from "@/lib/schedule";
-import { selectTimelineItems } from "@/lib/project-scope";
 import { isOverdue } from "@/lib/utils";
 
 // ── Report definitions ─────────────────────────────────────────────────────────
@@ -114,16 +109,21 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
   const project = selectActiveProject(data);
   if (!project) return <p className="text-sm text-muted-foreground">No active project.</p>;
 
-  const timelineScope = selectTimelineItems(data, project);
-  const schedule = calculateSchedule(project, timelineScope.items);
-  const overdueActions = data.actions.filter((a) => isOverdue(a.due_date, a.status)).length;
-  const overdueDecisions = data.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status)).length;
-  const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked").length + schedule.blocked.length;
-  const health = calculateProjectHealth(overdueActions + overdueDecisions, blockedMilestones, schedule.health);
-  const summary = buildManagementSummary(project, health, data, overdueActions, schedule);
-  const needsAttention = buildNeedsAttention(data).slice(0, 5);
-  const upcoming = buildUpcomingThisWeek(data).slice(0, 5);
-  const progress = calculateProgress(data, schedule.health);
+  // Phase 7: one buildProjectState call for this project instead of each
+  // figure re-resolving/re-scoping independently. Scoped to this exact
+  // project via state.scoped — previously overdueActions/overdueDecisions/
+  // needsAttention/upcoming/summary/progress all read raw, unscoped
+  // `data.*`, so a second canonical project in the store would leak into
+  // this project's report.
+  const state = buildProjectState(data, project);
+  const schedule = state.schedule;
+  const blockedMilestones = state.blockedMilestones;
+  const health = state.projectHealth;
+  const summary = buildManagementSummary(project, health, state.scoped, state.rollups.actions.overdue, schedule);
+  const needsAttention = buildNeedsAttention(state.scoped).slice(0, 5);
+  const upcoming = buildUpcomingThisWeek(state.scoped).slice(0, 5);
+  const progress = state.progress;
+  const overdueActions = state.rollups.actions.overdue;
 
   const healthColor = health === "Green" ? "#16a34a" : health === "Amber" ? "#d97706" : "#dc2626";
 
@@ -319,7 +319,10 @@ function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjec
 
 function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
   const project = selectActiveProject(data);
-  const confidence = computeDeliveryConfidence(data);
+  // Phase 7: reads Delivery Confidence for this exact project (via
+  // ProjectState) rather than letting computeDeliveryConfidence re-select a
+  // project internally.
+  const confidence = project ? buildProjectState(data, project).confidence : { score: 0, reasons: ["No active project"], rag: "Red" as const };
   const healthColor = confidence.rag === "Green" ? "#16a34a" : confidence.rag === "Amber" ? "#d97706" : "#dc2626";
 
   return (
@@ -358,6 +361,11 @@ function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeo
 
 function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
   const project = selectActiveProject(data);
+  // Phase 7: requirements/acceptance criteria scoped to this exact project
+  // via ProjectState — previously this read every project's requirements.
+  const scoped = project ? buildProjectState(data, project).scoped : null;
+  const requirements = scoped?.requirements ?? [];
+  const acceptanceCriteria = scoped?.acceptance_criteria ?? [];
 
   return (
     <div className="report-body space-y-8">
@@ -377,8 +385,8 @@ function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType
           </tr>
         </thead>
         <tbody className="divide-y">
-          {data.requirements.map((req) => {
-            const acs = (data.acceptance_criteria ?? []).filter((ac) => ac.requirement_id === req.id);
+          {requirements.map((req) => {
+            const acs = acceptanceCriteria.filter((ac) => ac.requirement_id === req.id);
             return (
               <tr key={req.id}>
                 <td className="py-2 pr-3 font-semibold text-xs">{req.requirement_ref}</td>
@@ -397,13 +405,20 @@ function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType
 
 // ── Report: Go-Live Readiness ─────────────────────────────────────────────────
 
+// A separate, deliberately simple 5-gate go/no-go check — distinct from
+// lib/go-live-readiness.ts's 13-check model (see ProjectState.goLive), kept
+// as its own view rather than redesigned in this phase. Its inputs are now
+// scoped to the resolved project via ProjectState; its gate criteria are
+// unchanged.
 function GoLiveReadinessReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
   const project = selectActiveProject(data);
-  const openRisks = data.risks.filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
-  const overdueActions = data.actions.filter((a) => isOverdue(a.due_date, a.status));
-  const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked");
-  const acs = data.acceptance_criteria ?? [];
+  const scoped = project ? buildProjectState(data, project).scoped : null;
+  const openRisks = (scoped?.risks ?? []).filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
+  const overdueActions = (scoped?.actions ?? []).filter((a) => isOverdue(a.due_date, a.status));
+  const blockedMilestones = (scoped?.milestones ?? []).filter((m) => m.status === "Blocked");
+  const acs = scoped?.acceptance_criteria ?? [];
   const acMet = acs.filter((ac) => isAcceptanceCriteriaMet(ac.status)).length;
+  const deliverables = scoped?.deliverables ?? [];
 
   // Narrow confirmed fix: "Complete" is not a valid DeliverableStatus (see lib/types.ts),
   // so the raw check this replaced (`["Complete","Deployed"].includes(status)`) reduced to
@@ -414,7 +429,7 @@ function GoLiveReadinessReport({ data }: { data: NonNullable<ReturnType<typeof u
     { label: "No overdue actions", passed: overdueActions.length === 0, detail: overdueActions.length > 0 ? `${overdueActions.length} action(s) overdue` : "All actions on track" },
     { label: "No blocked milestones", passed: blockedMilestones.length === 0, detail: blockedMilestones.length > 0 ? `${blockedMilestones.length} milestone(s) blocked` : "All milestones unblocked" },
     { label: "Acceptance criteria met", passed: acs.length > 0 && acMet === acs.length, detail: acs.length > 0 ? `${acMet}/${acs.length} criteria met` : "No acceptance criteria defined" },
-    { label: "All deliverables deployed", passed: data.deliverables.every((d) => isDeliverableComplete(d)), detail: `${data.deliverables.filter((d) => !isDeliverableComplete(d)).length} deliverable(s) outstanding` },
+    { label: "All deliverables deployed", passed: deliverables.every((d) => isDeliverableComplete(d)), detail: `${deliverables.filter((d) => !isDeliverableComplete(d)).length} deliverable(s) outstanding` },
   ];
 
   const allPassed = gates.every((g) => g.passed);

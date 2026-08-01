@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, CheckCheck, X } from "lucide-react";
-import { buildRecommendations } from "@/lib/recommendations";
+import { selectActiveProject } from "@/lib/project-scope";
+import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +62,15 @@ export function NotificationBell() {
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
 
-  const notifications = data ? buildRecommendations(data, 10) : [];
+  // Same underlying recommendation set as the Workbench page (both read
+  // ProjectState.recommendations, generated with maxCount 10) — the
+  // Workbench just displays the top 5 of this same list.
+  const notifications = useMemo(() => {
+    if (!data) return [];
+    const project = selectActiveProject(data);
+    if (!project) return [];
+    return buildProjectState(data, project).recommendations;
+  }, [data]);
   const visible = hydrated ? notifications.filter((n) => !dismissed.has(n.id)) : notifications;
   const count = visible.length;
 

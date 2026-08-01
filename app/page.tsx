@@ -23,10 +23,9 @@ import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { buildTodaysPriorities } from "@/lib/control-tower";
-import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
-import { isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
-import { buildRecommendations, type Recommendation } from "@/lib/recommendations";
+import type { Recommendation } from "@/lib/recommendations";
 import { selectActiveProject } from "@/lib/project-scope";
+import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { useAuth } from "@/contexts/auth-context";
 import { isOverdue } from "@/lib/utils";
@@ -178,39 +177,41 @@ export default function WorkbenchPage() {
     if (!data) return null;
     const project = selectActiveProject(data);
     if (!project) return null;
+    const state = buildProjectState(data, project);
 
-    const overdueActions = data.actions.filter(
-      (a) => isOverdue(a.due_date, a.status),
-    );
-    const openRisks = data.risks.filter(
-      (r) => isRiskOpen(r.status),
-    );
-    const highRisks = openRisks.filter((r) => isRiskHighOrCritical(r.impact));
-    const awaitingQuestions = data.discovery_questions.filter((q) =>
+    // Scoped to this exact project via state.scoped — previously these read
+    // raw, unscoped `data.*` arrays, which meant a second canonical project
+    // in the store would leak into this project's overdue/awaiting/blocked
+    // counts. Fixed as a direct consequence of routing through ProjectState.
+    const overdueActions = state.scoped.actions.filter((a) => isOverdue(a.due_date, a.status));
+    const awaitingQuestions = state.scoped.discovery_questions.filter((q) =>
       ["Awaiting Business", "Awaiting Development", "Awaiting Response"].includes(q.status),
     );
-    const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked");
-    const upcomingMeetings = [...(data.meeting_intelligence ?? [])]
+    const blockedMilestones = state.scoped.milestones.filter((m) => m.status === "Blocked");
+    const upcomingMeetings = [...(state.scoped.meeting_intelligence ?? [])]
       .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""))
       .slice(0, 5);
-    const pendingSuggestions = (data.meeting_suggestions ?? []).filter(
+    const pendingSuggestions = (state.scoped.meeting_suggestions ?? []).filter(
       (s) => s.status === "Pending",
     );
-    const confidence = computeDeliveryConfidence(data);
-    const recommendations = buildRecommendations(data, 5);
-    const priorities = buildTodaysPriorities(data);
-    const recentActivity = data.activity_log.slice(0, 8);
+    // state.recommendations is generated with maxCount 10 (shared with
+    // NotificationBell); slicing to 5 here reproduces this page's previous
+    // buildRecommendations(data, 5) call exactly, since both read the same
+    // deterministically-sorted list.
+    const recommendations = state.recommendations.slice(0, 5);
+    const priorities = buildTodaysPriorities(data, project);
+    const recentActivity = state.scoped.activity_log.slice(0, 8);
 
     return {
       project,
       overdueActions,
-      openRisks: openRisks.length,
-      highRisks: highRisks.length,
+      openRisks: state.rollups.risks.open,
+      highRisks: state.rollups.risks.highOrCritical,
       awaitingQuestions,
       blockedMilestones,
       upcomingMeetings,
       pendingSuggestions,
-      confidence,
+      confidence: state.confidence,
       recommendations,
       priorities,
       recentActivity,

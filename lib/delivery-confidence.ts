@@ -1,6 +1,7 @@
 import type { DataStore } from "@/lib/data-store";
 import { buildDeliveryInsightAnalysis, recommendationPenalty } from "@/lib/recommendations";
 import { selectActiveProject } from "@/lib/project-scope";
+import type { Project } from "@/lib/types";
 
 export type DeliveryConfidenceResult = {
   score: number;
@@ -8,11 +9,14 @@ export type DeliveryConfidenceResult = {
   rag: "Green" | "Amber" | "Red";
 };
 
-export function computeDeliveryConfidence(data: DataStore): DeliveryConfidenceResult {
-  const project = selectActiveProject(data);
+// project defaults to selectActiveProject(data) — every existing caller
+// that doesn't pass one keeps today's behaviour unchanged. Callers that
+// have already resolved an exact project (e.g. lib/project-state.ts) pass
+// it explicitly so this never re-selects a different project underneath.
+export function computeDeliveryConfidence(data: DataStore, project: Project | null = selectActiveProject(data)): DeliveryConfidenceResult {
   if (!project) return { score: 0, reasons: ["No active project"], rag: "Red" };
 
-  const analysis = buildDeliveryInsightAnalysis(data, 10);
+  const analysis = buildDeliveryInsightAnalysis(data, 10, new Date(), project);
   const scoredGaps = analysis.insights
     .map((item) => ({ item, penalty: recommendationPenalty(item) }))
     .filter((entry) => entry.penalty > 0);

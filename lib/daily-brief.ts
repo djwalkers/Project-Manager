@@ -1,22 +1,19 @@
 import {
   buildNeedsAttention,
   buildUpcomingThisWeek,
-  calculateProgress,
-  calculateProjectHealth,
   type InsightItem,
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
 import { deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
 import { formatAuditChange } from "@/lib/audit";
 import type { AuditLog } from "@/lib/types";
-import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
+import { selectCanonicalProjects } from "@/lib/project-scope";
+import { buildProjectState } from "@/lib/project-state";
 import { buildSinceYesterday, buildWeeklyExecutiveSummary, type SinceYesterday, type WeeklyExecutiveSummary } from "@/lib/project-trends";
-import { buildProjectIntelligence, type IntelligenceFinding } from "@/lib/project-intelligence";
-import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
+import type { IntelligenceFinding } from "@/lib/project-intelligence";
+import { formatScheduleDate } from "@/lib/schedule";
 import type { Milestone, Project } from "@/lib/types";
-import { isOverdue } from "@/lib/utils";
 
 export type DailyBriefProject = {
   project: Project;
@@ -147,28 +144,27 @@ function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], a
 }
 
 export function buildDailyBrief(data: DataStore, now = new Date(), recentAuditChanges: AuditLog[] = []): DailyBrief {
-  const projects = selectCanonicalProjects(data).map((project): DailyBriefProject => {
-    const scoped = scopeProjectData(data, project);
-    const schedule = calculateSchedule(project, scoped.timeline_items, now);
-    const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
-    const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
-    const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
-    return {
-      project,
-      health: calculateProjectHealth(overdueActions + overdueDecisions, blocked, schedule.health),
-      scheduleHealth: schedule.health ?? "Review",
-      progress: calculateProgress(scoped, schedule.health).overall,
-      activePhase: schedule.active[0]?.phase_name ?? schedule.atRisk[0]?.phase_name ?? schedule.blocked[0]?.phase_name ?? project.status,
-      daysRemaining: schedule.daysRemaining,
-      openRisks: scoped.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
-      openDecisions: scoped.decisions.filter((item) => isDecisionOpen(item.status)).length,
-      overdueActions,
-      upcomingMilestone: upcomingMilestone(scoped.milestones, now),
-    };
-  });
+  // One buildProjectState call per canonical project — every per-project
+  // figure below (health, schedule, attention, recommendations,
+  // deliverables) reads from that same state instead of each re-resolving
+  // and re-scoping the project independently.
+  const states = selectCanonicalProjects(data).map((project) => buildProjectState(data, project, now));
 
-  const attention = selectCanonicalProjects(data).flatMap((project) => buildNeedsAttention(scopeProjectData(data, project)).map((item) => ({ ...item, id: `${project.id}-${item.id}`, meta: `${project.name} · ${item.meta}` })));
-  const upcoming = selectCanonicalProjects(data).flatMap((project) => buildUpcomingThisWeek(scopeProjectData(data, project)).map((item) => ({ ...item, id: `${project.id}-${item.id}`, meta: `${project.name} · ${item.meta}` })));
+  const projects: DailyBriefProject[] = states.map((state): DailyBriefProject => ({
+    project: state.project,
+    health: state.projectHealth,
+    scheduleHealth: state.scheduleHealth ?? "Review",
+    progress: state.progress.overall,
+    activePhase: state.schedule.active[0]?.phase_name ?? state.schedule.atRisk[0]?.phase_name ?? state.schedule.blocked[0]?.phase_name ?? state.project.status,
+    daysRemaining: state.schedule.daysRemaining,
+    openRisks: state.rollups.risks.open,
+    openDecisions: state.rollups.decisions.open,
+    overdueActions: state.rollups.actions.overdue,
+    upcomingMilestone: upcomingMilestone(state.scoped.milestones, now),
+  }));
+
+  const attention = states.flatMap((state) => buildNeedsAttention(state.scoped).map((item) => ({ ...item, id: `${state.project.id}-${item.id}`, meta: `${state.project.name} · ${item.meta}` })));
+  const upcoming = states.flatMap((state) => buildUpcomingThisWeek(state.scoped).map((item) => ({ ...item, id: `${state.project.id}-${item.id}`, meta: `${state.project.name} · ${item.meta}` })));
   const red = projects.filter((item) => item.health === "Red").length;
   const amber = projects.filter((item) => item.health === "Amber").length;
   const green = projects.filter((item) => item.health === "Green").length;
@@ -178,8 +174,8 @@ export function buildDailyBrief(data: DataStore, now = new Date(), recentAuditCh
   const subject = `Daily Project Brief — ${emailDate(now)}`;
   const sinceYesterday = buildSinceYesterday(data);
   const weeklySummary = buildWeeklyExecutiveSummary(data);
-  const todaysRecommendations = selectCanonicalProjects(data).flatMap((project) => buildProjectIntelligence(data, project, now).recommendations.map((finding) => ({ projectName: project.name, finding }))).slice(0, 5);
-  const todaysDeliverables = selectCanonicalProjects(data).flatMap((project) => deliverablesRequiringAttention(scopeProjectData(data, project).deliverables, now).map((item) => ({ projectName: project.name, attention: item }))).slice(0, 8);
+  const todaysRecommendations = states.flatMap((state) => state.intelligence.recommendations.map((finding) => ({ projectName: state.project.name, finding }))).slice(0, 5);
+  const todaysDeliverables = states.flatMap((state) => deliverablesRequiringAttention(state.scoped.deliverables, now).map((item) => ({ projectName: state.project.name, attention: item }))).slice(0, 8);
   const plainText = buildPlainText(now, executiveSummary, projects, attention, upcoming, sinceYesterday, recentAuditChanges, weeklySummary, todaysRecommendations, todaysDeliverables);
   const html = buildHtml(now, executiveSummary, projects, attention, upcoming, sinceYesterday, recentAuditChanges, weeklySummary, todaysRecommendations, todaysDeliverables);
 

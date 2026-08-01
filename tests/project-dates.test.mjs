@@ -193,12 +193,21 @@ run("no conflict is reported when populated sources agree on the same date", () 
 
 // ── All three consumers use the shared resolver ─────────────────────────────
 
-run("structural: go-live-readiness.ts, project-intelligence.ts, and email-content.ts all import the shared resolver", () => {
-  for (const file of ["lib/go-live-readiness.ts", "lib/project-intelligence.ts", "lib/email-content.ts"]) {
+// PHASE 7 (reviewed, intentional change): email-content.ts no longer imports
+// lib/project-dates directly — it reads goLiveDate off lib/project-state.ts's
+// ProjectState instead, which itself calls resolveGoLiveDate exactly once
+// per project. This is a stricter form of the same guarantee (one resolver
+// call per project, not one per consumer), verified behaviourally below by
+// "the automated daily brief's Go-Live KPI reflects go_live_date...".
+run("structural: go-live-readiness.ts and project-intelligence.ts import the shared resolver directly; email-content.ts consumes it transitively via lib/project-state.ts", () => {
+  for (const file of ["lib/go-live-readiness.ts", "lib/project-intelligence.ts"]) {
     const source = fs.readFileSync(path.join(root, file), "utf8");
     assert.match(source, /from ["']@\/lib\/project-dates["']/, `${file} does not import lib/project-dates`);
     assert.doesNotMatch(source, /go\.\?live.*test.*milestone|milestone.*find.*go\.\?live/i, `${file} still contains its own milestone-matching go-live-date logic`);
   }
+  const emailContentSource = fs.readFileSync(path.join(root, "lib/email-content.ts"), "utf8");
+  assert.match(emailContentSource, /from ["']@\/lib\/project-state["']/, "lib/email-content.ts does not import lib/project-state");
+  assert.doesNotMatch(emailContentSource, /go\.\?live.*test.*milestone|milestone.*find.*go\.\?live/i, "lib/email-content.ts still contains its own milestone-matching go-live-date logic");
 });
 
 run("buildGoLiveDashboard reflects go_live_date over planned_end_date when no milestone exists (proves it uses the resolver, not raw planned_end_date)", () => {

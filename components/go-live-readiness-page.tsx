@@ -28,7 +28,6 @@ function GoLiveSelect({ value, onChange, children, className, disabled }: { valu
 }
 import { createId } from "@/lib/data-store";
 import {
-  buildGoLiveDashboard,
   GO_LIVE_CATEGORIES,
   GO_LIVE_CHECKLIST_STATUSES,
   CUTOVER_STEP_STATUSES,
@@ -40,6 +39,7 @@ import {
 } from "@/lib/go-live-readiness";
 import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { buildProjectState } from "@/lib/project-state";
 import type { CutoverStep, GoLiveChecklist, GoLiveChecklistCategory, GoLiveChecklistStatus, GoLiveReadinessOverride, GoLiveReadinessOverrideStatus } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
@@ -538,8 +538,11 @@ export function GoLiveReadinessPage() {
   const projects = useMemo(() => data ? selectCanonicalProjects(data) : [], [data]);
   const project = useMemo(() => data ? (selectedProjectId ? selectProjectById(data, selectedProjectId) : (projects[0] ?? null)) : null, [data, selectedProjectId, projects]);
 
+  // Phase 7: reads Go-Live readiness off the shared ProjectState instead of
+  // calling buildGoLiveDashboard directly — same underlying computation,
+  // now built once alongside the project's other facts.
   const dashboard: GoLiveDashboard | null = useMemo(() =>
-    data && project ? buildGoLiveDashboard(data, project) : null, [data, project]);
+    data && project ? buildProjectState(data, project).goLive : null, [data, project]);
 
   const checklists = useMemo(() =>
     (data?.go_live_checklists ?? []).filter((c) => c.project_id === project?.id), [data, project]);
