@@ -14,7 +14,8 @@
     "test:project-dates": "node tests/project-dates.test.mjs",
     "test:phase4": "node tests/phase4-lifecycle-consumers.test.mjs",
     "test:phase5": "node tests/phase5-schedule-health.test.mjs",
-    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4 && npm run test:phase5"
+    "test:phase6": "node tests/phase6-go-live-readiness.test.mjs",
+    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4 && npm run test:phase5 && npm run test:phase6"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

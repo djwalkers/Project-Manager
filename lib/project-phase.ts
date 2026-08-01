@@ -22,6 +22,35 @@ export type ProjectPhaseEvidence = {
   detail: string;
 };
 
+// Central phase ordering — the single place phase-gated applicability rules
+// are defined (Phase 6). Consumed by lib/go-live-readiness.ts (manual check
+// resolution) and lib/project-intelligence.ts (GLR finding suppression) so
+// neither duplicates the ordering or the gate table.
+export const PROJECT_PHASE_ORDER: ProjectPhase[] = [
+  "Discovery", "Analysis", "Design", "Development", "SIT", "UAT", "Deployment", "Hypercare", "Closed",
+];
+
+export function isPhaseAtOrAfter(phase: ProjectPhase, gate: ProjectPhase): boolean {
+  return PROJECT_PHASE_ORDER.indexOf(phase) >= PROJECT_PHASE_ORDER.indexOf(gate);
+}
+
+export type ManualCheckKey =
+  | "customer_approval"
+  | "warehouse_training"
+  | "deployment_cutover_approval"
+  | "rollback_plan_approved"
+  | "hypercare_owner_assigned"
+  | "support_rota_confirmed";
+
+export const MANUAL_CHECK_APPLICABLE_FROM: Record<ManualCheckKey, ProjectPhase> = {
+  customer_approval: "UAT",
+  warehouse_training: "UAT",
+  deployment_cutover_approval: "Deployment",
+  rollback_plan_approved: "Deployment",
+  hypercare_owner_assigned: "Deployment",
+  support_rota_confirmed: "Deployment",
+};
+
 function phaseFromText(value: string | null | undefined): ProjectPhase | null {
   const text = String(value ?? "").toLowerCase();
   if (!text.trim()) return null;

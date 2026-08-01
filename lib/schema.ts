@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "024_project_key_dates";
-export const latestMigration = "024_project_key_dates";
+export const schemaVersion = "025_go_live_readiness_overrides";
+export const latestMigration = "025_go_live_readiness_overrides";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -27,6 +27,7 @@ export const allMigrations = [
   "022_ai_settings",
   "023_go_live_security_hardening",
   "024_project_key_dates",
+  "025_go_live_readiness_overrides",
 ] as const;
 
 export type SchemaColumn = {
@@ -354,6 +355,20 @@ export const schemaTables: SchemaTable[] = [
       { name: "actual_time", type: "text", required: false },
       { name: "status", type: "text", required: true },
       { name: "notes", type: "text", required: false },
+      createdAt,
+      updatedAt,
+    ],
+  },
+  {
+    name: "go_live_readiness_overrides",
+    seedKey: ["project_id", "check_key"],
+    columns: [
+      id, projectId,
+      { name: "check_key", type: "text", required: true },
+      { name: "override_status", type: "text", required: true },
+      { name: "override_reason", type: "text", required: true },
+      { name: "overridden_by", type: "text", required: true },
+      { name: "overridden_at", type: "timestamptz", required: true },
       createdAt,
       updatedAt,
     ],

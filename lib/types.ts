@@ -122,6 +122,20 @@ export type GoLiveChecklist = {
   updated_at: string;
 };
 
+export type GoLiveReadinessOverrideStatus = "Complete" | "Incomplete" | "Waived";
+
+export type GoLiveReadinessOverride = {
+  id: string;
+  project_id: string;
+  check_key: string;
+  override_status: GoLiveReadinessOverrideStatus;
+  override_reason: string;
+  overridden_by: string;
+  overridden_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CutoverStepStatus = "Not Started" | "In Progress" | "Complete" | "Blocked" | "Skipped";
 
 export type CutoverStep = {
@@ -471,6 +485,7 @@ export type EntityMap = {
   email_activity_log: EmailActivity;
   go_live_checklists: GoLiveChecklist;
   cutover_plan: CutoverStep;
+  go_live_readiness_overrides: GoLiveReadinessOverride;
   acceptance_criteria: AcceptanceCriteria;
   evidence: Evidence;
   requirement_sign_offs: RequirementSignOff;

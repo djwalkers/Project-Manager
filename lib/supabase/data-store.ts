@@ -16,12 +16,18 @@ type RecordValue = Record<string, unknown>;
 
 const tableOrder = schemaTables.map((table) => table.name);
 
-// go_live_checklists and cutover_plan are served through authenticated
-// server routes (service-role client, no anon RLS access) rather than the
-// anon-key client used for every other table — see supabase/migrations/023.
+// go_live_checklists, cutover_plan, and go_live_readiness_overrides are
+// served through authenticated server routes (service-role client, no anon
+// RLS access) rather than the anon-key client used for every other table —
+// see supabase/migrations/023 and 025. go_live_readiness_overrides is only
+// ever read through this map (loadData's GET dispatch below) — its route
+// intentionally exposes POST-upsert/DELETE instead of the generic
+// create/update split, so writes go through lib/go-live-readiness.ts's
+// client helpers directly rather than createRecord/updateRecord.
 const AUTH_ROUTED_TABLE_PATHS: Partial<Record<EntityName, string>> = {
   go_live_checklists: "/api/go-live/checklists",
   cutover_plan: "/api/go-live/cutover",
+  go_live_readiness_overrides: "/api/go-live/overrides",
 };
 
 async function fetchAuthRoutedTable(path: string, init?: RequestInit) {

@@ -11,6 +11,7 @@ import {
   isTestPassed,
 } from "@/lib/lifecycle";
 import { resolveGoLiveDate } from "@/lib/project-dates";
+import { deriveProjectPhase, isPhaseAtOrAfter, MANUAL_CHECK_APPLICABLE_FROM } from "@/lib/project-phase";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
 import type { AuditLog, Project, ProjectSnapshot } from "@/lib/types";
@@ -213,6 +214,12 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (goLiveChecklists.length > 0) {
     const goLiveDate = resolveGoLiveDate(data, project).date;
     const daysToGoLive = daysUntil(goLiveDate, now);
+    // Phase-gating (Phase 6) reuses the same MANUAL_CHECK_APPLICABLE_FROM
+    // table that lib/go-live-readiness.ts's manual checks consult — a
+    // single source of applicability, not a second copy of the gate rules.
+    const currentPhase = deriveProjectPhase(data, project, now).phase;
+    const rollbackApplicable = isPhaseAtOrAfter(currentPhase, MANUAL_CHECK_APPLICABLE_FROM.rollback_plan_approved);
+    const hypercareApplicable = isPhaseAtOrAfter(currentPhase, MANUAL_CHECK_APPLICABLE_FROM.hypercare_owner_assigned);
 
     // GLR-001: UAT incomplete within 7 days of go-live
     const uatItems = goLiveChecklists.filter((c) => c.category === "UAT" || /uat/i.test(c.item));
@@ -224,20 +231,20 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
         100, "Complete UAT sign-off or escalate to delay go-live.");
     }
 
-    // GLR-002: Rollback plan missing
+    // GLR-002: Rollback plan missing (only once Rollback is actually applicable — Deployment phase)
     const rollbackItems = goLiveChecklists.filter((c) => c.category === "Rollback" || /rollback/i.test(c.item));
     const rollbackMissing = rollbackItems.length === 0 || rollbackItems.every((c) => c.status === "Not Started");
-    if (rollbackMissing) {
+    if (rollbackApplicable && rollbackMissing) {
       add(project, "GLR-002", "Delivery", "Critical", "No rollback plan has been recorded",
         "Go-live readiness requires an approved rollback plan. None has been recorded.",
         `${goLiveChecklists.length} checklist items exist; none are categorised as Rollback.`,
         97, "Create and approve a rollback plan before go-live.");
     }
 
-    // GLR-003: Hypercare owner missing
+    // GLR-003: Hypercare owner missing (only once Hypercare is actually applicable — Deployment phase)
     const hypercareItems = goLiveChecklists.filter((c) => c.category === "Hypercare" || /hypercare/i.test(c.item));
     const hypercareMissing = hypercareItems.length === 0 || hypercareItems.some((c) => !c.owner?.trim() && c.status !== "Waived");
-    if (hypercareMissing) {
+    if (hypercareApplicable && hypercareMissing) {
       add(project, "GLR-003", "Delivery", "Warning", "Hypercare owner has not been assigned",
         "A named hypercare owner is required before go-live to ensure post-deployment support.",
         "Hypercare checklist items have no owner recorded.",

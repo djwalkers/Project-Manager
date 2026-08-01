@@ -220,11 +220,11 @@ run("risks: a Closed critical risk is correctly excluded from unmitigated/open-c
   assert.equal(intelligence.findings.some((f) => f.ruleId === "RSK-001"), false);
 });
 
-run("BASELINE (defect, not a fix): Go-Live Readiness reads near-zero and Red despite dev/SIT complete, UAT active, tests passed, AC met — because go_live_checklists has only one manual row", () => {
-  assert.equal(goLive.totalItems, 1);
-  assert.equal(goLive.completedItems, 0);
-  assert.equal(goLive.readinessPercent, 0);
-  assert.equal(goLive.status, "Red");
+run("PHASE 6 (reviewed, intentional change — was the BASELINE defect): Go-Live Readiness now reflects dev/SIT complete, UAT active, tests passed, AC met via lifecycle data, instead of being forced to 0%/Red by an almost-empty go_live_checklists table. 7 auto checks all assessed (6 Complete, UAT Incomplete) + Customer Approval/Warehouse Training applicable at UAT (both Incomplete, no Complete/Waived record) = 9 assessed, 6 passed; Deployment-gated Cutover/Rollback/Hypercare/Support are Not Yet Required and excluded from the denominator.", () => {
+  assert.equal(goLive.totalItems, 9);
+  assert.equal(goLive.completedItems, 6);
+  assert.equal(goLive.readinessPercent, 67);
+  assert.equal(goLive.status, "Amber");
 });
 
 run("BASELINE: Manager Exception Report does not falsely go Red purely from a distant (October) go-live date", () => {

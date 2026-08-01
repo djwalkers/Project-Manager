@@ -32,12 +32,15 @@ import {
   GO_LIVE_CATEGORIES,
   GO_LIVE_CHECKLIST_STATUSES,
   CUTOVER_STEP_STATUSES,
+  GO_LIVE_OVERRIDE_STATUSES,
   type GoLiveDashboard,
   type GoLiveStatus,
+  type ReadinessCheckResult,
+  type ReadinessCheckStatus,
 } from "@/lib/go-live-readiness";
 import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
-import type { CutoverStep, GoLiveChecklist, GoLiveChecklistCategory, GoLiveChecklistStatus } from "@/lib/types";
+import type { CutoverStep, GoLiveChecklist, GoLiveChecklistCategory, GoLiveChecklistStatus, GoLiveReadinessOverride, GoLiveReadinessOverrideStatus } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +50,15 @@ const STATUS_COLORS: Record<GoLiveStatus, { bg: string; border: string; badge: s
   Green: { bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-300 dark:border-emerald-800", badge: "bg-emerald-600 text-white" },
   Amber: { bg: "bg-amber-50 dark:bg-amber-950/30", border: "border-amber-300 dark:border-amber-800", badge: "bg-amber-500 text-white" },
   Red: { bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-300 dark:border-red-800", badge: "bg-red-600 text-white" },
+  "Not Assessed": { bg: "bg-muted/40", border: "border-muted-foreground/20", badge: "bg-muted-foreground text-background" },
+};
+
+const CHECK_STATUS_COLORS: Record<ReadinessCheckStatus, string> = {
+  Complete: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+  Waived: "bg-muted text-muted-foreground line-through",
+  Incomplete: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400",
+  "Not Yet Assessed": "bg-muted text-muted-foreground",
+  "Not Yet Required": "bg-muted text-muted-foreground",
 };
 
 const CHECKLIST_STATUS_COLORS: Record<GoLiveChecklistStatus, string> = {
@@ -70,7 +82,7 @@ function ReadinessGauge({ percent, status }: { percent: number; status: GoLiveSt
             strokeLinecap="round"
             strokeDasharray={`${2 * Math.PI * 50}`}
             strokeDashoffset={`${2 * Math.PI * 50 * (1 - percent / 100)}`}
-            className={status === "Green" ? "text-emerald-500" : status === "Amber" ? "text-amber-500" : "text-red-600"}
+            className={status === "Green" ? "text-emerald-500" : status === "Amber" ? "text-amber-500" : status === "Red" ? "text-red-600" : "text-muted-foreground"}
           />
         </svg>
         <div className="absolute text-center">
@@ -78,29 +90,106 @@ function ReadinessGauge({ percent, status }: { percent: number; status: GoLiveSt
         </div>
       </div>
       <span className={cn("rounded px-2.5 py-1 text-xs font-bold uppercase tracking-wide", STATUS_COLORS[status].badge)}>
-        {status === "Green" ? "Go" : status === "Amber" ? "Caution" : "No Go"}
+        {status === "Green" ? "Go" : status === "Amber" ? "Caution" : status === "Red" ? "No Go" : "Not Assessed"}
       </span>
     </div>
   );
 }
 
-// ── WMS Readiness Check ────────────────────────────────────────────────────────
+// ── Readiness Check (13-check model, Phase 6) ──────────────────────────────────
 
-function ReadinessCheckRow({ check }: { check: GoLiveDashboard["wmsChecks"][0] }) {
+type OverrideDraft = { status: GoLiveReadinessOverrideStatus; reason: string; by: string };
+
+function ReadinessCheckRow({
+  check, onSetOverride, onClearOverride,
+}: {
+  check: ReadinessCheckResult;
+  onSetOverride: (checkKey: string, draft: OverrideDraft) => Promise<void>;
+  onClearOverride: (checkKey: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<OverrideDraft>({ status: "Complete", reason: "", by: "" });
+  const [saving, setSaving] = useState(false);
+  const overridable = check.source === "Auto";
+  const passed = check.effective === "Complete" || check.effective === "Waived";
+  const excluded = check.effective === "Not Yet Assessed" || check.effective === "Not Yet Required";
+
+  async function save() {
+    if (!draft.reason.trim() || !draft.by.trim()) return;
+    setSaving(true);
+    await onSetOverride(check.key, draft);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  async function clear() {
+    setSaving(true);
+    await onClearOverride(check.key);
+    setSaving(false);
+  }
+
   return (
-    <div className="flex items-center justify-between gap-3 py-2 text-sm">
-      <div className="flex items-center gap-2">
-        {check.complete || check.waived
-          ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-          : check.blocked
-            ? <XCircle className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
-            : <div className="h-4 w-4 shrink-0 rounded-full border-2 border-muted-foreground/40" aria-hidden="true" />
-        }
-        <span className={cn(check.waived && "text-muted-foreground line-through")}>{check.label}</span>
+    <div className="border-b py-2.5 last:border-b-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div className="flex items-center gap-2">
+          {passed
+            ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+            : excluded
+              ? <div className="h-4 w-4 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/40" aria-hidden="true" />
+              : <XCircle className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
+          }
+          <span className={cn(check.effective === "Waived" && "text-muted-foreground line-through")}>{check.label}</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{check.source}</span>
+          {check.override && (
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/40 dark:text-blue-300" title={`Derived: ${check.derived}`}>
+              Overridden
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", CHECK_STATUS_COLORS[check.effective])}>{check.effective}</span>
+          {overridable && !editing && (
+            <button
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => { setDraft({ status: check.effective === "Not Yet Assessed" ? "Complete" : (check.effective as GoLiveReadinessOverrideStatus), reason: check.override?.reason ?? "", by: check.override?.by ?? "" }); setEditing(true); }}
+            >
+              {check.override ? "Edit override" : "Override"}
+            </button>
+          )}
+          {check.override && !editing && (
+            <button className="text-xs text-muted-foreground underline-offset-2 hover:text-destructive hover:underline" onClick={clear} disabled={saving}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
-      <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", check.complete ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : check.waived ? "bg-muted text-muted-foreground" : check.blocked ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400" : "bg-muted text-muted-foreground")}>
-        {check.checklistItem?.status ?? "Not recorded"}
-      </span>
+
+      {check.override && (
+        <p className="mt-1 pl-6 text-xs text-muted-foreground">
+          System derived <span className="font-medium">{check.derived}</span>; overridden to <span className="font-medium">{check.override.status}</span> by {check.override.by} on {check.override.at.slice(0, 10)} — &ldquo;{check.override.reason}&rdquo;
+        </p>
+      )}
+
+      {editing && (
+        <div className="mt-2 ml-6 flex flex-wrap items-end gap-2 rounded-md border bg-muted/30 p-2">
+          <div>
+            <label className="text-xs font-medium">Status</label>
+            <GoLiveSelect value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v as GoLiveReadinessOverrideStatus }))} className="mt-1 h-8 text-xs">
+              {GO_LIVE_OVERRIDE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </GoLiveSelect>
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <label className="text-xs font-medium">Reason *</label>
+            <Input value={draft.reason} onChange={(e) => setDraft((d) => ({ ...d, reason: e.target.value }))} placeholder="Why override the derived status" className="mt-1 h-8 text-xs" />
+          </div>
+          <div>
+            <label className="text-xs font-medium">By *</label>
+            <Input value={draft.by} onChange={(e) => setDraft((d) => ({ ...d, by: e.target.value }))} placeholder="Your name" className="mt-1 h-8 w-32 text-xs" />
+          </div>
+          <Button size="sm" onClick={save} disabled={saving || !draft.reason.trim() || !draft.by.trim()}>Save</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -501,11 +590,43 @@ export function GoLiveReadinessPage() {
     setData((prev) => prev ? { ...prev, cutover_plan: prev.cutover_plan.filter((c) => c.id !== id) } : prev);
   }
 
+  async function setOverride(checkKey: string, draft: { status: GoLiveReadinessOverrideStatus; reason: string; by: string }) {
+    if (!project) return;
+    const existing = data?.go_live_readiness_overrides.find((o) => o.project_id === project.id && o.check_key === checkKey);
+    const now = new Date().toISOString();
+    const record: GoLiveReadinessOverride = {
+      id: existing?.id ?? createId(),
+      project_id: project.id,
+      check_key: checkKey,
+      override_status: draft.status,
+      override_reason: draft.reason.trim(),
+      overridden_by: draft.by.trim(),
+      overridden_at: now,
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    };
+    const saved = await saveRecord("go_live_readiness_overrides", record);
+    setData((prev) => {
+      if (!prev) return prev;
+      const rest = prev.go_live_readiness_overrides.filter((o) => !(o.project_id === project.id && o.check_key === checkKey));
+      return { ...prev, go_live_readiness_overrides: [saved ?? record, ...rest] };
+    });
+  }
+
+  async function clearOverride(checkKey: string) {
+    if (!project) return;
+    const existing = data?.go_live_readiness_overrides.find((o) => o.project_id === project.id && o.check_key === checkKey);
+    if (!existing) return;
+    await deleteRecord("go_live_readiness_overrides", existing.id);
+    setData((prev) => prev ? { ...prev, go_live_readiness_overrides: prev.go_live_readiness_overrides.filter((o) => o.id !== existing.id) } : prev);
+  }
+
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
 
   const cfg = dashboard ? STATUS_COLORS[dashboard.status] : null;
-  const StatusIcon = dashboard ? (dashboard.status === "Green" ? CheckCircle2 : dashboard.status === "Amber" ? AlertTriangle : XCircle) : CheckCircle2;
+  const StatusIcon = dashboard ? (dashboard.status === "Green" ? CheckCircle2 : dashboard.status === "Amber" ? AlertTriangle : dashboard.status === "Red" ? XCircle : ClipboardList) : CheckCircle2;
+  const blockingChecks = dashboard?.checks.filter((c) => c.effective === "Incomplete") ?? [];
 
   return (
     <AppShell>
@@ -535,7 +656,7 @@ export function GoLiveReadinessPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusIcon className={cn("h-5 w-5", dashboard.status === "Green" ? "text-emerald-600" : dashboard.status === "Amber" ? "text-amber-600" : "text-red-600")} aria-hidden="true" />
+                  <StatusIcon className={cn("h-5 w-5", dashboard.status === "Green" ? "text-emerald-600" : dashboard.status === "Amber" ? "text-amber-600" : dashboard.status === "Red" ? "text-red-600" : "text-muted-foreground")} aria-hidden="true" />
                   <h3 className="text-lg font-semibold">{project.name}</h3>
                   {dashboard.goLiveDate && (
                     <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
@@ -548,6 +669,16 @@ export function GoLiveReadinessPage() {
                     </span>
                   )}
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {dashboard.completedItems} of {dashboard.totalItems} applicable checks complete or waived
+                  {dashboard.excludedCount > 0 && <> · {dashboard.excludedCount} not yet applicable/assessed</>}
+                  {dashboard.incompleteCount > 0 && <> · {dashboard.incompleteCount} incomplete</>}
+                </p>
+                {blockingChecks.length > 0 && (
+                  <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                    Blocking readiness: {blockingChecks.map((c) => c.label).join(", ")}
+                  </p>
+                )}
                 <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                   {[
                     { label: "Blockers", value: dashboard.blockerCount, alert: dashboard.blockerCount > 0 },
@@ -567,15 +698,15 @@ export function GoLiveReadinessPage() {
             </div>
           </div>
 
-          {/* WMS/SAP Readiness Checks */}
+          {/* Go-Live Readiness Checks (13-check model) */}
           <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational">
             <div className="flex items-center gap-2 border-b pb-3">
               <ClipboardList className="h-4 w-4 text-primary" aria-hidden="true" />
-              <h3 className="font-semibold">WMS / SAP Readiness Checks</h3>
+              <h3 className="font-semibold">Go-Live Readiness Checks</h3>
             </div>
-            <div className="mt-2 divide-y">
-              {dashboard.wmsChecks.map((check) => (
-                <ReadinessCheckRow key={check.id} check={check} />
+            <div className="mt-1">
+              {dashboard.checks.map((check) => (
+                <ReadinessCheckRow key={check.key} check={check} onSetOverride={setOverride} onClearOverride={clearOverride} />
               ))}
             </div>
           </section>

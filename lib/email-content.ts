@@ -432,7 +432,7 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
     const alerts: string[] = [];
     if (dashboard.status === "Red") alerts.push(`${project.name}: Go-live readiness is RED (${dashboard.readinessPercent}%).`);
     if (dashboard.daysToGoLive !== null && dashboard.daysToGoLive < 0) alerts.push(`${project.name}: Go-live date has passed — delayed.`);
-    if (dashboard.wmsChecks.some((c) => c.id === "customer_approval" && !c.complete && !c.waived)) alerts.push(`${project.name}: Customer approval is missing.`);
+    if (dashboard.checks.some((c) => c.key === "customer_approval" && c.effective === "Incomplete")) alerts.push(`${project.name}: Customer approval is missing.`);
     if (dashboard.openCriticalRisks > 0 && dashboard.daysToGoLive !== null && dashboard.daysToGoLive <= 14) alerts.push(`${project.name}: ${dashboard.openCriticalRisks} critical risk${dashboard.openCriticalRisks > 1 ? "s" : ""} open within ${dashboard.daysToGoLive} days of go-live.`);
     return alerts;
   });
