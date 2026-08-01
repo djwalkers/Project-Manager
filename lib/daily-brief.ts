@@ -153,12 +153,11 @@ export function buildDailyBrief(data: DataStore, now = new Date(), recentAuditCh
     const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
     const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
     const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
-    const variance = schedule.variance ?? -1;
     return {
       project,
-      health: calculateProjectHealth(overdueActions + overdueDecisions, blocked, variance),
+      health: calculateProjectHealth(overdueActions + overdueDecisions, blocked, schedule.health),
       scheduleHealth: schedule.health ?? "Review",
-      progress: calculateProgress(scoped, variance).overall,
+      progress: calculateProgress(scoped, schedule.health).overall,
       activePhase: schedule.active[0]?.phase_name ?? schedule.atRisk[0]?.phase_name ?? schedule.blocked[0]?.phase_name ?? project.status,
       daysRemaining: schedule.daysRemaining,
       openRisks: scoped.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,

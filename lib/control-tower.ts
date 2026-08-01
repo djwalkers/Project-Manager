@@ -64,7 +64,7 @@ function plural(count: number, singular: string, pluralValue = `${singular}s`) {
   return `${count} ${count === 1 ? singular : pluralValue}`;
 }
 
-export function calculateProgress(data: DataStore, scheduleVariance: number) {
+export function calculateProgress(data: DataStore, scheduleHealth: RagStatus | null) {
   const components: ProgressComponent[] = [
     {
       label: "Requirements",
@@ -93,9 +93,14 @@ export function calculateProgress(data: DataStore, scheduleVariance: number) {
     },
   ];
   const overall = Math.round(components.reduce((total, component) => total + component.score * component.weight, 0));
-  const trend = scheduleVariance <= -11
+  // Projects the central schedule health (lib/schedule.ts's calculateSchedule().health)
+  // instead of re-deriving a variance threshold. Invalid/unset schedules (health: null,
+  // e.g. bad dates) default to Amber, matching the historical fallback behaviour of the
+  // `scheduleVariance ?? -1` callers this replaced (-1 always landed in the old "Amber" bucket).
+  const effectiveHealth = scheduleHealth ?? "Amber";
+  const trend = effectiveHealth === "Red"
     ? { direction: "down" as const, label: "Behind plan" }
-    : scheduleVariance < 0
+    : effectiveHealth === "Amber"
       ? { direction: "flat" as const, label: "Schedule watch" }
       : overall > 0
         ? { direction: "up" as const, label: "Advancing" }
@@ -103,16 +108,20 @@ export function calculateProgress(data: DataStore, scheduleVariance: number) {
   return { overall, components, trend };
 }
 
-export function calculateProjectHealth(overdueItems: number, blockedMilestones: number, scheduleVariance: number): RagStatus {
-  if (overdueItems > 5 || blockedMilestones > 0 || scheduleVariance <= -11) return "Red";
-  if (overdueItems > 0 || scheduleVariance < 0) return "Amber";
+// Projects calculateSchedule().health rather than re-deriving a variance
+// threshold — see calculateProgress's comment for the null-schedule default.
+export function calculateProjectHealth(overdueItems: number, blockedMilestones: number, scheduleHealth: RagStatus | null): RagStatus {
+  const effectiveHealth = scheduleHealth ?? "Amber";
+  if (overdueItems > 5 || blockedMilestones > 0 || effectiveHealth === "Red") return "Red";
+  if (overdueItems > 0 || effectiveHealth === "Amber") return "Amber";
   return "Green";
 }
 
-export function calculateScheduleHealth(scheduleVariance: number): RagStatus {
-  if (scheduleVariance <= -11) return "Red";
-  if (scheduleVariance < 0) return "Amber";
-  return "Green";
+// Retained for API compatibility — now a pure projection of the central
+// schedule health, not an independent threshold. (No remaining callers in
+// this codebase; kept exported in case external/future code relies on it.)
+export function calculateScheduleHealth(scheduleHealth: RagStatus | null): RagStatus {
+  return scheduleHealth ?? "Amber";
 }
 
 export function buildNeedsAttention(data: DataStore): InsightItem[] {

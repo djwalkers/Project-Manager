@@ -127,9 +127,9 @@ export default function DashboardPage() {
     const overdueDecisions = data.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status)).length;
     const blockedMilestones = data.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
     const overdueItems = overdueActions + overdueDecisions;
-    const health = calculateProjectHealth(overdueItems, blockedMilestones, scheduleVariance);
+    const health = calculateProjectHealth(overdueItems, blockedMilestones, schedule.health);
     const scheduleHealth = schedule.health;
-    const progress = calculateProgress(data, scheduleVariance);
+    const progress = calculateProgress(data, schedule.health);
     const projectDeliverables = data.deliverables.filter((item) => item.project_id === project.id);
 
     return {

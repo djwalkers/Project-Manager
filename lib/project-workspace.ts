@@ -95,7 +95,6 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
   const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
   const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
   const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
-  const variance = schedule.variance ?? -1;
   const activeItem = schedule.active[0] ?? schedule.atRisk[0] ?? schedule.blocked[0] ?? null;
   const upcomingMilestones = scoped.milestones
     .filter((item) => item.status !== "Complete")
@@ -120,9 +119,9 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
     project,
     scoped,
     schedule,
-    projectHealth: calculateProjectHealth(overdueActions + overdueDecisions, blocked, variance),
+    projectHealth: calculateProjectHealth(overdueActions + overdueDecisions, blocked, schedule.health),
     scheduleHealth: schedule.health ?? "Review" as RagStatus | "Review",
-    progress: calculateProgress(scoped, variance).overall,
+    progress: calculateProgress(scoped, schedule.health).overall,
     activePhase: activeItem?.phase_name ?? "No active phase",
     activePhaseProgress: activeItem ? Number(activeItem.progress_percent) : null,
     nextMilestone: nextMilestone(scoped.milestones, now),

@@ -181,7 +181,10 @@ run("a Closed critical risk is excluded from open/open-critical counts across Ma
 
   const managerReport = buildManagerExceptionReport(data, now);
   const managerSummary = managerReport.projects.find((p) => p.project.id === PROJECT_ID);
-  assert.equal(managerSummary.status !== "Red", true, "a closed risk must not force Red");
+  // Note: this shared fixture's own Blocked test-in-UAT (see test #4 below) is an
+  // independent, Phase 5-introduced Red trigger (material test failure) — unrelated to
+  // this test's purpose. Assert the risk itself contributes nothing, not the overall RAG.
+  assert.equal(managerSummary.attentionRequired?.includes("RSK-001") ?? false, false, "the closed risk must not appear in the attention-required text");
 
   const dashboard = buildGoLiveDashboard(data, project, now);
   assert.equal(dashboard.openRisks, 0);

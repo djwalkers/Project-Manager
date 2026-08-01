@@ -169,8 +169,12 @@ const schedule = calculateSchedule(project, data.timeline_items, now);
 const goLive = buildGoLiveDashboard(data, project, now);
 const managerReport = buildManagerExceptionReport(data, now);
 const managerSummary = managerReport.projects.find((p) => p.project.id === PROJECT_ID);
-const controlTowerHealth = calculateProjectHealth(0, 0, schedule.variance ?? 0);
-const scheduleHealthOnly = calculateScheduleHealth(schedule.variance ?? 0);
+// Phase 5: calculateProjectHealth/calculateScheduleHealth now take the central
+// schedule.health (RagStatus | null) instead of a raw variance number — see
+// lib/control-tower.ts. Call sites updated accordingly; no behaviour change
+// for this fixture (variance +11.1% is Green under both the old and new logic).
+const controlTowerHealth = calculateProjectHealth(0, 0, schedule.health);
+const scheduleHealthOnly = calculateScheduleHealth(schedule.health);
 const confidence = computeDeliveryConfidence(data);
 const intelligence = buildProjectIntelligence(data, project, now);
 

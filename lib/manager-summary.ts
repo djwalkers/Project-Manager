@@ -1,9 +1,23 @@
 import type { DataStore } from "@/lib/data-store";
 import { isDecisionOverdue, isDeliverableBlocked, isRiskOpen } from "@/lib/lifecycle";
+import { materialAcceptanceCriteriaFailures, materialTestFailures } from "@/lib/delivery-materiality";
+import { deriveProjectPhase, type ProjectPhase } from "@/lib/project-phase";
+import { resolveGoLiveDate } from "@/lib/project-dates";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { isOverdue } from "@/lib/utils";
-import type { Project } from "@/lib/types";
+import type { AcceptanceCriteria, Deliverable, Project, TestCase } from "@/lib/types";
+
+const DAY_MS = 86_400_000;
+
+function daysUntil(dateStr: string | null, now: Date): number | null {
+  if (!dateStr) return null;
+  const date = new Date(`${dateStr.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((date.getTime() - today.getTime()) / DAY_MS);
+}
 
 export type ManagerRagStatus = "Green" | "Amber" | "Red";
 export type DateConfidence = "On Track" | "At Risk" | "Delayed";
@@ -29,6 +43,9 @@ export type ManagerExceptionReport = {
 function classifyProject(data: DataStore, project: Project, now: Date): ManagerProjectSummary {
   const scoped = scopeProjectData(data, project);
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
+  const phase = deriveProjectPhase(data, project, now);
+  const goLive = resolveGoLiveDate(data, project);
+  const daysToGoLive = daysUntil(goLive.date, now);
 
   // Key signals
   const criticalRisks = scoped.risks.filter(
@@ -39,42 +56,62 @@ function classifyProject(data: DataStore, project: Project, now: Date): ManagerP
     (r) => r.impact === "High" && isRiskOpen(r.status),
   );
   const blockedDeliverables = scoped.deliverables.filter((d) => isDeliverableBlocked(d));
+  const blockedCriticalDeliverables = blockedDeliverables.filter((d) => ["High", "Critical"].includes(d.priority));
   const overdueDecisions = scoped.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status, now));
   const overdueActions = scoped.actions.filter((a) => isOverdue(a.due_date, a.status));
-  const scheduleVariance = schedule.variance ?? 0;
+  const materialTests = materialTestFailures(scoped.test_cases, phase.phase);
+  const materialAC = materialAcceptanceCriteriaFailures(scoped.acceptance_criteria ?? [], scoped.requirements);
+  // schedule.daysRemaining is always clamped to a minimum of zero by calculateSchedule()
+  // — a project literally past its planned end date is instead reflected in
+  // schedule.health being "Red" (via isPastEnd). A negative-daysRemaining branch here
+  // could never be true; it was dead code and has been removed, not kept as a no-op.
   const daysRemaining = schedule.daysRemaining;
   const isComplete = project.status === "Complete" || project.status === "Closed";
 
-  // ── RED conditions ──
+  // ── RED conditions — approved compound rule ──
+  // Red only when not complete and at least one applies:
+  //  1. central schedule health is Red AND the authoritative go-live date
+  //     (resolveGoLiveDate — never planned_end_date directly) is within 30 days
+  //  2. an unmitigated Critical risk is open
+  //  3. a High/Critical priority deliverable is blocked
+  //  4. a material test or acceptance-criteria failure exists (lib/delivery-materiality.ts)
+  const scheduleRedNearGoLive = schedule.health === "Red" && daysToGoLive !== null && daysToGoLive <= 30;
   const isRed =
     !isComplete && (
+      scheduleRedNearGoLive ||
       unmitgatedCritical.length > 0 ||
-      (daysRemaining !== null && daysRemaining < 0) ||
-      (scheduleVariance <= -15 && daysRemaining !== null && daysRemaining < 30) ||
-      (blockedDeliverables.length > 0 && criticalRisks.length > 0)
+      blockedCriticalDeliverables.length > 0 ||
+      materialTests.length > 0 ||
+      materialAC.length > 0
     );
 
   // ── AMBER conditions ──
+  // Deliberately broader/softer than Red: any blocked deliverable (any
+  // priority), any overdue decision, Amber schedule health, an unmitigated
+  // High risk, or 3+ overdue actions. None of these alone reach Red.
   const isAmber =
     !isRed &&
     !isComplete && (
       blockedDeliverables.length > 0 ||
       overdueDecisions.length > 0 ||
-      (scheduleVariance < -5) ||
       schedule.health === "Amber" ||
       (highRisks.length > 0 && highRisks.some((r) => !r.mitigation?.trim())) ||
       (overdueActions.length >= 3)
     );
 
+  // ── GREEN — everything else ──
+  // Normal UAT progression, an outstanding customer approval, and future
+  // deployment work are not Red or Amber signals by themselves — none of the
+  // conditions above reference "in UAT" or "approval pending" as a trigger.
   const ragStatus: ManagerRagStatus = isRed ? "Red" : isAmber ? "Amber" : "Green";
 
-  // ── Date confidence ──
+  // ── Date confidence — now projects schedule.health directly, no independent thresholds ──
   let dateConfidence: DateConfidence;
   if (isComplete || (daysRemaining === null)) {
     dateConfidence = "On Track";
-  } else if (daysRemaining < 0 || scheduleVariance <= -15) {
+  } else if (schedule.health === "Red") {
     dateConfidence = "Delayed";
-  } else if (scheduleVariance < -5 || schedule.health === "Amber") {
+  } else if (schedule.health === "Amber") {
     dateConfidence = "At Risk";
   } else {
     dateConfidence = "On Track";
@@ -90,10 +127,16 @@ function classifyProject(data: DataStore, project: Project, now: Date): ManagerP
     criticalRisks,
     unmitgatedCritical,
     blockedDeliverables,
+    blockedCriticalDeliverables,
     overdueDecisions,
     overdueActions,
     daysRemaining,
     isComplete,
+    scheduleRedNearGoLive,
+    daysToGoLive,
+    materialTests,
+    materialAC,
+    phase: phase.phase,
   });
 
   // ── Attention Required ──
@@ -103,6 +146,8 @@ function classifyProject(data: DataStore, project: Project, now: Date): ManagerP
     blockedDeliverables,
     overdueDecisions,
     overdueActions,
+    materialTests,
+    materialAC,
     ragStatus,
   });
 
@@ -119,11 +164,17 @@ function classifyProject(data: DataStore, project: Project, now: Date): ManagerP
 type SignalBag = {
   criticalRisks: ReturnType<typeof scopeProjectData>["risks"];
   unmitgatedCritical: ReturnType<typeof scopeProjectData>["risks"];
-  blockedDeliverables: ReturnType<typeof scopeProjectData>["deliverables"];
+  blockedDeliverables: Deliverable[];
+  blockedCriticalDeliverables: Deliverable[];
   overdueDecisions: ReturnType<typeof scopeProjectData>["decisions"];
   overdueActions: ReturnType<typeof scopeProjectData>["actions"];
   daysRemaining: number | null;
   isComplete: boolean;
+  scheduleRedNearGoLive: boolean;
+  daysToGoLive: number | null;
+  materialTests: TestCase[];
+  materialAC: AcceptanceCriteria[];
+  phase: ProjectPhase;
 };
 
 function buildSummary(
@@ -134,7 +185,7 @@ function buildSummary(
   signals: SignalBag,
 ): string {
   const sentences: string[] = [];
-  const { criticalRisks, blockedDeliverables, overdueDecisions, overdueActions, daysRemaining, isComplete } = signals;
+  const { blockedDeliverables, overdueDecisions, overdueActions, daysRemaining, isComplete } = signals;
 
   if (isComplete) {
     sentences.push(`${project.name} is complete.`);
@@ -145,10 +196,14 @@ function buildSummary(
   if (rag === "Red") {
     if (signals.unmitgatedCritical.length > 0) {
       sentences.push(`The project has ${signals.unmitgatedCritical.length === 1 ? "a critical risk" : `${signals.unmitgatedCritical.length} critical risks`} without a mitigation plan in place.`);
-    } else if (daysRemaining !== null && daysRemaining < 0) {
-      sentences.push(`The target delivery date has passed and the project is ${Math.abs(daysRemaining)} ${Math.abs(daysRemaining) === 1 ? "day" : "days"} overdue.`);
-    } else if (blockedDeliverables.length > 0 && criticalRisks.length > 0) {
-      sentences.push(`Delivery is blocked and a critical risk is preventing progress.`);
+    } else if (signals.materialTests.length > 0) {
+      sentences.push(`${signals.materialTests.length === 1 ? "A test has" : `${signals.materialTests.length} tests have`} failed or ${signals.materialTests.length === 1 ? "is" : "are"} blocked during ${signals.phase}, a material delivery gap.`);
+    } else if (signals.materialAC.length > 0) {
+      sentences.push(`${signals.materialAC.length === 1 ? "An acceptance criterion has" : `${signals.materialAC.length} acceptance criteria have`} failed on a High or Critical priority requirement.`);
+    } else if (signals.blockedCriticalDeliverables.length > 0) {
+      sentences.push(`${signals.blockedCriticalDeliverables.length === 1 ? "A High/Critical priority deliverable is" : `${signals.blockedCriticalDeliverables.length} High/Critical priority deliverables are`} blocked.`);
+    } else if (signals.scheduleRedNearGoLive) {
+      sentences.push(`Schedule health is Red with go-live in ${signals.daysToGoLive} ${signals.daysToGoLive === 1 ? "day" : "days"}, and the delivery date is at serious risk.`);
     } else {
       sentences.push(`The project is significantly behind and the delivery date is at serious risk.`);
     }
@@ -157,7 +212,7 @@ function buildSummary(
       sentences.push(`${blockedDeliverables.length === 1 ? "One deliverable is" : `${blockedDeliverables.length} deliverables are`} currently blocked and need to be resolved before testing can continue.`);
     } else if (overdueDecisions.length > 0) {
       sentences.push(`${overdueDecisions.length === 1 ? "A decision is" : `${overdueDecisions.length} decisions are`} overdue and ${overdueDecisions.length === 1 ? "is" : "are"} holding up the team.`);
-    } else if ((schedule.variance ?? 0) < -5) {
+    } else if (schedule.health === "Amber") {
       const target = schedule.projectEnd ? ` against a target of ${formatScheduleDate(schedule.projectEnd)}` : "";
       sentences.push(`The project is running behind schedule${target} and needs to recover.`);
     } else {
@@ -190,6 +245,8 @@ function buildSummary(
   if (rag === "Red") {
     if (signals.unmitgatedCritical.length > 0) {
       sentences.push(`Immediate escalation and mitigation planning is required.`);
+    } else if (signals.materialTests.length > 0 || signals.materialAC.length > 0) {
+      sentences.push(`Investigate and resolve the failed testing evidence before proceeding.`);
     } else {
       sentences.push(`Recovery planning and a revised delivery date are needed without delay.`);
     }
@@ -201,13 +258,19 @@ function buildSummary(
   return sentences.slice(0, 3).join(" ");
 }
 
-type AttentionSignals = Pick<SignalBag, "criticalRisks" | "unmitgatedCritical" | "blockedDeliverables" | "overdueDecisions" | "overdueActions"> & { ragStatus: ManagerRagStatus };
+type AttentionSignals = Pick<SignalBag, "criticalRisks" | "unmitgatedCritical" | "blockedDeliverables" | "overdueDecisions" | "overdueActions" | "materialTests" | "materialAC"> & { ragStatus: ManagerRagStatus };
 
-function buildAttention({ unmitgatedCritical, blockedDeliverables, overdueDecisions, ragStatus }: AttentionSignals): string | null {
+function buildAttention({ unmitgatedCritical, blockedDeliverables, overdueDecisions, materialTests, materialAC, ragStatus }: AttentionSignals): string | null {
   if (ragStatus === "Green") return null;
   const items: string[] = [];
   if (unmitgatedCritical.length > 0) {
     items.push(`Mitigate ${unmitgatedCritical.length === 1 ? "critical risk" : `${unmitgatedCritical.length} critical risks`}: ${unmitgatedCritical.map((r) => r.risk_ref).join(", ")}`);
+  }
+  if (materialTests.length > 0) {
+    items.push(`Resolve failed/blocked ${materialTests.length === 1 ? "test" : "tests"}: ${materialTests.map((t) => t.test_ref).join(", ")}`);
+  }
+  if (materialAC.length > 0) {
+    items.push(`Resolve failed acceptance ${materialAC.length === 1 ? "criterion" : "criteria"}: ${materialAC.map((ac) => ac.ac_ref).join(", ")}`);
   }
   if (overdueDecisions.length > 0) {
     items.push(`Resolve overdue ${overdueDecisions.length === 1 ? "decision" : "decisions"}: ${overdueDecisions.map((d) => d.decision_ref).join(", ")}`);

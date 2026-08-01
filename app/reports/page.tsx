@@ -119,11 +119,11 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
   const overdueActions = data.actions.filter((a) => isOverdue(a.due_date, a.status)).length;
   const overdueDecisions = data.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status)).length;
   const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked").length + schedule.blocked.length;
-  const health = calculateProjectHealth(overdueActions + overdueDecisions, blockedMilestones, schedule.variance ?? -1);
+  const health = calculateProjectHealth(overdueActions + overdueDecisions, blockedMilestones, schedule.health);
   const summary = buildManagementSummary(project, health, data, overdueActions, schedule);
   const needsAttention = buildNeedsAttention(data).slice(0, 5);
   const upcoming = buildUpcomingThisWeek(data).slice(0, 5);
-  const progress = calculateProgress(data, schedule.variance ?? -1);
+  const progress = calculateProgress(data, schedule.health);
 
   const healthColor = health === "Green" ? "#16a34a" : health === "Amber" ? "#d97706" : "#dc2626";
 

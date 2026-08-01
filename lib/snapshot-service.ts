@@ -32,9 +32,9 @@ export function calculateProjectSnapshot(data: DataStore, project: Project, now 
   return {
     project_id: project.id,
     snapshot_date: localDate(now),
-    project_health: calculateProjectHealth(overdueActions + overdueDecisions, blocked, schedule.variance ?? -1),
+    project_health: calculateProjectHealth(overdueActions + overdueDecisions, blocked, schedule.health),
     schedule_health: schedule.health ?? "Review",
-    progress_percent: calculateProgress(scoped, schedule.variance ?? -1).overall,
+    progress_percent: calculateProgress(scoped, schedule.health).overall,
     schedule_variance: variance,
     open_risks: scoped.risks.filter((item) => isRiskOpen(item.status)).length,
     open_actions: openActions,
