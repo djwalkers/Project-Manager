@@ -149,7 +149,7 @@ function hasUatEvidence(item: Deliverable) {
   return item.uat_status !== "Not Started" || UAT_OR_LATER_STATUSES.includes(item.status);
 }
 
-function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: AcceptanceCriteria[]): ReadinessCheckStatus {
+function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: AcceptanceCriteria[], phase: ProjectPhase): ReadinessCheckStatus {
   switch (key) {
     case "requirements_signed_off":
       if (scoped.requirements.length === 0) return "Not Yet Assessed";
@@ -157,9 +157,19 @@ function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: Accept
     case "development_complete":
       if (scoped.deliverables.length === 0) return "Not Yet Assessed";
       return scoped.deliverables.every(isDevelopmentComplete) ? "Complete" : "Incomplete";
-    case "sit_complete":
+    case "sit_complete": {
+      // Post-Phase-7 defect fix: the derived project phase already
+      // synthesises timeline/milestone/deliverable/test evidence with a
+      // sensible priority (see lib/project-phase.ts). Once the project has
+      // genuinely moved on to UAT or later, SIT cannot still be
+      // outstanding by definition — checked first so a deliverable's own
+      // sit_status sub-field (which real projects don't always keep in
+      // sync once the team has moved on) can no longer read this check as
+      // Incomplete despite SIT having demonstrably finished.
+      if (isPhaseAtOrAfter(phase, "UAT")) return "Complete";
       if (scoped.deliverables.length === 0 || !scoped.deliverables.some(hasSitEvidence)) return "Not Yet Assessed";
       return scoped.deliverables.every(isSitComplete) ? "Complete" : "Incomplete";
+    }
     case "uat_signed_off":
       if (scoped.deliverables.length === 0 || !scoped.deliverables.some(hasUatEvidence)) return "Not Yet Assessed";
       return scoped.deliverables.every(isUatComplete) ? "Complete" : "Incomplete";
@@ -225,7 +235,7 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   const phase = deriveProjectPhase(data, project, now).phase;
 
   const autoChecks: ReadinessCheckResult[] = AUTO_CHECKS.map((def) => {
-    const derived = resolveAutoCheck(def.key, scoped, scopedAC);
+    const derived = resolveAutoCheck(def.key, scoped, scopedAC, phase);
     const { effective, override } = applyOverride(derived, overrideByKey.get(def.key));
     return { key: def.key, label: def.label, source: "Auto", derived, override, effective, checklistItem: null };
   });

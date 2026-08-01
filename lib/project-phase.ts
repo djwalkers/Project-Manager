@@ -56,8 +56,17 @@ function phaseFromText(value: string | null | undefined): ProjectPhase | null {
   if (!text.trim()) return null;
   if (/closed/.test(text)) return "Closed";
   if (/hypercare|support|stabili[sz]ation|warranty/.test(text)) return "Hypercare";
-  if (/deploy|deployment|go.?live|release|cutover|cab/.test(text)) return "Deployment";
+  // UAT is checked before Deployment (post-Phase-7 defect fix): a combined
+  // phase/milestone name that mentions both — e.g. "Customer UAT & Cutover
+  // Planning" — is still fundamentally a UAT-stage activity. "uat" is a
+  // precise, deliberate term; the deployment keywords below (deploy/
+  // release/cutover/go-live) are generic enough to appear as forward-
+  // looking context inside an otherwise-UAT phase name, which previously
+  // caused live UAT-stage projects to be misclassified as "Deployment" and
+  // all six manual Go-Live checks to read Incomplete instead of the
+  // Deployment-gated four correctly reading Not Yet Required.
   if (/uat|user acceptance|customer acceptance|customer sign.?off/.test(text)) return "UAT";
+  if (/deploy|deployment|go.?live|release|cutover|cab/.test(text)) return "Deployment";
   if (/\bsit\b|system integration|integration test|test execution|testing/.test(text)) return "SIT";
   if (/develop|build|engineering|implementation|code/.test(text)) return "Development";
   if (/design|solution|technical design|ui design/.test(text)) return "Design";
