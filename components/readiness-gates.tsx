@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { isAcceptanceCriteriaMet, isRequirementSignedOff } from "@/lib/lifecycle";
 import type { AcceptanceCriteria, Evidence, RequirementSignOff, TestCase } from "@/lib/types";
 
 type Gate = { label: string; passed: boolean };
@@ -11,7 +12,7 @@ function buildGates(
   signOffs: RequirementSignOff[],
   testCases: TestCase[],
 ): Gate[] {
-  const acIncomplete = criteria.length > 0 && criteria.some((ac) => !["Met", "Waived"].includes(ac.status));
+  const acIncomplete = criteria.length > 0 && criteria.some((ac) => !isAcceptanceCriteriaMet(ac.status));
   const acMissing = criteria.length === 0;
   const failedTests = testCases.some((t) => t.status === "Failed");
   const noEvidence = criteria.length > 0 && criteria.every((ac) => !evidence.some((ev) => ev.ac_id === ac.id));
@@ -42,7 +43,7 @@ export function ReadinessGates({
 }) {
   const gates = buildGates(criteria, evidence, signOffs, testCases);
   const failing = gates.filter((g) => !g.passed);
-  const isComplete = ["Complete", "Approved", "Closed"].includes(requirementStatus);
+  const isComplete = isRequirementSignedOff(requirementStatus);
 
   if (failing.length === 0 && !isComplete) return null;
   if (failing.length === 0 && isComplete) return (

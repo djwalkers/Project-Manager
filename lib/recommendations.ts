@@ -1,6 +1,19 @@
 import type { DataStore } from "@/lib/data-store";
 import { deliverableDaysUntil, isDeliverableComplete, isDevelopmentComplete, isSitComplete, isUatComplete } from "@/lib/delivery";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import {
+  isAcceptanceCriteriaFailed,
+  isAcceptanceCriteriaMet,
+  isActionBlocked,
+  isActionOpen,
+  isDecisionOpen,
+  isDecisionOverdue,
+  isDeliverableBlocked,
+  isDependencyBlocked,
+  isDependencyOpen,
+  isRequirementSignedOff,
+  isRiskOpen,
+  isTestFailedOrBlocked,
+} from "@/lib/lifecycle";
 import { deriveProjectPhase, type ProjectPhase, type ProjectPhaseEvidence } from "@/lib/project-phase";
 import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
 import type { Project } from "@/lib/types";
@@ -274,9 +287,9 @@ function textDomain(value: string): RecommendationDomain {
 }
 
 function addActionCandidates(data: DataStore, candidates: Candidate[], now: Date) {
-  const openActions = data.actions.filter((a) => !["Complete", "Closed"].includes(a.status));
+  const openActions = data.actions.filter((a) => isActionOpen(a.status));
 
-  for (const action of openActions.filter((a) => a.status === "Blocked")) {
+  for (const action of openActions.filter((a) => isActionBlocked(a.status))) {
     const domain = textDomain(`${action.description} ${action.notes ?? ""}`);
     candidates.push({
       id: `blocked-${action.id}`,
@@ -360,7 +373,7 @@ function addDecisionCandidates(data: DataStore, candidates: Candidate[], now: Da
 }
 
 function addRiskCandidates(data: DataStore, candidates: Candidate[]) {
-  const openRisks = data.risks.filter((r) => !["Complete", "Closed"].includes(r.status));
+  const openRisks = data.risks.filter((r) => isRiskOpen(r.status));
   for (const risk of openRisks.filter((r) => ["High", "Critical"].includes(r.impact))) {
     const domain = textDomain(`${risk.description} ${risk.mitigation ?? ""}`);
     const noMitigation = !risk.mitigation?.trim();
@@ -387,7 +400,7 @@ function addRiskCandidates(data: DataStore, candidates: Candidate[]) {
 
 function addRequirementAndQuestionCandidates(data: DataStore, candidates: Candidate[]) {
   const incompleteCriticalReqs = data.requirements.filter(
-    (r) => ["High", "Critical"].includes(r.priority) && !["Approved", "Complete", "Closed"].includes(r.status),
+    (r) => ["High", "Critical"].includes(r.priority) && !isRequirementSignedOff(r.status),
   );
   for (const req of incompleteCriticalReqs.slice(0, 3)) {
     candidates.push({
@@ -433,7 +446,7 @@ function addRequirementAndQuestionCandidates(data: DataStore, candidates: Candid
 }
 
 function addTestingCandidates(data: DataStore, candidates: Candidate[]) {
-  for (const test of data.test_cases.filter((t) => ["Failed", "Blocked"].includes(t.status))) {
+  for (const test of data.test_cases.filter((t) => isTestFailedOrBlocked(t.status))) {
     candidates.push({
       id: `test-${test.id}`,
       type: "intelligence",
@@ -472,7 +485,7 @@ function addTestingCandidates(data: DataStore, candidates: Candidate[]) {
 }
 
 function addAcceptanceAndDependencyCandidates(data: DataStore, candidates: Candidate[]) {
-  const failedAC = (data.acceptance_criteria ?? []).filter((ac) => ac.status === "Failed");
+  const failedAC = (data.acceptance_criteria ?? []).filter((ac) => isAcceptanceCriteriaFailed(ac.status));
   for (const ac of failedAC.slice(0, 3)) {
     candidates.push({
       id: `acceptance-${ac.id}`,
@@ -496,7 +509,7 @@ function addAcceptanceAndDependencyCandidates(data: DataStore, candidates: Candi
   const evidence = data.evidence ?? [];
   if (acceptanceCriteria.length > 0) {
     const missingEvidence = acceptanceCriteria.filter((ac) =>
-      !["Met", "Waived"].includes(ac.status) && !evidence.some((ev) => ev.ac_id === ac.id),
+      !isAcceptanceCriteriaMet(ac.status) && !evidence.some((ev) => ev.ac_id === ac.id),
     );
     if (missingEvidence.length / acceptanceCriteria.length > 0.5) {
       candidates.push({
@@ -534,19 +547,20 @@ function addAcceptanceAndDependencyCandidates(data: DataStore, candidates: Candi
     });
   }
 
-  for (const dependency of data.dependencies.filter((d) => !["Complete", "Closed"].includes(d.status)).slice(0, 3)) {
+  for (const dependency of data.dependencies.filter((d) => isDependencyOpen(d.status)).slice(0, 3)) {
+    const blocked = isDependencyBlocked(dependency.status);
     candidates.push({
       id: `dependency-${dependency.id}`,
       type: "intelligence",
-      urgency: dependency.status === "Blocked" ? "critical" : "medium",
-      title: dependency.status === "Blocked" ? `Unblock dependency: ${dependency.name}` : `Confirm dependency: ${dependency.name}`,
+      urgency: blocked ? "critical" : "medium",
+      title: blocked ? `Unblock dependency: ${dependency.name}` : `Confirm dependency: ${dependency.name}`,
       reason: "Open dependencies can constrain the current phase; confirm owner, status and whether it still affects delivery.",
       href: "/dependencies",
       source: [dependency.name],
       entityType: "dependency",
       entityId: dependency.id,
-      importance: dependency.status === "Blocked" ? 94 : 64,
-      urgencyScore: dependency.status === "Blocked" ? 92 : 48,
+      importance: blocked ? 94 : 64,
+      urgencyScore: blocked ? 92 : 48,
       confidence: 84,
       domain: "dependency",
     });
@@ -556,7 +570,7 @@ function addAcceptanceAndDependencyCandidates(data: DataStore, candidates: Candi
 function addDeliverableCandidates(data: DataStore, candidates: Candidate[], now: Date) {
   for (const item of data.deliverables.filter((d) => !isDeliverableComplete(d))) {
     const days = deliverableDaysUntil(item.planned_completion_date, now);
-    const blocked = item.status === "Blocked" || [item.development_status, item.sit_status, item.uat_status, item.deployment_status].includes("Blocked");
+    const blocked = isDeliverableBlocked(item);
     const domain = textDomain(`${item.title} ${item.description ?? ""} ${item.workstream} ${item.status} ${item.development_status} ${item.sit_status} ${item.uat_status} ${item.deployment_status}`);
     const uatReadyOrActive = item.status === "Ready for UAT" || ["Ready", "In Progress", "Passed"].includes(item.uat_status);
 
@@ -774,7 +788,7 @@ function diagnosticWarnings(data: DataStore, phase: ProjectPhaseEvidence, projec
     });
   }
 
-  const incompleteRequirements = data.requirements.filter((r) => !["Approved", "Complete", "Closed"].includes(r.status));
+  const incompleteRequirements = data.requirements.filter((r) => !isRequirementSignedOff(r.status));
   const developmentComplete = data.deliverables.length > 0 && data.deliverables.every(isDevelopmentComplete);
   if (developmentComplete && incompleteRequirements.length > 0) {
     warnings.push({
@@ -811,7 +825,7 @@ function diagnosticWarnings(data: DataStore, phase: ProjectPhaseEvidence, projec
   }
 
   const staleDependencies = data.dependencies.filter((dependency) =>
-    !["Complete", "Closed"].includes(dependency.status) &&
+    isDependencyOpen(dependency.status) &&
     ["UAT", "Deployment", "Hypercare"].includes(phase.phase) &&
     /development complete|system integration test environment|sit environment/i.test(dependency.name),
   );

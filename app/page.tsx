@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { buildTodaysPriorities } from "@/lib/control-tower";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
+import { isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
 import { buildRecommendations, type Recommendation } from "@/lib/recommendations";
 import { selectActiveProject } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
@@ -182,9 +183,9 @@ export default function WorkbenchPage() {
       (a) => isOverdue(a.due_date, a.status),
     );
     const openRisks = data.risks.filter(
-      (r) => !["Complete", "Closed"].includes(r.status),
+      (r) => isRiskOpen(r.status),
     );
-    const highRisks = openRisks.filter((r) => ["High", "Critical"].includes(r.impact));
+    const highRisks = openRisks.filter((r) => isRiskHighOrCritical(r.impact));
     const awaitingQuestions = data.discovery_questions.filter((q) =>
       ["Awaiting Business", "Awaiting Development", "Awaiting Response"].includes(q.status),
     );

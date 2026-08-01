@@ -1,5 +1,16 @@
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOpen } from "@/lib/lifecycle";
+import {
+  isAcceptanceCriteriaFailed,
+  isAcceptanceCriteriaMet,
+  isActionOverdue,
+  isDecisionOpen,
+  isDeliverableBlocked,
+  isDeliverableComplete,
+  isDependencyOpen,
+  isRiskHighOrCritical,
+  isRiskOpen,
+  isTestPassed,
+} from "@/lib/lifecycle";
 import type { AuditLog, Project } from "@/lib/types";
 import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/manager-summary";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
@@ -80,33 +91,33 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
 
   // Project Summary
   const totalDel = deliverables.length;
-  const doneDel = deliverables.filter((d) => d.status === "Deployed").length;
+  const doneDel = deliverables.filter((d) => isDeliverableComplete(d)).length;
   const progressPct = totalDel > 0 ? Math.round((doneDel / totalDel) * 100) : 0;
   const goLive = resolveGoLiveDate(scoped, project);
   const days = goLive.date ? daysFromNow(goLive.date, now) : null;
   const daysLabel = days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
 
   // Today's Attention
-  const overdueActions = actions.filter((a) => a.due_date && a.due_date < todayStr && a.status !== "Complete" && a.status !== "Closed");
-  const highRisks = risks.filter((r) => (r.impact === "High" || r.impact === "Critical") && r.status !== "Complete" && r.status !== "Closed");
+  const overdueActions = actions.filter((a) => isActionOverdue(a.due_date, a.status));
+  const highRisks = risks.filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
   const openQueries = discovery_questions.filter((q) => q.status === "Awaiting Response" || q.status === "Open" || q.status === "Awaiting Business" || q.status === "Awaiting Development");
-  const upcomingDeliverables = deliverables.filter((d) => d.planned_completion_date && d.planned_completion_date >= todayStr && d.planned_completion_date <= in7DaysStr && d.status !== "Deployed");
+  const upcomingDeliverables = deliverables.filter((d) => d.planned_completion_date && d.planned_completion_date >= todayStr && d.planned_completion_date <= in7DaysStr && !isDeliverableComplete(d));
   const upcomingMilestones = milestones.filter((m) => m.target_date && m.target_date >= todayStr && m.target_date <= in7DaysStr && m.status !== "Complete");
 
   // Development
   const inProgressDel = deliverables.filter((d) => d.status !== "Not Started" && d.status !== "Deployed" && d.status !== "Blocked");
-  const blockedDel = deliverables.filter((d) => d.status === "Blocked");
+  const blockedDel = deliverables.filter((d) => isDeliverableBlocked(d));
 
   // Testing
   const totalTests = test_cases.length;
-  const passedTests = test_cases.filter((t) => t.status === "Passed").length;
+  const passedTests = test_cases.filter((t) => isTestPassed(t.status)).length;
   const failedTests = test_cases.filter((t) => t.status === "Failed").length;
   const blockedTests = test_cases.filter((t) => t.status === "Blocked").length;
   const pendingTests = test_cases.filter((t) => t.status === "Pending").length;
 
   // Governance
   const openDecisions = decisions.filter((d) => isDecisionOpen(d.status));
-  const openDependencies = dependencies.filter((d) => d.status !== "Complete" && d.status !== "Closed");
+  const openDependencies = dependencies.filter((d) => isDependencyOpen(d.status));
 
   // Build priorities (returned for top-3 aggregation)
   const priorities: Array<{ label: string; score: number }> = [];
@@ -155,11 +166,11 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
 
   // Acceptance Criteria
   const failedACReqs = scoped.requirements.filter((r) =>
-    allAC.some((ac) => ac.requirement_id === r.id && ac.status === "Failed"),
+    allAC.some((ac) => ac.requirement_id === r.id && isAcceptanceCriteriaFailed(ac.status)),
   ).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
   const signOffReadyReqs = scoped.requirements.filter((r) => {
     const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-    return acs.length > 0 && acs.every((ac) => ac.status === "Met" || ac.status === "Waived");
+    return acs.length > 0 && acs.every((ac) => isAcceptanceCriteriaMet(ac.status));
   }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
   const acHtml = allAC.length === 0
     ? `<p style="margin:0;color:#94a3b8;font-size:13px">No acceptance criteria recorded.</p>`
@@ -167,7 +178,7 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
         `<table style="border-collapse:collapse;font-size:13px;margin-bottom:8px"><tr>
           <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Total</span> <strong>${allAC.length}</strong></td>
           <td style="padding:4px 20px 4px 0"><span style="color:#16a34a">Met</span> <strong>${allAC.filter((ac) => ac.status === "Met").length}</strong></td>
-          <td style="padding:4px 20px 4px 0"><span style="color:#dc2626">Failed</span> <strong>${allAC.filter((ac) => ac.status === "Failed").length}</strong></td>
+          <td style="padding:4px 20px 4px 0"><span style="color:#dc2626">Failed</span> <strong>${allAC.filter((ac) => isAcceptanceCriteriaFailed(ac.status)).length}</strong></td>
           <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Outstanding</span> <strong>${allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length}</strong></td>
         </tr></table>`,
         failedACReqs.length ? `<p style="margin:4px 0;font-size:12px;font-weight:700;color:#dc2626">Requirements with failed criteria:</p>${briefList(failedACReqs, "")}` : "",
@@ -191,7 +202,7 @@ function buildProjectBriefSection(project: Project, scoped: DataStore, todayStr:
 
   const failedGateReqs = scoped.requirements.filter((r) => {
     const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-    const hasFailedAC = acs.some((ac) => ac.status === "Failed");
+    const hasFailedAC = acs.some((ac) => isAcceptanceCriteriaFailed(ac.status));
     const noEvidence = acs.length > 0 && acs.every((ac) => !allEvidence.some((ev) => ev.ac_id === ac.id));
     return hasFailedAC || noEvidence;
   }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
@@ -326,11 +337,11 @@ export function buildAutomatedWeeklySummary(data: DataStore, now = new Date(), w
   const acMet = allAC.filter((ac) => ac.status === "Met").length;
   const acPct = acTotal > 0 ? Math.round((acMet / acTotal) * 100) : 0;
   const acceptanceProgress = acTotal > 0 ? [`${acMet}/${acTotal} criteria met (${acPct}%)`] : [];
-  const topFailingCriteria = allAC.filter((ac) => ac.status === "Failed").slice(0, 5)
+  const topFailingCriteria = allAC.filter((ac) => isAcceptanceCriteriaFailed(ac.status)).slice(0, 5)
     .map((ac) => `${ac.ac_ref}: ${ac.criterion.slice(0, 80)}`);
   const reqsAwaitingAcceptance = data.requirements.filter((r) => {
     const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-    return acs.length > 0 && acs.some((ac) => !["Met", "Waived"].includes(ac.status));
+    return acs.length > 0 && acs.some((ac) => !isAcceptanceCriteriaMet(ac.status));
   }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
 
   const groups: [string, string[], string][] = [

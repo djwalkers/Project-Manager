@@ -1,6 +1,15 @@
 import type { DataStore } from "@/lib/data-store";
 import { deliverableDaysUntil, isDeliverableComplete, isDevelopmentComplete, isSitComplete, isUatComplete } from "@/lib/delivery";
-import { isDecisionOpen } from "@/lib/lifecycle";
+import {
+  isAcceptanceCriteriaFailed,
+  isAcceptanceCriteriaMet,
+  isDecisionOpen,
+  isDeliverableBlocked,
+  isRequirementSignedOff,
+  isRiskHighOrCritical,
+  isRiskOpen,
+  isTestPassed,
+} from "@/lib/lifecycle";
 import { resolveGoLiveDate } from "@/lib/project-dates";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
@@ -148,7 +157,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (schedule.daysRemaining !== null && schedule.daysRemaining <= 14 && schedule.daysRemaining >= 0 && (schedule.actualProgress ?? 0) < 70) add(project, "SCH-003", "Schedule", "Critical", "Project end date is approaching with low progress", `${schedule.daysRemaining} days remain, but actual schedule progress is ${schedule.actualProgress ?? 0}%.`, `Target end date is ${formatScheduleDate(schedule.projectEnd)}.`, 94, "Replan remaining phases and agree a recovery path before the target date.");
   if (latest && previous && latest.schedule_variance < previous.schedule_variance) add(project, "SCH-004", "Schedule", latest.schedule_variance <= -11 ? "Critical" : "Warning", "Schedule variance is worsening", `Schedule variance deteriorated by ${Math.abs(Math.round((latest.schedule_variance - previous.schedule_variance) * 10) / 10)} points.`, `${previous.schedule_variance}% on ${previous.snapshot_date}; ${latest.schedule_variance}% on ${latest.snapshot_date}.`, 98, "Review phase estimates and agree corrective actions for the deteriorating schedule.");
 
-  const highRisks = scoped.risks.filter((item) => ["High", "Critical"].includes(item.impact) && !["Complete", "Closed"].includes(item.status));
+  const highRisks = scoped.risks.filter((item) => isRiskHighOrCritical(item.impact) && isRiskOpen(item.status));
   highRisks.filter((item) => !item.mitigation?.trim()).forEach((item) => add(project, "RSK-001", "Risk", "Critical", `${item.risk_ref} has no mitigation`, item.description, `${item.impact} impact / ${item.probability} probability.`, 100, `Define and assign mitigation for ${item.risk_ref}.`));
   highRisks.filter((item) => (ageInDays(item.updated_at, now) ?? 0) >= 14).forEach((item) => add(project, "RSK-002", "Risk", "Warning", `${item.risk_ref} has not changed for 14 days`, item.description, `Last updated ${ageInDays(item.updated_at, now)} days ago.`, 92, `Review ${item.risk_ref} with ${item.owner || "the project team"} and confirm its current exposure.`));
   if (latest && previous && latest.open_risks > previous.open_risks) add(project, "RSK-003", "Risk", "Warning", "Open risk count is increasing", `Open risks increased from ${previous.open_risks} to ${latest.open_risks}.`, `Snapshot comparison: ${previous.snapshot_date} to ${latest.snapshot_date}.`, 99, "Review newly opened risks and confirm mitigation owners.");
@@ -161,8 +170,8 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (ownerlessRequirements.length) add(project, "GOV-004", "Governance", "Warning", "Requirements are missing owners", `${ownerlessRequirements.length} incomplete requirements have no accountable owner.`, ownerlessRequirements.slice(0, 3).map((item) => item.requirement_ref).join(", "), 100, "Assign owners to incomplete requirements before sign-off.");
 
   const developmentActive = scoped.timeline_items.find((item) => item.status === "In Progress" && /develop/i.test(item.phase_name));
-  const requirementsSignedOff = scoped.requirements.length > 0 && scoped.requirements.every((item) => ["Approved", "Complete", "Closed"].includes(item.status));
-  if (developmentActive && !requirementsSignedOff) add(project, "DEL-001", "Delivery", "Critical", "Development started without requirements sign-off", `${developmentActive.phase_name} is active while requirements remain incomplete.`, `${scoped.requirements.filter((item) => !["Approved", "Complete", "Closed"].includes(item.status)).length} requirements are not signed off.`, 97, "Complete requirements sign-off or formally accept the delivery risk.");
+  const requirementsSignedOff = scoped.requirements.length > 0 && scoped.requirements.every((item) => isRequirementSignedOff(item.status));
+  if (developmentActive && !requirementsSignedOff) add(project, "DEL-001", "Delivery", "Critical", "Development started without requirements sign-off", `${developmentActive.phase_name} is active while requirements remain incomplete.`, `${scoped.requirements.filter((item) => !isRequirementSignedOff(item.status)).length} requirements are not signed off.`, 97, "Complete requirements sign-off or formally accept the delivery risk.");
   const testingScheduled = scoped.timeline_items.some((item) => /test|uat|sit/i.test(item.phase_name));
   if (testingScheduled && !scoped.test_cases.length) add(project, "DEL-002", "Delivery", "Critical", "Testing is scheduled but test cases are missing", "The timeline contains testing work without a supporting test inventory.", `${scoped.timeline_items.filter((item) => /test|uat|sit/i.test(item.phase_name)).length} testing phases were found.`, 99, "Create test cases before the testing phase begins.");
   scoped.milestones.filter((item) => item.status === "Not Started" && (daysUntil(item.target_date, now) ?? 99) >= 0 && (daysUntil(item.target_date, now) ?? 99) <= 7).forEach((item) => add(project, "DEL-003", "Delivery", "Warning", `${item.milestone_ref} is approaching without progress`, `${item.title} is still Not Started.`, `Target date ${formatScheduleDate(item.target_date)}.`, 100, `Confirm readiness and next actions for ${item.milestone_ref}.`));
@@ -170,7 +179,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (overdueActions.length) add(project, "DEL-004", "Delivery", overdueActions.length >= 3 ? "Critical" : "Warning", "Delivery actions are overdue", `${overdueActions.length} ${overdueActions.length === 1 ? "action is" : "actions are"} past the agreed due date.`, overdueActions.map((item) => `${item.action_ref} (${formatScheduleDate(item.due_date)})`).join(", "), 100, `Complete or replan ${overdueActions[0].action_ref}${overdueActions.length > 1 ? " and the remaining overdue actions" : ""}.`);
 
   scoped.deliverables.filter((item) => !isDeliverableComplete(item) && (deliverableDaysUntil(item.planned_completion_date, now) ?? 99) >= 0 && (deliverableDaysUntil(item.planned_completion_date, now) ?? 99) <= 7).forEach((item) => add(project, "DLM-001", "Delivery", "Warning", `${item.deliverable_ref} is approaching its target date`, `${item.title} is due ${formatScheduleDate(item.planned_completion_date)} and is currently ${item.status}.`, `${deliverableDaysUntil(item.planned_completion_date, now)} days remain; owner ${item.owner || "unassigned"}.`, 100, `Confirm the completion plan and dependencies for ${item.deliverable_ref}.`));
-  scoped.deliverables.filter((item) => item.status === "Blocked" || [item.development_status, item.sit_status, item.uat_status, item.deployment_status].includes("Blocked")).forEach((item) => add(project, "DLM-002", "Delivery", "Critical", `${item.deliverable_ref} is blocked`, item.title, `Overall ${item.status}; development ${item.development_status}; SIT ${item.sit_status}; UAT ${item.uat_status}; deployment ${item.deployment_status}.`, 100, `Resolve and record the blocker for ${item.deliverable_ref}.`));
+  scoped.deliverables.filter((item) => isDeliverableBlocked(item)).forEach((item) => add(project, "DLM-002", "Delivery", "Critical", `${item.deliverable_ref} is blocked`, item.title, `Overall ${item.status}; development ${item.development_status}; SIT ${item.sit_status}; UAT ${item.uat_status}; deployment ${item.deployment_status}.`, 100, `Resolve and record the blocker for ${item.deliverable_ref}.`));
   scoped.deliverables.filter((item) => (["Ready for SIT", "SIT Complete"].includes(item.status) || ["Ready", "In Progress", "Passed"].includes(item.sit_status)) && !isDevelopmentComplete(item)).forEach((item) => add(project, "DLM-003", "Testing", "Critical", `${item.deliverable_ref} is entering SIT before development is complete`, item.title, `Development status is ${item.development_status}; SIT status is ${item.sit_status}.`, 100, `Complete development evidence before ${item.deliverable_ref} enters SIT.`));
   scoped.deliverables.filter((item) => (["Ready for UAT", "UAT Complete"].includes(item.status) || ["Ready", "In Progress", "Passed"].includes(item.uat_status)) && !isSitComplete(item)).forEach((item) => add(project, "DLM-004", "Testing", "Critical", `${item.deliverable_ref} is entering UAT before SIT is complete`, item.title, `SIT status is ${item.sit_status}; UAT status is ${item.uat_status}.`, 100, `Complete SIT evidence before ${item.deliverable_ref} enters UAT.`));
   scoped.deliverables.filter((item) => {
@@ -181,9 +190,9 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
 
   if (!scoped.test_cases.length) add(project, "TST-001", "Testing", "Critical", "No tests have been created", "The project has no test cases recorded.", "Test case count is 0.", 100, "Create a minimum test inventory covering the accepted requirements.");
   const pendingTests = scoped.test_cases.filter((item) => ["Pending", "In Progress"].includes(item.status));
-  if (scoped.test_cases.length >= 3 && pendingTests.length / scoped.test_cases.length >= 0.7) add(project, "TST-002", "Testing", "Warning", "Most test cases remain pending", `${pendingTests.length} of ${scoped.test_cases.length} tests are Pending or In Progress.`, `${scoped.test_cases.filter((item) => item.status === "Passed").length} tests have passed.`, 100, "Agree test execution dates and owners for the pending inventory.");
+  if (scoped.test_cases.length >= 3 && pendingTests.length / scoped.test_cases.length >= 0.7) add(project, "TST-002", "Testing", "Warning", "Most test cases remain pending", `${pendingTests.length} of ${scoped.test_cases.length} tests are Pending or In Progress.`, `${scoped.test_cases.filter((item) => isTestPassed(item.status)).length} tests have passed.`, 100, "Agree test execution dates and owners for the pending inventory.");
   const uatMilestone = scoped.milestones.find((item) => /uat/i.test(item.title) && item.status !== "Complete" && (daysUntil(item.target_date, now) ?? 99) >= 0 && (daysUntil(item.target_date, now) ?? 99) <= 14);
-  if (uatMilestone && !scoped.test_cases.some((item) => item.status === "Passed")) add(project, "TST-003", "Testing", "Critical", "UAT is approaching without completed tests", `${uatMilestone.title} is due ${formatScheduleDate(uatMilestone.target_date)}.`, "No test case currently has Passed status.", 99, "Complete prerequisite testing and confirm UAT entry criteria.");
+  if (uatMilestone && !scoped.test_cases.some((item) => isTestPassed(item.status))) add(project, "TST-003", "Testing", "Critical", "UAT is approaching without completed tests", `${uatMilestone.title} is due ${formatScheduleDate(uatMilestone.target_date)}.`, "No test case currently has Passed status.", 99, "Complete prerequisite testing and confirm UAT entry criteria.");
 
   const newestActivity = [...scoped.activity_log].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   if (!newestActivity || (ageInDays(newestActivity.created_at, now) ?? 99) >= 7) add(project, "STK-001", "Stakeholder", "Warning", "No project activity has been logged recently", newestActivity ? "The latest activity is more than 7 days old." : "No activity entries exist for this project.", newestActivity ? `Latest entry: ${newestActivity.activity_type}, ${ageInDays(newestActivity.created_at, now)} days ago.` : "Activity log count is 0.", newestActivity ? 94 : 100, "Record the latest project update and management decisions.");
@@ -194,7 +203,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
   if (highRisks.length && highRisks.every((item) => Boolean(item.mitigation?.trim()))) add(project, "POS-RSK", "Risk", "Info", "All high risks have mitigation", `${highRisks.length} high or critical risks include mitigation actions.`, highRisks.map((item) => item.risk_ref).join(", "), 100, null);
   if (scoped.requirements.length && scoped.requirements.every((item) => Boolean(item.owner?.trim()))) add(project, "POS-GOV", "Governance", "Info", "All requirements have owners", `${scoped.requirements.length} requirements have accountable owners.`, "Requirement ownership coverage is 100%.", 100, null);
   if (newestActivity && (ageInDays(newestActivity.created_at, now) ?? 99) < 7) add(project, "POS-STK", "Stakeholder", "Info", "Project activity is current", "A project update has been recorded within the last 7 days.", `${newestActivity.activity_type}: ${newestActivity.description}`, 96, null);
-  if (scoped.test_cases.some((item) => item.status === "Passed")) add(project, "POS-TST", "Testing", "Info", "Test execution has produced passed cases", `${scoped.test_cases.filter((item) => item.status === "Passed").length} test cases have passed.`, "Testing progress is evidenced in the test inventory.", 100, null);
+  if (scoped.test_cases.some((item) => isTestPassed(item.status))) add(project, "POS-TST", "Testing", "Info", "Test execution has produced passed cases", `${scoped.test_cases.filter((item) => isTestPassed(item.status)).length} test cases have passed.`, "Testing progress is evidenced in the test inventory.", 100, null);
 
   // ── Go-Live Readiness rules ───────────────────────────────────────────────────
   const goLiveChecklists = (data.go_live_checklists ?? []).filter((c) => c.project_id === project.id);
@@ -243,7 +252,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
     }
 
     // GLR-005: Critical risk open before go-live (cross-reference with risk register)
-    const openCriticalRisks = scoped.risks.filter((r) => !["Complete", "Closed"].includes(r.status) && r.impact === "Critical");
+    const openCriticalRisks = scoped.risks.filter((r) => isRiskOpen(r.status) && r.impact === "Critical");
     if (openCriticalRisks.length > 0 && daysToGoLive !== null && daysToGoLive <= 14) {
       add(project, "GLR-005", "Risk", "Critical", `${openCriticalRisks.length} critical risk${openCriticalRisks.length > 1 ? "s" : ""} open within ${daysToGoLive} days of go-live`,
         "Critical risks must be mitigated or accepted before go-live proceeds.",
@@ -373,7 +382,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
     const completeReqs = scoped.requirements.filter((r) => r.status === "Complete");
     const completeReqsWithOutstandingAC = completeReqs.filter((r) => {
       const acs = scopedAC.filter((ac) => ac.requirement_id === r.id);
-      return acs.length > 0 && acs.some((ac) => !["Met", "Waived"].includes(ac.status));
+      return acs.length > 0 && acs.some((ac) => !isAcceptanceCriteriaMet(ac.status));
     });
     if (completeReqsWithOutstandingAC.length) {
       add(project, "REQ-AC-001", "Governance", "Critical",
@@ -385,7 +394,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
     }
 
     // REQ-AC-002: Acceptance Criterion marked Failed
-    const failedAC = scopedAC.filter((ac) => ac.status === "Failed");
+    const failedAC = scopedAC.filter((ac) => isAcceptanceCriteriaFailed(ac.status));
     if (failedAC.length) {
       add(project, "REQ-AC-002", "Governance", "Warning",
         `${failedAC.length} acceptance ${failedAC.length === 1 ? "criterion has" : "criteria have"} failed`,
@@ -415,7 +424,7 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
     const inProgressReqsAllMet = scoped.requirements.filter((r) => {
       if (r.status !== "In Progress") return false;
       const acs = scopedAC.filter((ac) => ac.requirement_id === r.id);
-      return acs.length > 0 && acs.every((ac) => ["Met", "Waived"].includes(ac.status));
+      return acs.length > 0 && acs.every((ac) => isAcceptanceCriteriaMet(ac.status));
     });
     if (inProgressReqsAllMet.length) {
       add(project, "REQ-AC-004", "Governance", "Info",

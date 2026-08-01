@@ -30,6 +30,7 @@ import type { DataStore } from "@/lib/data-store";
 import { moduleByKey, type ModuleConfig } from "@/lib/modules";
 import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { isDeliverableComplete } from "@/lib/lifecycle";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
 import { buildProjectWorkspace, type WorkspaceActionColumn } from "@/lib/project-workspace";
@@ -212,8 +213,12 @@ export function ProjectWorkspacePage() {
   if (!projects.length || !project || !workspace || !intelligence) return <AppShell><EmptyState title="No projects available" description="Add a project before opening the operational workspace." icon={Users} /></AppShell>;
 
   const findingCount = intelligence.critical.length + intelligence.warnings.length;
+  // Narrow confirmed fix: "Complete" is not a valid DeliverableStatus (see lib/types.ts), so the
+  // raw check this replaced (`!["Deployed","Complete"].includes(status)`) reduced to
+  // `status !== "Deployed"` and ignored deployment_status. isDeliverableComplete() is the
+  // definition used everywhere else (status OR deployment_status === "Deployed").
   const nextDeliverable = [...(data.deliverables ?? [])]
-    .filter((d) => d.project_id === project.id && !["Deployed", "Complete"].includes(String(d.status ?? "")))
+    .filter((d) => d.project_id === project.id && !isDeliverableComplete(d))
     .sort((a, b) => String(a.planned_completion_date ?? "9999").localeCompare(String(b.planned_completion_date ?? "9999")))[0] ?? null;
 
   return (

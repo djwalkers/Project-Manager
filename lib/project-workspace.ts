@@ -6,7 +6,7 @@ import {
   type RagStatus,
 } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import { isActionClosed, isDecisionOpen, isDecisionOverdue, isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
 import { scopeProjectData } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate, parseScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
@@ -62,7 +62,10 @@ function nextMilestone(milestones: Milestone[], now: Date) {
 }
 
 function actionColumn(status: string): WorkspaceActionColumn {
-  if (["Complete", "Closed"].includes(status)) return "Complete";
+  // Narrow confirmed fix: uses the shared isActionClosed (Complete/Approved/Closed),
+  // not a raw 2-value list — an Approved action now lands in the Complete column
+  // instead of Open, matching how isOverdue already treats Approved as resolved.
+  if (isActionClosed(status)) return "Complete";
   if (status === "In Progress") return "In Progress";
   return "Open";
 }
@@ -127,7 +130,7 @@ export function buildProjectWorkspace(data: DataStore, project: Project, now = n
     openDecisions: scoped.decisions.filter((item) => isDecisionOpen(item.status)),
     openQuestions: scoped.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)),
     actionColumns,
-    highRisks: scoped.risks.filter((item) => ["High", "Critical"].includes(item.impact) && !["Complete", "Closed"].includes(item.status)),
+    highRisks: scoped.risks.filter((item) => isRiskHighOrCritical(item.impact) && isRiskOpen(item.status)),
     upcomingMilestones,
     recentActivity: [...scoped.activity_log].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 10),
     deliveryReadiness: calculateDeliveryReadiness(scoped.deliverables),

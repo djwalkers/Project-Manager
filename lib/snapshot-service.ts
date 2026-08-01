@@ -2,7 +2,7 @@
 
 import { calculateProgress, calculateProjectHealth } from "@/lib/control-tower";
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import { isActionOpen, isDecisionOpen, isDecisionOverdue, isRiskOpen } from "@/lib/lifecycle";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule } from "@/lib/schedule";
 import { upsertRecord } from "@/lib/supabase/data-store";
@@ -21,7 +21,7 @@ export function calculateProjectSnapshot(data: DataStore, project: Project, now 
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const overdueActions = scoped.actions.filter((item) => isOverdue(item.due_date, item.status)).length;
   const overdueDecisions = scoped.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status, now)).length;
-  const openActions = scoped.actions.filter((item) => !["Complete", "Closed"].includes(item.status)).length;
+  const openActions = scoped.actions.filter((item) => isActionOpen(item.status)).length;
   const openDecisions = scoped.decisions.filter((item) => isDecisionOpen(item.status)).length;
   const blocked = scoped.milestones.filter((item) => item.status === "Blocked").length + schedule.blocked.length;
   const variance = schedule.variance ?? 0;
@@ -36,7 +36,7 @@ export function calculateProjectSnapshot(data: DataStore, project: Project, now 
     schedule_health: schedule.health ?? "Review",
     progress_percent: calculateProgress(scoped, schedule.variance ?? -1).overall,
     schedule_variance: variance,
-    open_risks: scoped.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
+    open_risks: scoped.risks.filter((item) => isRiskOpen(item.status)).length,
     open_actions: openActions,
     overdue_actions: overdueActions,
     open_decisions: openDecisions,

@@ -1,5 +1,13 @@
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import {
+  isActionBlocked,
+  isActionOpen,
+  isDecisionOpen,
+  isDecisionOverdue,
+  isRiskHighOrCritical,
+  isRiskOpen,
+  isTestPassed,
+} from "@/lib/lifecycle";
 import { deliverablesRequiringAttention } from "@/lib/delivery";
 import { buildDeliveryInsights } from "@/lib/recommendations";
 import type { Project } from "@/lib/types";
@@ -76,7 +84,7 @@ export function calculateProgress(data: DataStore, scheduleVariance: number) {
     {
       label: "Testing",
       weight: 15,
-      score: score(data.test_cases.filter((item) => item.status === "Passed").length, data.test_cases.length),
+      score: score(data.test_cases.filter((item) => isTestPassed(item.status)).length, data.test_cases.length),
     },
     {
       label: "Discovery",
@@ -112,13 +120,13 @@ export function buildNeedsAttention(data: DataStore): InsightItem[] {
   const today = startOfToday();
   const olderThanSevenDays = today.getTime() - 7 * dayMs;
 
-  data.actions.filter((item) => daysFromToday(item.due_date) !== null && (daysFromToday(item.due_date) as number) < 0 && !["Complete", "Closed"].includes(item.status)).forEach((item) => {
+  data.actions.filter((item) => daysFromToday(item.due_date) !== null && (daysFromToday(item.due_date) as number) < 0 && isActionOpen(item.status)).forEach((item) => {
     items.push({ id: `action-${item.id}`, severity: "High", kind: "Overdue action", title: item.description, meta: `${item.action_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
   data.decisions.filter((item) => isDecisionOverdue(item.due_date, item.status)).forEach((item) => {
     items.push({ id: `decision-${item.id}`, severity: "High", kind: "Overdue decision", title: item.question, meta: `${item.decision_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
-  data.risks.filter((item) => ["High", "Critical"].includes(item.impact) && !["Complete", "Closed"].includes(item.status)).forEach((item) => {
+  data.risks.filter((item) => isRiskHighOrCritical(item.impact) && isRiskOpen(item.status)).forEach((item) => {
     items.push({ id: `risk-${item.id}`, severity: item.impact === "Critical" ? "Critical" : "High", kind: "High risk", title: item.description, meta: `${item.risk_ref} · ${item.probability} probability · ${item.owner}` });
   });
   data.milestones.filter((item) => ["Blocked", "At Risk"].includes(item.status)).forEach((item) => {
@@ -142,7 +150,7 @@ export function buildUpcomingThisWeek(data: DataStore): InsightItem[] {
     return days !== null && days >= 0 && days <= 7;
   };
 
-  data.actions.filter((item) => upcoming(item.due_date) && !["Complete", "Closed"].includes(item.status)).forEach((item) => {
+  data.actions.filter((item) => upcoming(item.due_date) && isActionOpen(item.status)).forEach((item) => {
     items.push({ id: `action-${item.id}`, severity: "Medium", kind: "Action", title: item.description, meta: `${item.action_ref} · Due ${formatDate(item.due_date)} · ${item.owner}`, date: item.due_date });
   });
   data.decisions.filter((item) => upcoming(item.due_date) && isDecisionOpen(item.status)).forEach((item) => {
@@ -201,7 +209,7 @@ export function buildWaitingOnOthersGrouped(data: DataStore): WaitingGroup[] {
   depGroups.forEach((count, owner) => add(owner, `${count} ${count === 1 ? "Dependency" : "Dependencies"}`, "/dependencies"));
 
   const aGroups = new Map<string, number>();
-  data.actions.filter((a) => a.status === "Blocked")
+  data.actions.filter((a) => isActionBlocked(a.status))
     .forEach((a) => { const k = (a.owner ?? "").trim() || "Unassigned"; aGroups.set(k, (aGroups.get(k) ?? 0) + 1); });
   aGroups.forEach((count, owner) => add(owner, `${count} Blocked ${count === 1 ? "Action" : "Actions"}`, "/actions"));
 

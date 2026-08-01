@@ -43,7 +43,7 @@ import { computeReadiness } from "@/components/requirement-readiness";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
 import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
 import { ProjectTrendsPanel } from "@/components/trend-chart";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import { isAcceptanceCriteriaFailed, isAcceptanceCriteriaMet, isDecisionOpen, isDecisionOverdue, isRiskOpen } from "@/lib/lifecycle";
 import { selectActiveProject, selectTimelineItems } from "@/lib/project-scope";
 import { useProjectData } from "@/lib/use-project-data";
 import { isOverdue } from "@/lib/utils";
@@ -148,7 +148,7 @@ export default function DashboardPage() {
       needsAttention: buildNeedsAttention(data),
       upcomingThisWeek: buildUpcomingThisWeek(data),
       summary: buildManagementSummary(project, health, data, overdueActions, schedule),
-      openRisks: data.risks.filter((item) => !["Complete", "Closed"].includes(item.status)).length,
+      openRisks: data.risks.filter((item) => isRiskOpen(item.status)).length,
       openQuestions: data.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
       activeMilestones: data.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
       recentActivity: data.activity_log.slice(0, 5),
@@ -166,15 +166,15 @@ export default function DashboardPage() {
         const allAC = data.acceptance_criteria ?? [];
         const total = allAC.length;
         const met = allAC.filter((ac) => ac.status === "Met").length;
-        const failed = allAC.filter((ac) => ac.status === "Failed").length;
+        const failed = allAC.filter((ac) => isAcceptanceCriteriaFailed(ac.status)).length;
         const outstanding = allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length;
         const pct = total > 0 ? Math.round((met / total) * 100) : 0;
         const reqs100 = data.requirements.filter((r) => {
           const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-          return acs.length > 0 && acs.every((ac) => ac.status === "Met" || ac.status === "Waived");
+          return acs.length > 0 && acs.every((ac) => isAcceptanceCriteriaMet(ac.status));
         }).length;
         const reqsFailed = data.requirements.filter((r) =>
-          allAC.some((ac) => ac.requirement_id === r.id && ac.status === "Failed"),
+          allAC.some((ac) => ac.requirement_id === r.id && isAcceptanceCriteriaFailed(ac.status)),
         ).length;
         return { total, met, failed, outstanding, pct, reqs100, reqsFailed };
       })(),

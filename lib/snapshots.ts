@@ -3,7 +3,17 @@ import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
 import { saveRecord } from "@/lib/supabase/data-store";
 import { computeReadiness } from "@/components/requirement-readiness";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import {
+  isAcceptanceCriteriaMet,
+  isActionBlocked,
+  isActionOpen,
+  isActionOverdue,
+  isDecisionOpen,
+  isDecisionOverdue,
+  isDependencyOpen,
+  isRiskHighOrCritical,
+  isRiskOpen,
+} from "@/lib/lifecycle";
 import type { ProjectSnapshot } from "@/lib/types";
 
 export function todaySnapshotExists(data: DataStore, projectId: string): boolean {
@@ -27,8 +37,6 @@ export async function captureSnapshot(data: DataStore): Promise<ProjectSnapshot 
   const readiness = computeReadiness(allAC, allEvidence, allSignOffs, scoped.test_cases);
   const confidence = computeDeliveryConfidence(data);
 
-  const todayStr = today;
-
   const existing = (data.project_snapshots ?? []).find(
     (s) => s.project_id === project.id && s.snapshot_date === today,
   );
@@ -42,11 +50,9 @@ export async function captureSnapshot(data: DataStore): Promise<ProjectSnapshot 
     schedule_health: "Green" as const,
     progress_percent: 0,
     schedule_variance: 0,
-    open_risks: scoped.risks.filter((r) => !["Complete", "Closed"].includes(r.status)).length,
-    open_actions: scoped.actions.filter((a) => !["Complete", "Closed"].includes(a.status)).length,
-    overdue_actions: scoped.actions.filter(
-      (a) => a.due_date && a.due_date < todayStr && !["Complete", "Closed"].includes(a.status),
-    ).length,
+    open_risks: scoped.risks.filter((r) => isRiskOpen(r.status)).length,
+    open_actions: scoped.actions.filter((a) => isActionOpen(a.status)).length,
+    overdue_actions: scoped.actions.filter((a) => isActionOverdue(a.due_date, a.status)).length,
     open_decisions: scoped.decisions.filter((d) => isDecisionOpen(d.status)).length,
     overdue_decisions: scoped.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status)).length,
     open_questions: scoped.discovery_questions.filter(
@@ -60,21 +66,16 @@ export async function captureSnapshot(data: DataStore): Promise<ProjectSnapshot 
     requirements_complete: scoped.requirements.filter((r) =>
       ["Complete", "Closed"].includes(r.status),
     ).length,
-    acceptance_complete: allAC.filter((ac) =>
-      ac.status === "Met" || ac.status === "Waived",
-    ).length,
+    acceptance_complete: allAC.filter((ac) => isAcceptanceCriteriaMet(ac.status)).length,
     evidence_complete: allAC.filter((ac) =>
       allEvidence.some((ev) => ev.ac_id === ac.id),
     ).length,
     sign_off_complete: allSignOffs.filter((s) => s.status === "Approved").length,
-    blocked_actions: scoped.actions.filter((a) => a.status === "Blocked").length,
+    blocked_actions: scoped.actions.filter((a) => isActionBlocked(a.status)).length,
     high_risks: scoped.risks.filter(
-      (r) =>
-        ["High", "Critical"].includes(r.impact) && !["Complete", "Closed"].includes(r.status),
+      (r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status),
     ).length,
-    outstanding_dependencies: scoped.dependencies.filter(
-      (d) => !["Complete", "Closed"].includes(d.status),
-    ).length,
+    outstanding_dependencies: scoped.dependencies.filter((d) => isDependencyOpen(d.status)).length,
   };
 
   return (await saveRecord("project_snapshots", payload)) as ProjectSnapshot;

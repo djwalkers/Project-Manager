@@ -12,7 +12,8 @@
     "test:lifecycle": "node tests/lifecycle-modules.test.mjs",
     "test:security": "node tests/security-phase2.test.mjs",
     "test:project-dates": "node tests/project-dates.test.mjs",
-    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates"
+    "test:phase4": "node tests/phase4-lifecycle-consumers.test.mjs",
+    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

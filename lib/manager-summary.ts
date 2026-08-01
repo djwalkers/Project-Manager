@@ -1,5 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOverdue } from "@/lib/lifecycle";
+import { isDecisionOverdue, isDeliverableBlocked, isRiskOpen } from "@/lib/lifecycle";
 import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { isOverdue } from "@/lib/utils";
@@ -32,15 +32,13 @@ function classifyProject(data: DataStore, project: Project, now: Date): ManagerP
 
   // Key signals
   const criticalRisks = scoped.risks.filter(
-    (r) => r.impact === "Critical" && !["Complete", "Closed"].includes(r.status),
+    (r) => r.impact === "Critical" && isRiskOpen(r.status),
   );
   const unmitgatedCritical = criticalRisks.filter((r) => !r.mitigation?.trim());
   const highRisks = scoped.risks.filter(
-    (r) => r.impact === "High" && !["Complete", "Closed"].includes(r.status),
+    (r) => r.impact === "High" && isRiskOpen(r.status),
   );
-  const blockedDeliverables = scoped.deliverables.filter(
-    (d) => d.status === "Blocked" || [d.development_status, d.sit_status, d.uat_status, d.deployment_status].includes("Blocked"),
-  );
+  const blockedDeliverables = scoped.deliverables.filter((d) => isDeliverableBlocked(d));
   const overdueDecisions = scoped.decisions.filter((d) => isDecisionOverdue(d.due_date, d.status, now));
   const overdueActions = scoped.actions.filter((a) => isOverdue(a.due_date, a.status));
   const scheduleVariance = schedule.variance ?? 0;

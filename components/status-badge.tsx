@@ -8,11 +8,16 @@ const statusStyles: Record<string, string> = {
   Red:      "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   "At Risk":"border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   Failed:   "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
+  // Rejected is a closed decision status (see lib/lifecycle/decision.ts) but a negative
+  // outcome, unlike Approved/Closed/Resolved — styled red like Failed, not green.
+  Rejected: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   // Orange — High priority
   High: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/40 dark:text-orange-300",
   // Neutral/slate — open, not-started, pending
   Open:         "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   Pending:      "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  // Proposed is an open decision status (see lib/lifecycle/decision.ts) — not yet actioned.
+  Proposed:     "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   "Not Started":"border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   Superseded:   "border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400",
   // Cyan — in-flight discovery / ready states
@@ -30,6 +35,8 @@ const statusStyles: Record<string, string> = {
   "Awaiting Development":"border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
   "Awaiting Response":  "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
   Medium:               "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
+  // Under Review is an open decision status (see lib/lifecycle/decision.ts), actively in flight.
+  "Under Review":       "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
   // Blue — Low priority
   Low: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300",
   // Green — complete / approved / passed / met
@@ -60,7 +67,9 @@ const icons: Record<string, typeof Circle> = {
   Red: ShieldAlert,
   "At Risk": ShieldAlert,
   Failed: XCircle,
+  Rejected: XCircle,
   Open: Circle,
+  Proposed: Circle,
   Pending: Clock3,
   "Not Started": Circle,
   Superseded: MinusCircle,
@@ -76,6 +85,7 @@ const icons: Record<string, typeof Circle> = {
   "Awaiting Business": Clock3,
   "Awaiting Development": Clock3,
   "Awaiting Response": Clock3,
+  "Under Review": Clock3,
   Medium: Clock3,
   Low: Circle,
   Complete: CheckCircle2,

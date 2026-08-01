@@ -21,7 +21,15 @@ import {
   calculateProgress,
 } from "@/lib/control-tower";
 import { computeDeliveryConfidence } from "@/lib/delivery-confidence";
-import { isDecisionOpen, isDecisionOverdue } from "@/lib/lifecycle";
+import {
+  isAcceptanceCriteriaMet,
+  isActionOpen,
+  isDecisionOpen,
+  isDecisionOverdue,
+  isDeliverableComplete,
+  isRiskHighOrCritical,
+  isRiskOpen,
+} from "@/lib/lifecycle";
 import { calculateSchedule } from "@/lib/schedule";
 import { selectTimelineItems } from "@/lib/project-scope";
 import { isOverdue } from "@/lib/utils";
@@ -203,8 +211,8 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
 // ── Report: RAID Log ──────────────────────────────────────────────────────────
 
 function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const openRisks = data.risks.filter((r) => !["Complete", "Closed"].includes(r.status));
-  const openActions = data.actions.filter((a) => !["Complete", "Closed"].includes(a.status));
+  const openRisks = data.risks.filter((r) => isRiskOpen(r.status));
+  const openActions = data.actions.filter((a) => isActionOpen(a.status));
   const openDecisions = data.decisions.filter((d) => isDecisionOpen(d.status));
 
   return (
@@ -391,18 +399,22 @@ function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType
 
 function GoLiveReadinessReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
   const project = selectActiveProject(data);
-  const openRisks = data.risks.filter((r) => ["High", "Critical"].includes(r.impact) && !["Complete", "Closed"].includes(r.status));
+  const openRisks = data.risks.filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
   const overdueActions = data.actions.filter((a) => isOverdue(a.due_date, a.status));
   const blockedMilestones = data.milestones.filter((m) => m.status === "Blocked");
   const acs = data.acceptance_criteria ?? [];
-  const acMet = acs.filter((ac) => ac.status === "Met" || ac.status === "Waived").length;
+  const acMet = acs.filter((ac) => isAcceptanceCriteriaMet(ac.status)).length;
 
+  // Narrow confirmed fix: "Complete" is not a valid DeliverableStatus (see lib/types.ts),
+  // so the raw check this replaced (`["Complete","Deployed"].includes(status)`) reduced to
+  // `status === "Deployed"` and ignored deployment_status entirely. isDeliverableComplete()
+  // is the definition used everywhere else (status OR deployment_status === "Deployed").
   const gates = [
     { label: "No critical/high open risks", passed: openRisks.length === 0, detail: openRisks.length > 0 ? `${openRisks.length} risk(s) require resolution` : "All high/critical risks resolved" },
     { label: "No overdue actions", passed: overdueActions.length === 0, detail: overdueActions.length > 0 ? `${overdueActions.length} action(s) overdue` : "All actions on track" },
     { label: "No blocked milestones", passed: blockedMilestones.length === 0, detail: blockedMilestones.length > 0 ? `${blockedMilestones.length} milestone(s) blocked` : "All milestones unblocked" },
     { label: "Acceptance criteria met", passed: acs.length > 0 && acMet === acs.length, detail: acs.length > 0 ? `${acMet}/${acs.length} criteria met` : "No acceptance criteria defined" },
-    { label: "All deliverables deployed", passed: data.deliverables.every((d) => ["Complete", "Deployed"].includes(d.status)), detail: `${data.deliverables.filter((d) => !["Complete", "Deployed"].includes(d.status)).length} deliverable(s) outstanding` },
+    { label: "All deliverables deployed", passed: data.deliverables.every((d) => isDeliverableComplete(d)), detail: `${data.deliverables.filter((d) => !isDeliverableComplete(d)).length} deliverable(s) outstanding` },
   ];
 
   const allPassed = gates.every((g) => g.passed);

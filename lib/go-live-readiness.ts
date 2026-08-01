@@ -1,5 +1,5 @@
 import type { DataStore } from "@/lib/data-store";
-import { isDecisionOpen } from "@/lib/lifecycle";
+import { isDecisionOpen, isDeliverableComplete, isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
 import { resolveGoLiveDate } from "@/lib/project-dates";
 import type { GoLiveChecklist, GoLiveChecklistCategory, Project, Risk } from "@/lib/types";
 import { scopeProjectData } from "@/lib/project-scope";
@@ -75,10 +75,13 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   const readinessPercent = totalForPercent === 0 ? 0 : Math.round((done.length / totalForPercent) * 100);
   const blockerCount = checklists.filter((c) => c.status === "Blocked").length + cutover.filter((c) => c.status === "Blocked").length;
 
-  const openRisks = scoped.risks.filter((r: Risk) => !["Complete", "Closed"].includes(r.status)).length;
-  const openCriticalRisks = scoped.risks.filter((r: Risk) => !["Complete", "Closed"].includes(r.status) && ["High", "Critical"].includes(r.impact)).length;
+  const openRisks = scoped.risks.filter((r: Risk) => isRiskOpen(r.status)).length;
+  const openCriticalRisks = scoped.risks.filter((r: Risk) => isRiskOpen(r.status) && isRiskHighOrCritical(r.impact)).length;
   const outstandingDecisions = scoped.decisions.filter((d) => isDecisionOpen(d.status)).length;
-  const outstandingDeliverables = scoped.deliverables.filter((d) => !["Deployed", "Blocked"].includes(d.status) || d.status === "Blocked").length;
+  // Narrow confirmed fix: the raw expression this replaced (`!["Deployed","Blocked"].includes(status) || status === "Blocked"`)
+  // reduces to "status !== Deployed" and ignores deployment_status entirely, unlike the
+  // shared isDeliverableComplete() used everywhere else (status OR deployment_status === "Deployed").
+  const outstandingDeliverables = scoped.deliverables.filter((d) => !isDeliverableComplete(d)).length;
   const outstandingTesting = scoped.test_cases.filter((t) => !["Passed", "Blocked"].includes(t.status)).length;
 
   // Go-live date: single shared resolver — see lib/project-dates.ts
