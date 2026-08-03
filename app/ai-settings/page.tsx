@@ -6,23 +6,25 @@ import {
   Bot,
   CheckCircle2,
   Loader2,
+  RefreshCw,
   ShieldAlert,
   Sparkles,
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { useAuth } from "@/contexts/auth-context";
 
-type AIProviderName = "none" | "openai" | "gemini" | "anthropic";
+type AIProviderName = "none" | "openai" | "gemini" | "anthropic" | "ollama";
 
 type AIMeta = {
   id: string | null;
   provider: AIProviderName;
   model: string | null;
+  local_gateway_url: string | null;
   enabled: boolean;
   key_configured: boolean;
 };
@@ -32,6 +34,7 @@ const PROVIDER_LABELS: Record<AIProviderName, string> = {
   openai: "OpenAI",
   gemini: "Google Gemini",
   anthropic: "Anthropic Claude",
+  ollama: "Local Ollama",
 };
 
 const PROVIDER_MODELS: Record<AIProviderName, string> = {
@@ -39,12 +42,16 @@ const PROVIDER_MODELS: Record<AIProviderName, string> = {
   openai: "gpt-4o-mini",
   gemini: "gemini-2.0-flash",
   anthropic: "claude-haiku-4-5-20251001",
+  ollama: "qwen3:8b",
 };
 
 const PROVIDER_MODEL_SUGGESTIONS: Partial<Record<AIProviderName, string[]>> = {
   gemini: ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-2.5-flash"],
   openai: ["gpt-4o-mini", "gpt-4o"],
   anthropic: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"],
+  // Only used before the gateway has ever been reached — once /health
+  // responds, the datalist switches to the models it actually reports.
+  ollama: ["qwen3:8b"],
 };
 
 const KEY_PLACEHOLDER: Record<AIProviderName, string> = {
@@ -52,7 +59,22 @@ const KEY_PLACEHOLDER: Record<AIProviderName, string> = {
   openai: "sk-…",
   gemini: "AIza…",
   anthropic: "sk-ant-…",
+  ollama: "",
 };
+
+const DEFAULT_GATEWAY_URL = "http://127.0.0.1:8787";
+const RECOMMENDED_OLLAMA_MODEL = "qwen3:8b";
+
+type GatewayStatus = "idle" | "checking" | "reachable" | "ollama-down" | "unreachable";
+
+function isLoopbackUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 export default function AISettingsPage() {
   const { user } = useAuth();
@@ -81,6 +103,59 @@ export default function AISettingsPage() {
   const [enabled, setEnabled] = useState(false);
   const [apiKey, setApiKey] = useState(""); // empty = don't change; sentinel value
   const [clearKey, setClearKey] = useState(false);
+  const [localGatewayUrl, setLocalGatewayUrl] = useState(DEFAULT_GATEWAY_URL);
+
+  // Local Ollama gateway status — checked live, directly from the browser
+  // to the gateway. Never persisted; this is ephemeral connection state,
+  // not configuration (see plan Part 5).
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>("idle");
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const [installedModels, setInstalledModels] = useState<string[]>([]);
+  const [allowedModels, setAllowedModels] = useState<string[] | null>(null);
+
+  const usableModels = allowedModels ? installedModels.filter((m) => allowedModels.includes(m)) : installedModels;
+  const modelUnavailable = provider === "ollama" && gatewayStatus === "reachable" && model.trim().length > 0 && !usableModels.includes(model.trim());
+  const gatewayUrlInvalid = provider === "ollama" && localGatewayUrl.trim().length > 0 && !isLoopbackUrl(localGatewayUrl.trim());
+
+  // Ollama never stores a secret key, so key_configured is always false for
+  // it — that's not a problem to report the way a missing cloud API key is.
+  const metaCredentialOk = meta ? (meta.provider === "ollama" || meta.key_configured) : false;
+
+  const checkGateway = useCallback(async (url: string) => {
+    if (!url.trim()) {
+      setGatewayStatus("idle");
+      return;
+    }
+    if (!isLoopbackUrl(url.trim())) {
+      setGatewayStatus("unreachable");
+      setGatewayError("Gateway URL must be a loopback address (127.0.0.1 or localhost).");
+      setInstalledModels([]);
+      setAllowedModels(null);
+      return;
+    }
+    setGatewayStatus("checking");
+    setGatewayError(null);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(`${url.trim().replace(/\/$/, "")}/health`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`Gateway responded with HTTP ${res.status}`);
+      const data = await res.json() as { ok: boolean; ollama: "up" | "down"; models: string[]; allowedModels: string[] | null };
+      setInstalledModels(data.models ?? []);
+      setAllowedModels(data.allowedModels ?? null);
+      setGatewayStatus(data.ollama === "up" ? "reachable" : "ollama-down");
+    } catch (err) {
+      setGatewayStatus("unreachable");
+      setInstalledModels([]);
+      setAllowedModels(null);
+      setGatewayError(
+        err instanceof Error && err.name === "AbortError"
+          ? "Timed out waiting for the local gateway."
+          : "Could not reach the local gateway. Is it running?",
+      );
+    }
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -92,12 +167,15 @@ export default function AISettingsPage() {
           setProvider(data.provider);
           setModel(data.model ?? "");
           setEnabled(data.enabled);
+          const gatewayUrl = data.local_gateway_url ?? DEFAULT_GATEWAY_URL;
+          setLocalGatewayUrl(gatewayUrl);
+          if (data.provider === "ollama") void checkGateway(gatewayUrl);
         }
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [checkGateway]);
 
   function handleProviderChange(p: AIProviderName) {
     setProvider(p);
@@ -107,6 +185,7 @@ export default function AISettingsPage() {
     setTestResult(null);
     setClearKey(false);
     setApiKey("");
+    if (p === "ollama") void checkGateway(localGatewayUrl);
   }
 
   async function handleSave() {
@@ -115,7 +194,11 @@ export default function AISettingsPage() {
     setSaveOk(false);
     setTestResult(null);
     try {
-      const body: Record<string, unknown> = { provider, model: model || null, enabled };
+      // local_gateway_url is always included (regardless of which provider
+      // is currently selected) so switching providers and saving never
+      // silently wipes out the last-configured gateway URL — the same
+      // principle already applied to api_key preservation below.
+      const body: Record<string, unknown> = { provider, model: model || null, local_gateway_url: localGatewayUrl.trim() || null, enabled };
       if (clearKey) {
         body.clear_key = true;
       } else if (apiKey.trim()) {
@@ -136,6 +219,7 @@ export default function AISettingsPage() {
       setProvider(updated.provider);
       setModel(updated.model ?? "");
       setEnabled(updated.enabled);
+      setLocalGatewayUrl(updated.local_gateway_url ?? DEFAULT_GATEWAY_URL);
       setApiKey("");
       setClearKey(false);
       setSaveOk(true);
@@ -203,21 +287,21 @@ export default function AISettingsPage() {
           {/* Current status */}
           {meta && (
             <div className={`flex items-center gap-3 rounded-lg border p-4 ${
-              meta.enabled && meta.key_configured
+              meta.enabled && metaCredentialOk
                 ? "border-green-200 bg-green-50"
                 : "border-amber-200 bg-amber-50"
             }`}>
-              {meta.enabled && meta.key_configured ? (
+              {meta.enabled && metaCredentialOk ? (
                 <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
               ) : (
                 <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
               )}
               <div className="text-sm">
-                {meta.enabled && meta.key_configured ? (
+                {meta.enabled && metaCredentialOk ? (
                   <span className="font-medium text-green-800">
                     {PROVIDER_LABELS[meta.provider]} is active
                   </span>
-                ) : !meta.key_configured && meta.provider !== "none" ? (
+                ) : !metaCredentialOk && meta.provider !== "none" ? (
                   <span className="font-medium text-amber-800">
                     {PROVIDER_LABELS[meta.provider]} selected but no API key configured
                   </span>
@@ -242,7 +326,124 @@ export default function AISettingsPage() {
             </Select>
           </div>
 
-          {provider !== "none" && (
+          {provider === "ollama" ? (
+            <>
+              {/* Gateway URL */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Gateway URL</label>
+                <div className="flex max-w-xs items-center gap-2">
+                  <Input
+                    value={localGatewayUrl}
+                    onChange={(e) => setLocalGatewayUrl(e.target.value)}
+                    placeholder={DEFAULT_GATEWAY_URL}
+                    className="font-mono text-sm"
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void checkGateway(localGatewayUrl)}
+                    disabled={gatewayStatus === "checking"}
+                    className="shrink-0 px-2.5"
+                    title="Recheck gateway"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${gatewayStatus === "checking" ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
+                {gatewayUrlInvalid ? (
+                  <p className="mt-1 text-xs text-destructive">
+                    Must be a loopback address (127.0.0.1 or localhost) — it should only ever point at this Mac.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The browser talks to this gateway directly on this Mac — never through Vercel. Requires the gateway running (<code className="font-mono">npm start</code> in <code className="font-mono">local-gateway/</code>).
+                  </p>
+                )}
+
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  {gatewayStatus === "idle" && (
+                    <span className="text-muted-foreground">Not checked yet.</span>
+                  )}
+                  {gatewayStatus === "checking" && (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      <span className="text-muted-foreground">Checking gateway…</span>
+                    </>
+                  )}
+                  {gatewayStatus === "reachable" && (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                      <span className="text-green-800">
+                        Gateway reachable — Ollama is up ({installedModels.length} model{installedModels.length === 1 ? "" : "s"} installed)
+                      </span>
+                    </>
+                  )}
+                  {gatewayStatus === "ollama-down" && (
+                    <>
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      <span className="text-amber-800">Gateway reachable, but Ollama isn&apos;t running on this Mac.</span>
+                    </>
+                  )}
+                  {gatewayStatus === "unreachable" && (
+                    <>
+                      <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                      <span className="text-destructive">{gatewayError ?? "Could not reach the local gateway."}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Model (Ollama) */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Model</label>
+                <Input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={RECOMMENDED_OLLAMA_MODEL}
+                  className="max-w-xs font-mono text-sm"
+                  list="model-suggestions-ollama"
+                />
+                <datalist id="model-suggestions-ollama">
+                  {(usableModels.length > 0 ? usableModels : PROVIDER_MODEL_SUGGESTIONS.ollama ?? []).map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+                {usableModels.length > 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Installed: {usableModels.join(", ")}.
+                    {usableModels.includes(RECOMMENDED_OLLAMA_MODEL) && model.trim() !== RECOMMENDED_OLLAMA_MODEL && (
+                      <>
+                        {" "}
+                        <button
+                          type="button"
+                          className="underline hover:text-foreground"
+                          onClick={() => setModel(RECOMMENDED_OLLAMA_MODEL)}
+                        >
+                          Use recommended {RECOMMENDED_OLLAMA_MODEL}
+                        </button>
+                      </>
+                    )}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Not verified until the gateway is reachable. Recommended: {RECOMMENDED_OLLAMA_MODEL}.
+                  </p>
+                )}
+                {modelUnavailable && (
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      &quot;{model.trim()}&quot; isn&apos;t currently installed in Ollama. You can still save this,
+                      but the assistant will show it as unavailable until you run{" "}
+                      <code className="font-mono">ollama pull {model.trim()}</code>.
+                    </span>
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-muted-foreground">No API key is needed for the local Ollama provider.</p>
+              </div>
+            </>
+          ) : provider !== "none" && (
             <>
               {/* Model */}
               <div>
@@ -342,19 +543,21 @@ export default function AISettingsPage() {
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
-            <Button onClick={() => void handleSave()} disabled={saving} className="gap-2">
+            <Button onClick={() => void handleSave()} disabled={saving || gatewayUrlInvalid} className="gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               Save Settings
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => void handleTest()}
-              disabled={testing || provider === "none"}
-              className="gap-2"
-            >
-              {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Test Connection
-            </Button>
+            {provider !== "ollama" && (
+              <Button
+                variant="outline"
+                onClick={() => void handleTest()}
+                disabled={testing || provider === "none"}
+                className="gap-2"
+              >
+                {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Test Connection
+              </Button>
+            )}
             {provider === "gemini" && (
               <Button
                 variant="outline"

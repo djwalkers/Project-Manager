@@ -4,21 +4,26 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-export type AIProviderName = "none" | "openai" | "gemini" | "anthropic";
+export type AIProviderName = "none" | "openai" | "gemini" | "anthropic" | "ollama";
 
 export type AISettingsRecord = {
   id: string;
   provider: AIProviderName;
   model: string | null;
   api_key: string | null;
+  // Local Ollama only — the gateway's loopback URL. Not a secret (no API
+  // key is ever stored for "ollama"; api_key stays null for that row).
+  local_gateway_url: string | null;
   enabled: boolean;
 };
 
 // Safe metadata — never includes api_key. Returned to the client.
+// local_gateway_url is safe to expose as-is; it's never a secret.
 export type AISettingsMeta = {
   id: string | null;
   provider: AIProviderName;
   model: string | null;
+  local_gateway_url: string | null;
   enabled: boolean;
   key_configured: boolean;
 };
@@ -36,7 +41,7 @@ export async function loadAISettings(): Promise<AISettingsRecord | null> {
   if (!db) return null;
   const { data } = await db
     .from("ai_settings")
-    .select("id, provider, model, api_key, enabled")
+    .select("id, provider, model, api_key, local_gateway_url, enabled")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -54,6 +59,7 @@ export async function loadAISettingsMeta(): Promise<AISettingsMeta> {
       id: null,
       provider: envProvider,
       model: null,
+      local_gateway_url: null,
       enabled: Boolean(envKey),
       key_configured: Boolean(envKey),
     };
@@ -62,6 +68,7 @@ export async function loadAISettingsMeta(): Promise<AISettingsMeta> {
     id: settings.id,
     provider: settings.provider,
     model: settings.model,
+    local_gateway_url: settings.local_gateway_url,
     enabled: settings.enabled,
     key_configured: Boolean(settings.api_key),
   };
@@ -72,6 +79,7 @@ export async function saveAISettings(patch: {
   provider: AIProviderName;
   model?: string | null;
   api_key?: string | null;
+  local_gateway_url?: string | null;
   enabled: boolean;
 }): Promise<void> {
   const db = serviceSupabase();
@@ -86,12 +94,14 @@ export async function saveAISettings(patch: {
     };
     if ("model" in patch) update.model = patch.model ?? null;
     if ("api_key" in patch && patch.api_key !== undefined) update.api_key = patch.api_key;
+    if ("local_gateway_url" in patch) update.local_gateway_url = patch.local_gateway_url ?? null;
     await db.from("ai_settings").update(update).eq("id", existing.id);
   } else {
     await db.from("ai_settings").insert({
       provider: patch.provider,
       model: patch.model ?? null,
       api_key: patch.api_key ?? null,
+      local_gateway_url: patch.local_gateway_url ?? null,
       enabled: patch.enabled,
     });
   }

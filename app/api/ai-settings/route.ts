@@ -9,7 +9,23 @@ import {
   type AIProviderName,
 } from "@/lib/ai/settings";
 
-const VALID_PROVIDERS = new Set<string>(["none", "openai", "gemini", "anthropic"]);
+const VALID_PROVIDERS = new Set<string>(["none", "openai", "gemini", "anthropic", "ollama"]);
+
+// The Local Ollama gateway only ever binds to a loopback address (see
+// local-gateway/server.js — it never listens on 0.0.0.0). A saved gateway
+// URL that isn't loopback would either be a mistake or point somewhere
+// this app has no business reaching, so it's rejected server-side rather
+// than trusted from client input.
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+
+function isLoopbackUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return LOOPBACK_HOSTNAMES.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 function serviceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -92,6 +108,7 @@ export async function POST(req: NextRequest) {
     model?: string | null;
     api_key?: string | null;
     clear_key?: boolean;
+    local_gateway_url?: string | null;
     enabled: boolean;
   };
   try {
@@ -102,6 +119,10 @@ export async function POST(req: NextRequest) {
 
   if (!VALID_PROVIDERS.has(body.provider)) {
     return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
+  }
+
+  if (body.provider === "ollama" && typeof body.local_gateway_url === "string" && body.local_gateway_url.trim() && !isLoopbackUrl(body.local_gateway_url.trim())) {
+    return NextResponse.json({ error: "Gateway URL must be a loopback address (127.0.0.1 or localhost) — it should only ever point at this Mac." }, { status: 400 });
   }
 
   try {
@@ -123,7 +144,11 @@ export async function POST(req: NextRequest) {
     await saveAISettings({
       provider: body.provider as AIProviderName,
       model: body.model ?? null,
+      // Ollama never stores a secret key — this is a no-op for that
+      // provider since keyToStore resolves from api_key/clear_key, neither
+      // of which the Ollama form ever sends.
       api_key: keyToStore,
+      local_gateway_url: body.local_gateway_url?.trim() || null,
       enabled: Boolean(body.enabled),
     });
 

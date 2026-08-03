@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "025_go_live_readiness_overrides";
-export const latestMigration = "025_go_live_readiness_overrides";
+export const schemaVersion = "026_ai_settings_local_gateway";
+export const latestMigration = "026_ai_settings_local_gateway";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -28,6 +28,7 @@ export const allMigrations = [
   "023_go_live_security_hardening",
   "024_project_key_dates",
   "025_go_live_readiness_overrides",
+  "026_ai_settings_local_gateway",
 ] as const;
 
 export type SchemaColumn = {
