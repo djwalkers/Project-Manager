@@ -35,7 +35,7 @@ import {
   buildWaitingOnOthersGrouped,
 } from "@/lib/control-tower";
 import { formatScheduleDate } from "@/lib/schedule";
-import type { ProjectSnapshot } from "@/lib/types";
+import type { Project, ProjectSnapshot } from "@/lib/types";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention } from "@/lib/delivery";
 import { computeReadiness } from "@/components/requirement-readiness";
 import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
@@ -80,10 +80,10 @@ export default function DashboardPage() {
   const { data, setData, error, reload } = useProjectData();
   const [snapshotting, setSnapshotting] = useState(false);
 
-  const takeSnapshot = useCallback(async (d: NonNullable<typeof data>) => {
+  const takeSnapshot = useCallback(async (d: NonNullable<typeof data>, project: Project) => {
     setSnapshotting(true);
     try {
-      const saved = await captureSnapshot(d);
+      const saved = await captureSnapshot(d, project);
       if (saved) {
         setData((prev) => {
           if (!prev) return prev;
@@ -107,7 +107,7 @@ export default function DashboardPage() {
     const project = selectActiveProject(data);
     if (!project) return;
     if (!todaySnapshotExists(data, project.id)) {
-      void takeSnapshot(data);
+      void takeSnapshot(data, project);
     }
   // Only run on initial data load
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -378,7 +378,7 @@ export default function DashboardPage() {
               <button
                 type="button"
                 disabled={snapshotting || !data}
-                onClick={() => data && void takeSnapshot(data)}
+                onClick={() => data && void takeSnapshot(data, tower.project)}
                 className="rounded-md border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
                 {snapshotting ? "Saving…" : "Take Snapshot Now"}
