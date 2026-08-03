@@ -1,0 +1,12 @@
+{
+  "port": 8787,
+  "allowedOrigins": [
+    "http://localhost:3000",
+    "https://REPLACE-WITH-YOUR-PRODUCTION-VERCEL-ORIGIN"
+  ],
+  "allowedModels": null,
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "maxBodyBytes": 262144,
+  "requestTimeoutMs": 90000,
+  "maxConcurrent": 2
+}
