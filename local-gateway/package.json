@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Standalone, loopback-only local gateway between the Project Manager web app and a local Ollama instance. Not part of the Next.js/Vercel build — run this on the same Mac as Ollama.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node tests/gateway.test.mjs"
   },
   "engines": {
     "node": ">=20"

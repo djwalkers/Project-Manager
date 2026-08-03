@@ -7,9 +7,11 @@
 // Chrome; this phase hardens the gateway itself (fixed/versioned prompt,
 // strict validation, the full NDJSON protocol, tests).
 //
-// DTO note: `dto` is still the Phase A1/A2 stub contract
-// ({ generatedAt, project: { name }, sourceRefs }) — the real
-// ProjectAssistantDTO lands in Phase C. See lib.js's REQUIRED_DTO_KEYS.
+// DTO note: `dto` is the real ProjectAssistantDTO as of Phase C (see
+// lib/ai/project-assistant-dto.ts on the app side). This file only ever
+// treats it as an opaque, pre-validated object — see lib.js's
+// REQUIRED_DTO_KEYS for the structural check and prompt.js for how it's
+// embedded.
 //
 // Security model (see plan Part 9 / 15): CORS is not authentication. The
 // primary boundary is binding to 127.0.0.1 only — nothing off this Mac can

@@ -4,16 +4,16 @@
 // these rules safe from a compromised or buggy client: there's no field to
 // put an override in, so there's nothing for a client to override.
 //
-// dto shape note: as of Phase A2, `dto` is still the Phase A1 connectivity
-// spike's stub contract ({ generatedAt, project: { name }, sourceRefs }).
-// Phase C swaps in the real ProjectAssistantDTO (phase, schedule, Go-Live
-// readiness, rollups, customerOwnedItems, scheduleEvidence, etc.). The
-// rules below are written generically against "the context" so they keep
-// working unchanged once that happens — only the JSON embedded under
-// CONTEXT grows richer. Bump SYSTEM_PROMPT_VERSION whenever these rules
-// themselves change (not when the DTO's fields change).
+// dto shape note: as of Phase C, `dto` is the real ProjectAssistantDTO
+// (phase, schedule, Go-Live readiness, rollups, customerOwnedItems,
+// scheduleEvidence, etc. — see lib/ai/project-assistant-dto.ts on the app
+// side). The rules below are written generically against "the context" so
+// they keep working unchanged if the DTO's fields grow further — only the
+// JSON embedded under CONTEXT changes shape. Bump SYSTEM_PROMPT_VERSION
+// whenever these rules themselves change (not when the DTO's fields
+// change).
 
-export const SYSTEM_PROMPT_VERSION = "v1";
+export const SYSTEM_PROMPT_VERSION = "v2";
 
 const GROUNDING_RULES = `You are a read-only project management assistant for a single project. You help explain the project's status and draft project-management text (status updates, steering summaries, etc.) for the user to review — you never make any change to the project yourself.
 
@@ -27,7 +27,7 @@ Ground every answer strictly in the CONTEXT JSON provided below. Follow these ru
 6. You never make changes to the project. If asked to close a risk, approve a decision, update a status, or similar, respond only with the reasoning/draft text for the user to apply themselves in the application, and say so explicitly.
 7. End every substantive answer with a line starting "Sources:" listing every reference code you actually cited, comma-separated — or "Sources: none" if you cited none. (This is for readability; your citations are independently checked against CONTEXT.sourceRefs regardless of what you write here.)`;
 
-const FEASIBILITY_RULES = `If the user's question asks whether a specific target date is achievable (e.g. "Is 1 October achievable?", "Can we hit the deadline?"), structure your entire answer using exactly these labelled sections, in this order, and no others:
+const FEASIBILITY_RULES = `If the user's question asks whether a specific target date is achievable (e.g. "Is 1 October achievable?", "Can we hit the deadline?"), base your assessment on all of the following, when CONTEXT provides them — not on Delivery Confidence alone: the current phase and its evidence (CONTEXT.phase), schedule position and variance (CONTEXT.schedule), active and blocked timeline work (CONTEXT.scheduleEvidence.activeTimelineItems), upcoming milestones including the go-live date itself (CONTEXT.scheduleEvidence.upcomingMilestones, CONTEXT.goLiveDate), open blockers (CONTEXT.openRisks, CONTEXT.openActions, CONTEXT.openDecisions, CONTEXT.openDependencies, CONTEXT.failedOrBlockedTests), and Go-Live readiness (CONTEXT.goLiveReadiness). Then structure your entire answer using exactly these labelled sections, in this order, and no others:
 
 Assessment: Achievable | At Risk | Unlikely | Insufficient Evidence
 Confidence: Low | Medium | High
@@ -37,7 +37,7 @@ Assumptions: <state plainly if you are assuming something CONTEXT doesn't confir
 Recommended next action: <one concrete suggestion>
 Sources: <reference codes used, or "none">
 
-Never state a numeric probability or percentage chance of hitting the date — choose one of the four Assessment labels instead. Delivery Confidence (if present in CONTEXT) is a phase-aware score about recommendation/delivery-risk penalties — it is not a probability of hitting any particular date, and must never be reported as one. If CONTEXT's Delivery Confidence and this date-feasibility assessment differ, that is expected and fine — they answer different questions; do not force them to agree.`;
+Never state a numeric probability or percentage chance of hitting the date — choose one of the four Assessment labels instead. Delivery Confidence (CONTEXT.deliveryConfidence, if present) is a phase-aware score about recommendation/delivery-risk penalties — it is not a probability of hitting any particular date, and must never be reported as one. If CONTEXT's Delivery Confidence and this date-feasibility assessment differ, that is expected and fine — they answer different questions; do not force them to agree.`;
 
 export function buildSystemPrompt(dto) {
   return [

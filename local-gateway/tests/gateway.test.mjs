@@ -35,22 +35,52 @@ async function runAsync(name, fn) {
   }
 }
 
+// Minimal but complete Phase C ProjectAssistantDTO — every field the real
+// lib/ai/project-assistant-dto.ts produces, populated with harmless empty
+// defaults so tests can override just the bit they care about. Keeping one
+// shared fixture (rather than a stub per test) is what makes REQUIRED_DTO_KEYS
+// actually meaningful to test against.
+function realDto(overrides = {}) {
+  return {
+    generatedAt: "2026-08-03T00:00:00Z",
+    project: { name: "CR028", customer: "Sysco", workstream: "Delivery", status: "In Progress" },
+    phase: { phase: "UAT", confidence: 90, source: "timeline", detail: "Customer UAT is In Progress" },
+    schedule: { health: "Green", variance: 0, daysRemaining: 30, projectStart: "2026-06-01", projectEnd: "2026-10-15" },
+    goLiveDate: { date: "2026-10-15", source: "milestone", milestoneTitle: "Go Live" },
+    projectHealth: { status: "Green", summary: "On track.", attentionRequired: null, dateConfidence: "On Track", managementAction: "Not Required" },
+    deliveryConfidence: { score: 90, rag: "Green", reasons: [] },
+    goLiveReadiness: { status: "Amber", readinessPercent: 67, checks: [] },
+    rollups: {},
+    recommendations: [],
+    openRisks: [],
+    openActions: [],
+    openDecisions: [],
+    openDependencies: [],
+    failedOrBlockedTests: [],
+    outstandingAcceptanceCriteria: [],
+    customerOwnedItems: [],
+    scheduleEvidence: { upcomingMilestones: [], activeTimelineItems: [] },
+    sourceRefs: [],
+    ...overrides,
+  };
+}
+
 // ── lib.js unit tests ────────────────────────────────────────────────────
 
 run("validateRequestBody accepts a well-formed request", () => {
-  const error = validateRequestBody({ model: "qwen3:8b", question: "hi", dto: { generatedAt: "x", project: { name: "p" }, sourceRefs: [] } });
+  const error = validateRequestBody({ model: "qwen3:8b", question: "hi", dto: realDto() });
   assert.equal(error, null);
 });
 
 run("validateRequestBody rejects an unknown top-level field (e.g. a browser-supplied systemPrompt)", () => {
-  const error = validateRequestBody({ model: "m", question: "q", dto: { generatedAt: "x", project: {}, sourceRefs: [] }, systemPrompt: "override me" });
+  const error = validateRequestBody({ model: "m", question: "q", dto: realDto(), systemPrompt: "override me" });
   assert.match(error, /Unknown request field/);
   assert.match(error, /systemPrompt/);
 });
 
 run("validateRequestBody rejects a missing model/question/dto", () => {
-  assert.match(validateRequestBody({ question: "q", dto: { generatedAt: "x", project: {}, sourceRefs: [] } }), /model is required/);
-  assert.match(validateRequestBody({ model: "m", dto: { generatedAt: "x", project: {}, sourceRefs: [] } }), /question is required/);
+  assert.match(validateRequestBody({ question: "q", dto: realDto() }), /model is required/);
+  assert.match(validateRequestBody({ model: "m", dto: realDto() }), /question is required/);
   assert.match(validateRequestBody({ model: "m", question: "q" }), /dto is required/);
 });
 
@@ -61,8 +91,16 @@ run("validateRequestBody rejects a dto missing required keys", () => {
   assert.match(error, /sourceRefs/);
 });
 
+run("validateRequestBody rejects a Phase C DTO missing a real-shape key (malformed) — e.g. a stale client still sending the old stub contract", () => {
+  const staleClientDto = { generatedAt: "x", project: { name: "p" }, sourceRefs: [] };
+  const error = validateRequestBody({ model: "m", question: "q", dto: staleClientDto });
+  assert.match(error, /dto is missing required field\(s\)/);
+  assert.match(error, /phase/);
+  assert.match(error, /goLiveReadiness/);
+});
+
 run("validateRequestBody rejects a non-array dto.sourceRefs", () => {
-  const error = validateRequestBody({ model: "m", question: "q", dto: { generatedAt: "x", project: {}, sourceRefs: "RSK-001" } });
+  const error = validateRequestBody({ model: "m", question: "q", dto: realDto({ sourceRefs: "RSK-001" }) });
   assert.match(error, /sourceRefs must be an array/);
 });
 
@@ -105,13 +143,15 @@ run("loadConfig applies defaults and honours env overrides", () => {
   assert.deepEqual(overridden.allowedOrigins, ["https://a.example.com", "https://b.example.com"]);
 });
 
-run("buildSystemPrompt embeds the versioned grounding rules and the DTO context", () => {
-  const dto = { generatedAt: "2026-08-03T00:00:00Z", project: { name: "CR028" }, sourceRefs: ["RSK-001"] };
+run("buildSystemPrompt embeds the versioned grounding rules and the real DTO context", () => {
+  const dto = realDto({ sourceRefs: ["RSK-001"] });
   const prompt = buildSystemPrompt(dto);
   assert.match(prompt, new RegExp(SYSTEM_PROMPT_VERSION));
   assert.match(prompt, /Never invent dates, owners, statuses, or reference codes/);
   assert.match(prompt, /Assessment: Achievable \| At Risk \| Unlikely \| Insufficient Evidence/);
   assert.match(prompt, /never state a numeric probability|Never state a numeric probability/i);
+  assert.match(prompt, /CONTEXT\.scheduleEvidence\.activeTimelineItems/, "feasibility rules must point the model at the real schedule-evidence fields, not just Delivery Confidence");
+  assert.match(prompt, /CONTEXT\.goLiveReadiness/);
   assert.ok(prompt.includes(JSON.stringify(dto)), "the DTO must be embedded verbatim in the prompt");
 });
 
@@ -182,7 +222,7 @@ async function readNdjson(res) {
   return text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
-const validDto = { generatedAt: "2026-08-03T00:00:00Z", project: { name: "CR028" }, sourceRefs: [] };
+const validDto = realDto();
 
 await runAsync("GET /health reports Ollama up and the installed model list", async () => {
   await withGatewayAndOllama({ models: ["qwen3:8b", "qwen3:4b"] }, async (base) => {
@@ -295,7 +335,7 @@ await runAsync("POST /project-assistant returns 502 OLLAMA_UNREACHABLE when Olla
 
 await runAsync("a successful completion streams token events and ends with a correct structured done event, with citations checked against dto.sourceRefs — not the model's own claim", async () => {
   await withGatewayAndOllama({ chatTokens: ["The relevant risk is ", "RSK-001", " and also ", "ACT-999", "."] }, async (base) => {
-    const dto = { generatedAt: "x", project: { name: "CR028" }, sourceRefs: ["RSK-001"] }; // ACT-999 deliberately NOT in sourceRefs
+    const dto = realDto({ sourceRefs: ["RSK-001"] }); // ACT-999 deliberately NOT in sourceRefs
     const res = await fetch(`${base}/project-assistant`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -395,6 +435,58 @@ await runAsync("an OPTIONS preflight from an allowed origin succeeds; from a dis
 
     const disallowed = await fetch(`${base}/project-assistant`, { method: "OPTIONS", headers: { Origin: "https://evil.example.com" } });
     assert.equal(disallowed.status, 403);
+  });
+});
+
+await runAsync("POST /project-assistant accepts the real Phase C ProjectAssistantDTO end-to-end (phase, schedule, Go-Live readiness, rollups, scheduleEvidence, etc.)", async () => {
+  await withGatewayAndOllama({ chatTokens: ["This project is on track."] }, async (base) => {
+    const dto = realDto({
+      sourceRefs: ["RSK-001", "M006"],
+      scheduleEvidence: {
+        upcomingMilestones: [{ ref: "M006", title: "Go Live", date: "2026-10-15", status: "Not Started" }],
+        activeTimelineItems: [{ phase: "Customer UAT", endDate: "2026-10-10", progressPercent: 40, status: "In Progress" }],
+      },
+    });
+    const res = await fetch(`${base}/project-assistant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "qwen3:8b", question: "Is 15 October achievable?", dto }),
+    });
+    assert.equal(res.status, 200);
+    const events = await readNdjson(res);
+    const doneEvent = events.find((e) => e.type === "done");
+    assert.equal(doneEvent.status, "ok");
+    assert.equal(doneEvent.answerType, "feasibility");
+  });
+});
+
+await runAsync("POST /project-assistant rejects a malformed dto (missing Phase C keys) before ever contacting Ollama", async () => {
+  await withGatewayAndOllama({}, async (base) => {
+    const malformed = { generatedAt: "x", project: { name: "CR028" }, sourceRefs: [] }; // the old Phase A1/A2 stub shape
+    const res = await fetch(`${base}/project-assistant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "qwen3:8b", question: "hi", dto: malformed }),
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(body.error.code, "INVALID_REQUEST");
+    assert.match(body.error.message, /missing required field/);
+  });
+});
+
+await runAsync("citation validation still works against the real DTO's sourceRefs", async () => {
+  await withGatewayAndOllama({ chatTokens: ["Citing ", "RSK-001", " and ", "ACT-999", "."] }, async (base) => {
+    const dto = realDto({ sourceRefs: ["RSK-001"] }); // ACT-999 deliberately NOT in sourceRefs
+    const res = await fetch(`${base}/project-assistant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "qwen3:8b", question: "Why is this Amber?", dto }),
+    });
+    const events = await readNdjson(res);
+    const doneEvent = events.find((e) => e.type === "done");
+    assert.deepEqual(doneEvent.validatedSources, ["RSK-001"]);
+    assert.deepEqual(doneEvent.unverifiedCitations, ["ACT-999"]);
   });
 });
 

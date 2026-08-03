@@ -25,10 +25,18 @@ export function loadConfig({ dir, env = process.env } = {}) {
   };
 }
 
-// Phase A1/A2 stub DTO contract. Phase C supersedes this with the real
-// ProjectAssistantDTO's own required-key list — update this constant (and
-// nothing else in validateRequestBody) when that lands.
-export const REQUIRED_DTO_KEYS = ["generatedAt", "project", "sourceRefs"];
+// Phase C — the real ProjectAssistantDTO's top-level keys (see
+// lib/ai/project-assistant-dto.ts on the app side, which this list must be
+// kept in sync with by hand — the two processes share no code). This is
+// still only a cheap structural check (every key present, sourceRefs is an
+// array) — not a full schema validator; see validateRequestBody below.
+export const REQUIRED_DTO_KEYS = [
+  "generatedAt", "project", "phase", "schedule", "goLiveDate", "projectHealth",
+  "deliveryConfidence", "goLiveReadiness", "rollups", "recommendations",
+  "openRisks", "openActions", "openDecisions", "openDependencies",
+  "failedOrBlockedTests", "outstandingAcceptanceCriteria", "customerOwnedItems",
+  "scheduleEvidence", "sourceRefs",
+];
 export const ALLOWED_TOP_LEVEL_KEYS = ["model", "question", "dto"];
 
 // Returns an error message string, or null if the body is valid. Strict by
