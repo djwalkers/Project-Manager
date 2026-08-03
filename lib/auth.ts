@@ -28,6 +28,7 @@ export const ROLE_NAV_ACCESS: Record<UserRole, "all" | string[]> = {
     "/",
     "/project-workspace",
     "/project-intelligence",
+    "/local-ai-assistant",
     "/daily-brief",
     "/project-trends",
     "/projects",

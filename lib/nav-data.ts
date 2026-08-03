@@ -20,6 +20,7 @@ import {
   Library,
   ListChecks,
   Mail,
+  MessageCircle,
   Newspaper,
   PackageCheck,
   PanelsTopLeft,
@@ -88,6 +89,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Intelligence",
     items: [
       { href: "/project-intelligence", label: "Delivery Intelligence", icon: BrainCircuit },
+      { href: "/local-ai-assistant", label: "Local AI Assistant", icon: MessageCircle, keywords: "ollama chat assistant ai" },
       { href: "/project-trends", label: "Trends", icon: TrendingUp },
       { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
       { href: "/manager-summary", label: "Manager Summary", icon: ClipboardList },
