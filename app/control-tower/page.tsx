@@ -469,7 +469,7 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold">Operational Detail</h2>
           </div>
           <div className="mb-5">
-            <Panel title="Today's Priorities" description="Automatically calculated from overdue work, blocked items, high risks and upcoming deadlines.">
+            <Panel title="Top 3 Priorities" description="Automatically calculated from overdue work, blocked items, high risks and upcoming deadlines.">
               {tower.todaysPriorities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No critical priorities identified — the project is on track.</p>
               ) : (

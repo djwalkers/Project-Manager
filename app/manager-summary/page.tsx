@@ -5,5 +5,5 @@ export default function ManagerSummary() {
 }
 
 export const metadata = {
-  title: "Manager Exception Report",
+  title: "Manager Summary",
 };
