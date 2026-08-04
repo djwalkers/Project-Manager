@@ -67,7 +67,7 @@ const REPORT_DEFS: ReportDef[] = [
   {
     id: "requirements-traceability",
     title: "Requirements Traceability",
-    description: "Requirements mapped to test cases and acceptance criteria.",
+    description: "Requirements mapped to acceptance criteria, with sign-off and evidence status.",
     icon: ShieldCheck,
   },
   {

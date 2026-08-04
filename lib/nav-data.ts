@@ -84,9 +84,9 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "intelligence",
     label: "Intelligence",
     items: [
-      { href: "/project-intelligence", label: "Delivery Intelligence", icon: BrainCircuit },
+      { href: "/project-intelligence", label: "Project Intelligence", icon: BrainCircuit },
       { href: "/local-ai-assistant", label: "Local AI Assistant", icon: MessageCircle, keywords: "ollama chat assistant ai" },
-      { href: "/project-trends", label: "Trends", icon: TrendingUp },
+      { href: "/project-trends", label: "Project Trends", icon: TrendingUp },
       { href: "/daily-brief", label: "Daily Brief", icon: Newspaper },
       { href: "/manager-summary", label: "Manager Summary", icon: ClipboardList },
       { href: "/control-tower", label: "Control Tower", icon: Radio, keywords: "control tower kpi dashboard" },

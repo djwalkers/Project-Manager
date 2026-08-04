@@ -260,7 +260,7 @@ export default function DashboardPage() {
         <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
           <div>
             <p className="text-sm font-medium text-primary">Executive Control Tower</p>
-            <h2 id="control-tower-title" className="mt-1 text-2xl font-semibold tracking-normal">Project Control Centre</h2>
+            <h2 id="control-tower-title" className="mt-1 text-2xl font-semibold tracking-normal">Control Tower</h2>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
               {project.name} · {project.customer} · {project.workstream}
             </p>
@@ -300,7 +300,7 @@ export default function DashboardPage() {
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <ControlTowerKpi title="Project Health" rag={tower.health} helper="Calculated from overdue work, blockers and schedule variance" icon={HeartPulse} tone={tower.health === "Red" ? "danger" : tower.health === "Amber" ? "warn" : "good"} />
           <ControlTowerKpi title="Project End Date" value={schedule.valid ? formatScheduleDate(schedule.projectEnd) : "Review"} helper={schedule.valid ? "Editable planned delivery end date" : "Schedule dates need review"} icon={CalendarRange} tone={schedule.valid ? "neutral" : "warn"} />
-          <ControlTowerKpi title="Days Remaining" value={schedule.daysRemaining ?? "Review"} helper={schedule.valid ? "Calendar days to planned project end" : "Schedule dates need review"} icon={CalendarClock} tone={schedule.daysRemaining === 0 && !schedule.projectComplete ? "danger" : "neutral"} />
+          <ControlTowerKpi title="Days to Planned End" value={schedule.daysRemaining ?? "Review"} helper={schedule.valid ? "Calendar days to planned project end" : "Schedule dates need review"} icon={CalendarClock} tone={schedule.daysRemaining === 0 && !schedule.projectComplete ? "danger" : "neutral"} />
           <ControlTowerKpi title="Planned Progress" value={schedule.plannedProgress === null ? "Review" : `${schedule.plannedProgress}%`} helper="Elapsed calendar days across the project baseline" icon={Target} progress={schedule.plannedProgress ?? undefined} />
           <ControlTowerKpi title="Actual Progress" value={schedule.actualProgress === null ? "Review" : `${schedule.actualProgress}%`} helper="Duration-weighted progress across timeline phases" icon={Gauge} progress={schedule.actualProgress ?? undefined} />
           <ControlTowerKpi title="Schedule Variance" value={schedule.variance === null ? "Review" : varianceLabel} helper="Actual progress minus planned progress" icon={Activity} tone={schedule.health === "Red" ? "danger" : schedule.health === "Amber" ? "warn" : "good"} />
@@ -311,9 +311,9 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Open Discovery Questions" value={tower.openQuestions} helper="Questions still awaiting an answer" icon={CircleHelp} tone={tower.openQuestions ? "warn" : "good"} trend={trends.openQuestions} href="/discovery-questions?status=Awaiting Business" />
           <ControlTowerKpi title="Active Milestones" value={tower.activeMilestones} helper="In progress, at risk or blocked" icon={Flag} tone={tower.blockedMilestones ? "danger" : "neutral"} href="/milestones" />
           <ControlTowerKpi title="Overall Project Progress" value={`${progress.overall}%`} helper="Weighted across requirements, milestones, actions, testing and discovery" icon={Target} progress={progress.overall} trend={progress.trend} />
-          <ControlTowerKpi title="Delivery Readiness" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
+          <ControlTowerKpi title="Delivery Completion" value={`${tower.deliveryReadiness.percent}%`} helper={`${tower.deliveryReadiness.completed} of ${tower.deliveryReadiness.total} deliverables deployed`} icon={PackageCheck} progress={tower.deliveryReadiness.percent} tone={tower.deliverableAttention.some((item) => item.severity === "Critical") ? "danger" : tower.deliverableAttention.length ? "warn" : "good"} />
           <ControlTowerKpi title="Acceptance Progress" value={tower.acceptance.total ? `${tower.acceptance.pct}%` : "—"} helper={`${tower.acceptance.met} of ${tower.acceptance.total} criteria met · ${tower.acceptance.failed} failed`} icon={ShieldCheck} progress={tower.acceptance.pct} trend={trends.acceptancePct} tone={tower.acceptance.failed > 0 ? "danger" : tower.acceptance.pct === 100 ? "good" : tower.acceptance.total ? "neutral" : "neutral"} href="/acceptance-criteria" />
-          <ControlTowerKpi title="Project Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={trends.projectReadiness} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
+          <ControlTowerKpi title="Requirements Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={trends.projectReadiness} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
           <ControlTowerKpi
             title="Delivery Confidence"
             value={`${tower.confidence.score}%`}

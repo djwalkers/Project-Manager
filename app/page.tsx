@@ -289,7 +289,7 @@ export default function WorkbenchPage() {
 
           {/* Today's priorities */}
           {wb.priorities.length > 0 && (
-            <Section title="Today's Priorities" icon={Zap}>
+            <Section title="Top 3 Priorities" icon={Zap}>
               <ol className="space-y-2">
                 {wb.priorities.slice(0, 5).map((p) => (
                   <li key={p.rank} className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">

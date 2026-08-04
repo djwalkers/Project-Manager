@@ -554,7 +554,7 @@ export function LocalAIAssistantPage() {
       </div>
 
       {!project ? (
-        <div className="mt-8 text-center text-sm text-muted-foreground">No projects found.</div>
+        <div className="mt-8 text-center text-sm text-muted-foreground">No projects found. Add a project to start using the assistant.</div>
       ) : (
         <>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">

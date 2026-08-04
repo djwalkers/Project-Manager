@@ -679,7 +679,7 @@ export function GoLiveReadinessPage() {
                 </p>
                 {blockingChecks.length > 0 && (
                   <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-                    Blocking readiness: {blockingChecks.map((c) => c.label).join(", ")}
+                    Blocking items: {blockingChecks.map((c) => c.label).join(", ")}
                   </p>
                 )}
                 <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
