@@ -20,6 +20,7 @@ import type {
   GoLiveReadinessOverride,
   GoLiveReadinessOverrideStatus,
   Project,
+  RequirementSignOff,
 } from "@/lib/types";
 import { scopeProjectData } from "@/lib/project-scope";
 
@@ -154,6 +155,25 @@ function hasUatEvidence(item: Deliverable) {
   return item.uat_status !== "Not Started" || UAT_OR_LATER_STATUSES.includes(item.status);
 }
 
+// UAT Signed Off (post-audit Phase 2): durable customer sign-off evidence,
+// not a deliverable's own uat_status substatus, is authoritative wherever
+// it has actually been recorded. A requirement is "applicable" only if a
+// Customer-type requirement_sign_offs row already exists for it — this is
+// never assumed, since nothing in the schema marks a requirement as
+// requiring customer sign-off. Closed requirements are excluded (a
+// superseded/dropped requirement's stale sign-off can't block UAT). The
+// latest row by updated_at wins per requirement — the same defensive
+// pattern latestOverrideByKey already uses for go_live_readiness_overrides
+// — in case a duplicate row ever exists outside the normal edit-in-place
+// UI flow (components/requirement-sign-off-panel.tsx). Projects with zero
+// Customer sign-off records anywhere fall back unchanged to the original
+// deliverable-based derivation below.
+function latestCustomerSignOff(signOffs: RequirementSignOff[], requirementId: string): RequirementSignOff | null {
+  const matches = signOffs.filter((s) => s.requirement_id === requirementId && s.sign_off_type === "Customer");
+  if (!matches.length) return null;
+  return [...matches].sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+}
+
 function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: AcceptanceCriteria[], phase: ProjectPhase): ReadinessCheckStatus {
   switch (key) {
     case "requirements_signed_off":
@@ -175,9 +195,19 @@ function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: Accept
       if (scoped.deliverables.length === 0 || !scoped.deliverables.some(hasSitEvidence)) return "Not Yet Assessed";
       return scoped.deliverables.every(isSitComplete) ? "Complete" : "Incomplete";
     }
-    case "uat_signed_off":
+    case "uat_signed_off": {
+      const applicableSignOffs = scoped.requirements
+        .filter((r) => r.status !== "Closed")
+        .map((r) => latestCustomerSignOff(scoped.requirement_sign_offs ?? [], r.id))
+        .filter((s): s is RequirementSignOff => s !== null);
+      if (applicableSignOffs.length > 0) {
+        return applicableSignOffs.every((s) => s.status === "Approved") ? "Complete" : "Incomplete";
+      }
+      // Fallback: no Customer sign-off tracking configured on this project
+      // at all — preserve the original deliverable-based derivation exactly.
       if (scoped.deliverables.length === 0 || !scoped.deliverables.some(hasUatEvidence)) return "Not Yet Assessed";
       return scoped.deliverables.every(isUatComplete) ? "Complete" : "Incomplete";
+    }
     case "acceptance_criteria_met":
       if (scopedAC.length === 0) return "Not Yet Assessed";
       return scopedAC.every((ac) => isAcceptanceCriteriaMet(ac.status)) ? "Complete" : "Incomplete";

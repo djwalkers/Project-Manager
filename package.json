@@ -21,7 +21,8 @@
     "test:phase-c-dto": "node tests/local-ai-assistant-dto.test.mjs",
     "test:phase-d": "node tests/local-ai-assistant.test.mjs",
     "test:post-audit-phase1": "node tests/phase-1-provider-scope.test.mjs",
-    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4 && npm run test:phase5 && npm run test:phase6 && npm run test:phase7 && npm run test:phase8 && npm run test:phase9 && npm run test:phase-c-dto && npm run test:phase-d && npm run test:post-audit-phase1"
+    "test:post-audit-phase2": "node tests/phase-2-uat-signoff.test.mjs",
+    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4 && npm run test:phase5 && npm run test:phase6 && npm run test:phase7 && npm run test:phase8 && npm run test:phase9 && npm run test:phase-c-dto && npm run test:phase-d && npm run test:post-audit-phase1 && npm run test:post-audit-phase2"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
