@@ -163,10 +163,9 @@ run("fix confirmed end-to-end: Deployment-gated manual checks read Not Yet Requi
   for (const key of ["deployment_cutover_approval", "rollback_plan_approved", "hypercare_owner_assigned", "support_rota_confirmed"]) {
     assert.equal(checkByKey(dashboard, key).effective, "Not Yet Required", `${key} must be Not Yet Required during UAT, not Incomplete`);
   }
-  // UAT-gated manual checks are correctly applicable and Incomplete (no
-  // record yet) — this is expected, not a defect (see defect 3 below).
+  // The UAT-gated manual check is correctly applicable and Incomplete (no
+  // record yet) — this is expected, not a defect.
   assert.equal(checkByKey(dashboard, "customer_approval").effective, "Incomplete");
-  assert.equal(checkByKey(dashboard, "warehouse_training").effective, "Incomplete");
 });
 
 run("regression guard: text naming only deployment/cutover concepts (no UAT mention) still derives Deployment", () => {
@@ -218,29 +217,10 @@ run("regression guard: SIT Complete is still Not Yet Assessed with zero delivera
   assert.equal(checkByKey(dashboard, "sit_complete").effective, "Not Yet Assessed");
 });
 
-// ── Defect 3: Warehouse Training — confirm the Waived path is safe ─────────
-
-run("Warehouse Training can be recorded as Waived (customer-owned, out of delivery scope), counts as passed, and stays visibly distinct from a genuine Complete", () => {
-  const data = baseData({
-    timeline_items: [timelineItem({ phase_ref: "PH-UAT", phase_name: "Customer UAT", status: "In Progress" })],
-    go_live_checklists: [
-      checklistItem({
-        id: "glc-training", category: "Training", item: "Warehouse training",
-        owner: "Sysco (Customer)", status: "Waived",
-        notes: "Customer-owned activity outside Bluestonex delivery scope.",
-      }),
-    ],
-  });
-  const project = data.projects[0];
-  const dashboard = buildGoLiveDashboard(data, project, now);
-  const check = checkByKey(dashboard, "warehouse_training");
-
-  assert.equal(check.effective, "Waived");
-  assert.notEqual(check.effective, "Complete", "Waived must remain visibly distinct from a genuine pass");
-  assert.ok(dashboard.checks.filter((c) => c.effective === "Complete" || c.effective === "Waived").includes(check), "a Waived check counts toward the passed/completed set");
-  assert.equal(dashboard.incompleteCount, dashboard.checks.filter((c) => c.effective === "Incomplete").length);
-  assert.ok(!dashboard.checks.filter((c) => c.effective === "Incomplete").includes(check), "a Waived check must not appear in the incomplete/blocking set");
-});
+// ── Defect 3 (Warehouse Training / Waived-path test) was removed here
+// (post-audit Phase 1) — the warehouse_training check no longer exists.
+// See tests/phase-1-provider-scope.test.mjs for the regression coverage
+// proving a historical category-"Training" checklist row is now inert.
 
 // ── Defect 4: cross-surface consistency for the corrected CR028 scenario ───
 
@@ -257,7 +237,7 @@ run("cross-surface: ProjectState phase, Go-Live readiness, and Manager Summary a
     test_cases: [testCase({ status: "Passed" }), testCase({ id: "test-2", test_ref: "TEST-002", status: "Passed" })],
     acceptance_criteria: [{ id: "ac-1", project_id: PROJECT_ID, requirement_id: "req-1", ac_ref: "AC-001", criterion: "c", description: null, status: "Met", owner: "QA", evidence: null, notes: null, created_at: "2026-06-01T00:00:00.000Z", updated_at: "2026-06-01T00:00:00.000Z" }],
     risks: [{ id: "risk-1", project_id: PROJECT_ID, risk_ref: "RSK-001", description: "d", impact: "Low", probability: "Low", mitigation: "m", owner: "Andrew Walker", status: "Closed", trend: null, created_at: "2026-06-01T00:00:00.000Z", updated_at: "2026-06-01T00:00:00.000Z" }],
-    go_live_checklists: [checklistItem({ id: "glc-training", category: "Training", item: "Warehouse training", owner: "Sysco (Customer)", status: "Waived", notes: "Customer-owned activity outside Bluestonex delivery scope." })],
+    go_live_checklists: [checklistItem({ id: "glc-customer-approval", category: "Customer Approval", item: "Customer sign-off on delivery date range UAT", owner: "Sysco (Customer)", status: "Waived", notes: "Customer-owned activity outside Bluestonex delivery scope." })],
   });
   const project = data.projects[0];
   const state = buildProjectState(data, project, now);
@@ -267,7 +247,7 @@ run("cross-surface: ProjectState phase, Go-Live readiness, and Manager Summary a
   for (const key of ["deployment_cutover_approval", "rollback_plan_approved", "hypercare_owner_assigned", "support_rota_confirmed"]) {
     assert.equal(checkByKey(state.goLive, key).effective, "Not Yet Required");
   }
-  assert.equal(checkByKey(state.goLive, "warehouse_training").effective, "Waived");
+  assert.equal(checkByKey(state.goLive, "customer_approval").effective, "Waived");
   assert.notEqual(state.goLive.status, "Red", "no genuine blocker exists in this fixture");
   assert.notEqual(state.managerSummary.status, "Red", "Manager Summary must not disagree by inventing a Red the other views don't see");
 });

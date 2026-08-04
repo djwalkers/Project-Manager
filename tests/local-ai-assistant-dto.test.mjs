@@ -257,7 +257,7 @@ function buildFixture() {
 
   const go_live_checklists = [
     checklistItem({
-      category: "Training", item: "Warehouse training", owner: "Sysco (Customer)", status: "Waived",
+      category: "Customer Approval", item: "Customer sign-off on go-live approval", owner: "Sysco (Customer)", status: "Waived",
       notes: "Customer-owned activity outside Bluestonex delivery scope.",
     }),
     checklistItem({ category: "Customer Approval", item: "Customer sign-off on UAT", owner: "Sysco", status: "Not Started", notes: null }),
@@ -382,12 +382,12 @@ run("customer-ownership tiers: owner match + explicit reason = confirmed, owner 
   const data = buildFixture();
   const dto = buildProjectAssistantDTO(data, data.projects[0], now);
 
-  const training = dto.customerOwnedItems.find((i) => i.label === "Warehouse training");
+  const goLiveApproval = dto.customerOwnedItems.find((i) => i.label === "Customer sign-off on go-live approval");
   const approval = dto.customerOwnedItems.find((i) => i.label === "Customer sign-off on UAT");
   const dataValidation = dto.customerOwnedItems.find((i) => i.label === "Legacy data validation");
   const cutover = dto.customerOwnedItems.find((i) => i.label === "Cutover rehearsal");
 
-  assert.equal(training.ownership, "confirmed_customer_owned");
+  assert.equal(goLiveApproval.ownership, "confirmed_customer_owned");
   assert.equal(approval.ownership, "likely_customer_owned");
   assert.equal(dataValidation.ownership, "unknown");
   assert.equal(cutover, undefined, "an item with neither an owner match nor an explicit reason must not be surfaced at all — never present name-matching alone as confirmed ownership");

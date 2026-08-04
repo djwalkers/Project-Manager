@@ -87,7 +87,6 @@ export const INTELLIGENCE_RULES: IntelligenceRuleDefinition[] = [
   { id: "GLR-003", category: "Delivery", sources: ["go_live_checklists"] },
   { id: "GLR-004", category: "Delivery", sources: ["go_live_checklists"] },
   { id: "GLR-005", category: "Risk", sources: ["go_live_checklists", "risks"] },
-  { id: "GLR-006", category: "Delivery", sources: ["go_live_checklists"] },
   { id: "REQ-001", category: "Governance", sources: ["requirements"] },
   { id: "REQ-002", category: "Governance", sources: ["requirements"] },
   { id: "REQ-003", category: "Governance", sources: ["requirements"] },
@@ -270,15 +269,10 @@ export function buildProjectIntelligence(data: DataStore, project: Project, now 
         100, "Resolve or formally accept all critical risks with management sign-off.");
     }
 
-    // GLR-006: Training incomplete
-    const trainingItems = goLiveChecklists.filter((c) => c.category === "Training" || /training/i.test(c.item));
-    const trainingIncomplete = trainingItems.length === 0 || trainingItems.some((c) => !["Complete", "Waived"].includes(c.status));
-    if (trainingIncomplete && daysToGoLive !== null && daysToGoLive <= 14) {
-      add(project, "GLR-006", "Delivery", "Warning", "Training is incomplete within 14 days of go-live",
-        "Warehouse and user training must be complete before go-live to ensure operational readiness.",
-        `${trainingItems.filter((c) => !["Complete", "Waived"].includes(c.status)).length} training items outstanding.`,
-        93, "Complete outstanding training or confirm a waiver with the business.");
-    }
+    // GLR-006 (Training incomplete) was removed here (post-audit Phase 1) —
+    // customer operational readiness is out of scope for this provider
+    // software-delivery tool. A checklist row with category "Training" is
+    // simply never inspected by this function any longer.
   }
 
   // ── Audit-based intelligence rules ───────────────────────────────────────────

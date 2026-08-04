@@ -45,8 +45,6 @@ export const ROLE_NAV_ACCESS: Record<UserRole, "all" | string[]> = {
     "/meetings",
     "/meeting-intelligence",
     "/acceptance-criteria",
-    "/evidence",
-    "/traceability",
     "/documents",
     "/audit-trail",
     "/system-health",

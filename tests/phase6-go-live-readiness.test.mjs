@@ -1,5 +1,8 @@
-// Phase 6 — 13-check Go-Live Readiness model, phase-aware manual
-// applicability, and audited overrides.
+// Phase 6 — 12-check Go-Live Readiness model, phase-aware manual
+// applicability, and audited overrides. (Originally 13 checks; the
+// Warehouse Training check was removed in the post-audit Phase 1 fix — see
+// tests/phase-1-provider-scope.test.mjs — since it assessed customer
+// operational readiness, not software delivery.)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import Module from "node:module";
@@ -400,7 +403,7 @@ await runAsync("anonymous production override CRUD is rejected (GET/POST/DELETE 
 run("GLR-002 (Rollback) and GLR-003 (Hypercare) do not fire before Deployment, but GLR-004 (Customer Approval) still fires during UAT", () => {
   const data = buildData({
     timeline_items: timelineFor("Customer UAT"),
-    go_live_checklists: [checklistItem({ category: "Training", item: "decoy so goLiveChecklists.length > 0", status: "Not Started" })],
+    go_live_checklists: [checklistItem({ category: "Data", item: "decoy so goLiveChecklists.length > 0", status: "Not Started" })],
   });
   const intelligence = buildProjectIntelligence(data, data.projects[0], now);
   assert.equal(intelligence.findings.some((f) => f.ruleId === "GLR-002"), false, "Rollback finding must not fire before Deployment");
@@ -411,7 +414,7 @@ run("GLR-002 (Rollback) and GLR-003 (Hypercare) do not fire before Deployment, b
 run("GLR-002 (Rollback) and GLR-003 (Hypercare) do fire once the project reaches Deployment", () => {
   const data = buildData({
     timeline_items: timelineFor("Deployment Phase"),
-    go_live_checklists: [checklistItem({ category: "Training", item: "decoy so goLiveChecklists.length > 0", status: "Not Started" })],
+    go_live_checklists: [checklistItem({ category: "Data", item: "decoy so goLiveChecklists.length > 0", status: "Not Started" })],
   });
   const intelligence = buildProjectIntelligence(data, data.projects[0], now);
   assert.equal(intelligence.findings.some((f) => f.ruleId === "GLR-002"), true, "Rollback finding must fire once Deployment is reached");
@@ -426,14 +429,17 @@ run("the readiness percentage denominator excludes Not Yet Required and Not Yet 
     requirements: [requirement()],
     deliverables: [deliverable({ uat_status: "Complete", status: "UAT Complete" })],
     // risks and test_cases and acceptance_criteria left empty ⇒ Not Yet Assessed (3 auto checks excluded)
-    go_live_checklists: [checklistItem({ category: "Customer Approval", status: "Complete" }), checklistItem({ id: "glc-2", category: "Training", status: "Complete" })],
+    // The second checklist row uses a category with no matching check at all
+    // (post-Phase-1: Training was removed as a concept) — it must be inert,
+    // proving a historical/unmatched checklist row never inflates the denominator.
+    go_live_checklists: [checklistItem({ category: "Customer Approval", status: "Complete" }), checklistItem({ id: "glc-2", category: "Data", item: "unrelated decoy row", status: "Complete" })],
   });
   const dashboard = buildGoLiveDashboard(data, data.projects[0], now);
-  // Assessed: requirements_signed_off, development_complete, sit_complete, uat_signed_off (4 auto) + customer_approval, warehouse_training (2 manual) = 6.
+  // Assessed: requirements_signed_off, development_complete, sit_complete, uat_signed_off (4 auto) + customer_approval (1 manual) = 5.
   // Excluded: acceptance_criteria_met, risks_closed, tests_passed (3 auto, Not Yet Assessed) + 4 Deployment-gated manual (Not Yet Required) = 7.
-  assert.equal(dashboard.totalItems, 6);
+  assert.equal(dashboard.totalItems, 5);
   assert.equal(dashboard.excludedCount, 7);
-  assert.equal(dashboard.completedItems, 6);
+  assert.equal(dashboard.completedItems, 5);
   assert.equal(dashboard.readinessPercent, 100);
 });
 

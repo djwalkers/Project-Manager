@@ -211,15 +211,21 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
 // ── Report: RAID Log ──────────────────────────────────────────────────────────
 
 function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const openRisks = data.risks.filter((r) => isRiskOpen(r.status));
-  const openActions = data.actions.filter((a) => isActionOpen(a.status));
-  const openDecisions = data.decisions.filter((d) => isDecisionOpen(d.status));
+  const project = selectActiveProject(data);
+  // Scoped to this exact project via ProjectState (matching every other
+  // report on this page) — previously read raw, unscoped data.risks/
+  // actions/decisions, which meant a sibling project's RAID items leaked
+  // into this report. See tests/phase-1-provider-scope.test.mjs.
+  const scoped = project ? buildProjectState(data, project).scoped : null;
+  const openRisks = (scoped?.risks ?? []).filter((r) => isRiskOpen(r.status));
+  const openActions = (scoped?.actions ?? []).filter((a) => isActionOpen(a.status));
+  const openDecisions = (scoped?.decisions ?? []).filter((d) => isDecisionOpen(d.status));
 
   return (
     <div className="report-body space-y-8">
       <div className="border-b pb-4">
         <h1 className="text-2xl font-bold">RAID Log</h1>
-        <p className="text-muted-foreground">Risks, Actions, Issues &amp; Decisions · {today()}</p>
+        <p className="text-muted-foreground">{project?.name} · Risks, Actions, Issues &amp; Decisions · {today()}</p>
       </div>
 
       <div>

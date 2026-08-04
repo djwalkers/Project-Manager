@@ -34,9 +34,10 @@ export function isPhaseAtOrAfter(phase: ProjectPhase, gate: ProjectPhase): boole
   return PROJECT_PHASE_ORDER.indexOf(phase) >= PROJECT_PHASE_ORDER.indexOf(gate);
 }
 
+// warehouse_training was removed (post-audit Phase 1) — see
+// lib/go-live-readiness.ts's MANUAL_CHECKS comment.
 export type ManualCheckKey =
   | "customer_approval"
-  | "warehouse_training"
   | "deployment_cutover_approval"
   | "rollback_plan_approved"
   | "hypercare_owner_assigned"
@@ -44,7 +45,6 @@ export type ManualCheckKey =
 
 export const MANUAL_CHECK_APPLICABLE_FROM: Record<ManualCheckKey, ProjectPhase> = {
   customer_approval: "UAT",
-  warehouse_training: "UAT",
   deployment_cutover_approval: "Deployment",
   rollback_plan_approved: "Deployment",
   hypercare_owner_assigned: "Deployment",

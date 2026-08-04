@@ -20,7 +20,8 @@
     "test:phase9": "node tests/phase9-snapshot-schedule-health.test.mjs",
     "test:phase-c-dto": "node tests/local-ai-assistant-dto.test.mjs",
     "test:phase-d": "node tests/local-ai-assistant.test.mjs",
-    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4 && npm run test:phase5 && npm run test:phase6 && npm run test:phase7 && npm run test:phase8 && npm run test:phase9 && npm run test:phase-c-dto && npm run test:phase-d"
+    "test:post-audit-phase1": "node tests/phase-1-provider-scope.test.mjs",
+    "test": "npm run test:intelligence && npm run test:project-state && npm run test:lifecycle && npm run test:security && npm run test:project-dates && npm run test:phase4 && npm run test:phase5 && npm run test:phase6 && npm run test:phase7 && npm run test:phase8 && npm run test:phase9 && npm run test:phase-c-dto && npm run test:phase-d && npm run test:post-audit-phase1"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

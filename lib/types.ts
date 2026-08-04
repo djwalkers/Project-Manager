@@ -102,9 +102,14 @@ export type Deliverable = {
   updated_at: string;
 };
 
+// "Training" was removed (post-audit Phase 1) — customer operational
+// readiness (e.g. warehouse staff training) is out of scope for a provider
+// software-delivery tool. A historical checklist row with category
+// "Training" may still exist in storage; it is simply no longer matched by
+// any check (see lib/go-live-readiness.ts's MANUAL_CHECKS).
 export type GoLiveChecklistCategory =
   | "Requirements" | "Development" | "SIT" | "UAT" | "Data"
-  | "Training" | "Deployment" | "Hypercare" | "Rollback" | "Support" | "Customer Approval";
+  | "Deployment" | "Hypercare" | "Rollback" | "Support" | "Customer Approval";
 
 export type GoLiveChecklistStatus = "Not Started" | "In Progress" | "Complete" | "Blocked" | "Waived";
 

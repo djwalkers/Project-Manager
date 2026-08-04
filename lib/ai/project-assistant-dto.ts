@@ -65,11 +65,16 @@ function truncate(value: string, max = MAX_TEXT_LENGTH): string {
 // alone. Built only from go_live_checklists rows — the one place in this
 // codebase that already carries both an owner-name signal (e.g. "Sysco
 // (Customer)") and an explicit documented reason (e.g. "Customer-owned
-// activity outside Bluestonex delivery scope.", the Warehouse Training
-// pattern — see tests/phase8-defect-fixes.test.mjs). Deliverables/actions/
-// decisions have owner fields too, but no established documented-reason
-// precedent exists for those in this codebase, so they're left out rather
-// than guessed at.
+// activity outside Bluestonex delivery scope." on a Customer Approval item —
+// see tests/phase-1-provider-scope.test.mjs). Deliverables/actions/decisions
+// have owner fields too, but no established documented-reason precedent
+// exists for those in this codebase, so they're left out rather than
+// guessed at. This tiering exists for genuinely provider-relevant external
+// dependencies (customer sign-off, customer-provided access/data) — it must
+// never be used to surface customer operational/organisational activity
+// (training, adoption, change management) that sits outside the provider's
+// software-delivery scope (see the post-audit Phase 1 removal of the
+// "Warehouse Training" go-live check, which was exactly that).
 export type OwnershipConfidence = "confirmed_customer_owned" | "likely_customer_owned" | "unknown";
 
 const CUSTOMER_OWNED_REASON_PATTERN = /customer[- ]owned|owned by (the )?customer|outside .*delivery scope/i;
@@ -92,9 +97,19 @@ export type CustomerOwnedItem = {
 // *_ref field, only an internal id) — a synthetic "GLC-<n>" ref is minted
 // per project so these can still be cited like every other list item,
 // without ever exposing the row's raw UUID.
+// A checklist row's category is a free-text DB column, not a runtime-
+// constrained enum (see supabase/migrations/012_go_live_readiness.sql) — a
+// historical row can still literally carry category "Training" even though
+// it's no longer a valid GoLiveChecklistCategory. Training/warehouse-
+// training items are customer operational readiness, out of scope for this
+// provider software-delivery tool (post-audit Phase 1) — they must never
+// reach the AI assistant's context, regardless of any owner/reason signal.
+const OUT_OF_SCOPE_CHECKLIST_PATTERN = /training/i;
+
 function buildCustomerOwnedItems(checklists: GoLiveChecklist[], customer: string): CustomerOwnedItem[] {
   const items: CustomerOwnedItem[] = [];
   checklists.forEach((item, index) => {
+    if (OUT_OF_SCOPE_CHECKLIST_PATTERN.test(item.category) || OUT_OF_SCOPE_CHECKLIST_PATTERN.test(item.item)) return;
     const ownerMatch = ownerMatchesCustomer(item.owner, customer);
     const reasonText = item.notes ?? "";
     const explicitReason = CUSTOMER_OWNED_REASON_PATTERN.test(reasonText);

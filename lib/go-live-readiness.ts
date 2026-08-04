@@ -25,7 +25,7 @@ import { scopeProjectData } from "@/lib/project-scope";
 
 // ── Readiness model (Phase 6) ───────────────────────────────────────────────
 //
-// 13 checks: 7 auto-derived from lifecycle data, 6 manual (checklist-backed,
+// 12 checks: 7 auto-derived from lifecycle data, 5 manual (checklist-backed,
 // phase-gated). Five possible statuses per check:
 //   - Complete / Incomplete / Waived  — a real, assessed outcome
 //   - Not Yet Assessed                — an auto check with no applicable
@@ -113,9 +113,14 @@ const AUTO_CHECKS: Array<{ key: AutoCheckKey; label: string }> = [
 // go_live_checklists rows: exact category match is tried first (the primary,
 // non-fuzzy path); matchItem substring matching is only a fallback for
 // legacy rows that predate consistent categorisation.
+// warehouse_training was removed here (post-audit Phase 1) — customer
+// operational/organisational readiness (e.g. warehouse staff training) is
+// out of scope for this provider software-delivery tool. A historical
+// go_live_checklists row with category "Training" is left in storage
+// untouched, but no check below matches it any longer, so it can never
+// affect the readiness percentage, RAG, or any consumer of this dashboard.
 const MANUAL_CHECKS: Array<{ key: ManualCheckKey; label: string; category: GoLiveChecklistCategory; matchItem: string }> = [
   { key: "customer_approval", label: "Customer Approval", category: "Customer Approval", matchItem: "customer" },
-  { key: "warehouse_training", label: "Warehouse Training", category: "Training", matchItem: "training" },
   { key: "deployment_cutover_approval", label: "Deployment / Cutover Approval", category: "Deployment", matchItem: "deployment" },
   { key: "rollback_plan_approved", label: "Rollback Plan Approved", category: "Rollback", matchItem: "rollback" },
   { key: "hypercare_owner_assigned", label: "Hypercare Owner Assigned", category: "Hypercare", matchItem: "hypercare" },
@@ -124,7 +129,7 @@ const MANUAL_CHECKS: Array<{ key: ManualCheckKey; label: string; category: GoLiv
 
 export const GO_LIVE_CATEGORIES: GoLiveChecklistCategory[] = [
   "Requirements", "Development", "SIT", "UAT", "Data",
-  "Training", "Deployment", "Hypercare", "Rollback", "Support", "Customer Approval",
+  "Deployment", "Hypercare", "Rollback", "Support", "Customer Approval",
 ];
 
 export const GO_LIVE_CHECKLIST_STATUSES = ["Not Started", "In Progress", "Complete", "Blocked", "Waived"] as const;

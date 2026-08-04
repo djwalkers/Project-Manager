@@ -118,7 +118,7 @@ function buildFixture() {
   ];
 
   // Exactly one outstanding manual go-live item: Customer Approval.
-  // No rows at all for Requirements/Development/SIT/UAT/Training/Deployment/
+  // No rows at all for Requirements/Development/SIT/UAT/Deployment/
   // Rollback/Hypercare/Support — reproducing today's "empty checklist ⇒ 0%"
   // defect even though the project is materially in good shape.
   const go_live_checklists = [
@@ -220,10 +220,10 @@ run("risks: a Closed critical risk is correctly excluded from unmitigated/open-c
   assert.equal(intelligence.findings.some((f) => f.ruleId === "RSK-001"), false);
 });
 
-run("PHASE 6 (reviewed, intentional change — was the BASELINE defect): Go-Live Readiness now reflects dev/SIT complete, UAT active, tests passed, AC met via lifecycle data, instead of being forced to 0%/Red by an almost-empty go_live_checklists table. 7 auto checks all assessed (6 Complete, UAT Incomplete) + Customer Approval/Warehouse Training applicable at UAT (both Incomplete, no Complete/Waived record) = 9 assessed, 6 passed; Deployment-gated Cutover/Rollback/Hypercare/Support are Not Yet Required and excluded from the denominator.", () => {
-  assert.equal(goLive.totalItems, 9);
+run("PHASE 6 (reviewed, intentional change — was the BASELINE defect): Go-Live Readiness now reflects dev/SIT complete, UAT active, tests passed, AC met via lifecycle data, instead of being forced to 0%/Red by an almost-empty go_live_checklists table. 7 auto checks all assessed (6 Complete, UAT Incomplete) + Customer Approval applicable at UAT (Incomplete, no Complete/Waived record) = 8 assessed, 6 passed; Deployment-gated Cutover/Rollback/Hypercare/Support are Not Yet Required and excluded from the denominator. (Post-audit Phase 1: Warehouse Training was removed as a check — see tests/phase-1-provider-scope.test.mjs — so the denominator dropped from 9 to 8 and readiness rose from 67% to 75%.)", () => {
+  assert.equal(goLive.totalItems, 8);
   assert.equal(goLive.completedItems, 6);
-  assert.equal(goLive.readinessPercent, 67);
+  assert.equal(goLive.readinessPercent, 75);
   assert.equal(goLive.status, "Amber");
 });
 

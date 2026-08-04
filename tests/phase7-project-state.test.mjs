@@ -349,7 +349,11 @@ run("the CR028-shaped fixture's ProjectState is internally consistent with the s
   const state = buildProjectState(fixture, project, now);
 
   assert.equal(state.schedule.health, "Green");
-  assert.equal(state.goLive.readinessPercent, 67);
+  // 75% (was 67% pre-Phase-1): Warehouse Training's removal from the
+  // 13-check model dropped the denominator from 9 to 8 assessed checks —
+  // see tests/phase-1-provider-scope.test.mjs for the dedicated regression
+  // coverage proving a historical Training checklist row stays inert.
+  assert.equal(state.goLive.readinessPercent, 75);
   assert.equal(state.goLive.status, "Amber");
   assert.notEqual(state.managerSummary.status, "Red");
   assert.equal(state.confidence.rag, "Green");
