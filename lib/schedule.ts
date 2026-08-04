@@ -132,16 +132,50 @@ export function calculateSchedule(project: Project, items: TimelineItem[], now =
   };
 }
 
-export function scheduleBarPosition(item: TimelineItem, startValue: string, endValue: string) {
+// Shared range-to-percentage math, factored out of scheduleBarPosition so the
+// Executive Timeline (lib/executive-timeline.ts) can position hypercare
+// bands, weekend shading, and other date ranges against an arbitrary
+// [windowStart, windowEnd] the exact same way phase bars are positioned —
+// one calculation, not a second scheduling engine. scheduleBarPosition's own
+// output is unchanged; this is a pure extraction.
+function rangePosition(rangeItemStart: string, rangeItemEnd: string, startValue: string, endValue: string) {
   const rangeStart = parseScheduleDate(startValue);
   const rangeEnd = parseScheduleDate(endValue);
-  const itemStart = parseScheduleDate(item.start_date);
-  const itemEnd = parseScheduleDate(item.end_date);
+  const itemStart = parseScheduleDate(rangeItemStart);
+  const itemEnd = parseScheduleDate(rangeItemEnd);
   if (!rangeStart || !rangeEnd || !itemStart || !itemEnd || rangeEnd < rangeStart || itemEnd < itemStart) return null;
   const total = Math.max(1, durationDays(rangeStart, rangeEnd));
   const left = clamp((Math.max(0, (itemStart.getTime() - rangeStart.getTime()) / DAY_MS) / total) * 100);
   const width = clamp((durationDays(itemStart, itemEnd) / total) * 100, 0.8, 100 - left);
   return { left, width };
+}
+
+export function scheduleBarPosition(item: TimelineItem, startValue: string, endValue: string) {
+  return rangePosition(item.start_date, item.end_date, startValue, endValue);
+}
+
+// Additive — for the Executive Timeline to position a plain date range
+// (e.g. a hypercare band, a weekend) that isn't a TimelineItem. Same
+// formula as scheduleBarPosition, just without requiring a TimelineItem shape.
+export function dateRangePosition(rangeStartValue: string, rangeEndValue: string, startValue: string, endValue: string) {
+  return rangePosition(rangeStartValue, rangeEndValue, startValue, endValue);
+}
+
+// Additive — for positioning a single date (a milestone, the Go-Live date)
+// within an arbitrary window. Unlike dateRangePosition/scheduleBarPosition
+// (which deliberately clamp a bar to the visible edge when it's only
+// partially in view — correct for a bar representing ongoing work), a
+// point marker fully outside the window returns null rather than clamping:
+// a milestone diamond pinned exactly at 0%/100% would misrepresent it as
+// falling exactly at the window's edge, which it doesn't.
+export function datePosition(value: string | null | undefined, startValue: string, endValue: string): number | null {
+  if (!value) return null;
+  const rangeStart = parseScheduleDate(startValue);
+  const rangeEnd = parseScheduleDate(endValue);
+  const date = parseScheduleDate(value);
+  if (!rangeStart || !rangeEnd || !date || rangeEnd < rangeStart || date < rangeStart || date > rangeEnd) return null;
+  const total = Math.max(1, durationDays(rangeStart, rangeEnd));
+  return clamp(((date.getTime() - rangeStart.getTime()) / DAY_MS) / total * 100);
 }
 
 export function todayPosition(startValue: string, endValue: string, now = new Date()) {

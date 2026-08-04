@@ -13,6 +13,7 @@ import {
   ClipboardList,
   FileText,
   Flag,
+  GanttChart,
   GitBranch,
   History,
   LayoutDashboard,
@@ -84,6 +85,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "intelligence",
     label: "Intelligence",
     items: [
+      { href: "/executive-timeline", label: "Executive Timeline", icon: GanttChart, keywords: "gantt schedule roadmap" },
       { href: "/project-intelligence", label: "Project Intelligence", icon: BrainCircuit },
       { href: "/local-ai-assistant", label: "Local AI Assistant", icon: MessageCircle, keywords: "ollama chat assistant ai" },
       { href: "/project-trends", label: "Project Trends", icon: TrendingUp },

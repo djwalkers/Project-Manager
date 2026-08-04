@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 
 const DAY_MS = 86_400_000;
 
-function phaseRowTone(item: TimelineItem): string {
+// Exported so the Executive Timeline (components/executive-timeline-page.tsx)
+// reuses the exact same status→colour convention rather than defining a
+// second one.
+export function phaseRowTone(item: TimelineItem): string {
   if (item.status === "Complete") return "bg-emerald-50/60 dark:bg-emerald-950/10";
   if (item.status === "Blocked") return "bg-red-50/70 dark:bg-red-950/15";
   if (item.status === "At Risk") return "bg-amber-50/60 dark:bg-amber-950/15";
@@ -14,7 +17,7 @@ function phaseRowTone(item: TimelineItem): string {
   return "";
 }
 
-function phaseDaysLabel(item: TimelineItem): { label: string; warn: boolean } {
+export function phaseDaysLabel(item: TimelineItem): { label: string; warn: boolean } {
   const end = parseScheduleDate(item.end_date);
   if (!end) return { label: "", warn: false };
   const today = new Date();
@@ -26,7 +29,7 @@ function phaseDaysLabel(item: TimelineItem): { label: string; warn: boolean } {
   return { label: `${diff}d remaining`, warn: diff <= 7 };
 }
 
-const barTone: Record<TimelineItem["status"], string> = {
+export const barTone: Record<TimelineItem["status"], string> = {
   "Not Started": "bg-slate-400 dark:bg-slate-500",
   "In Progress": "bg-blue-600 dark:bg-blue-500",
   Complete: "bg-emerald-600 dark:bg-emerald-500",

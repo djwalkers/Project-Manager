@@ -27,6 +27,7 @@ export const ROLE_NAV_ACCESS: Record<UserRole, "all" | string[]> = {
   Manager: [
     "/",
     "/project-workspace",
+    "/executive-timeline",
     "/project-intelligence",
     "/local-ai-assistant",
     "/daily-brief",
