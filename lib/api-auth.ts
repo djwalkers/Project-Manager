@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { canAssessManualChecks } from "@/lib/permissions";
+import type { UserRole } from "@/lib/auth";
 
 /**
  * Verify the request carries a valid Supabase session.
@@ -49,5 +52,38 @@ export async function requireAuthenticatedUser(): Promise<NextResponse<{ error: 
   const allowLocalFallback = process.env.NODE_ENV !== "production";
   const user = await getAuthenticatedUser({ allowLocalFallback });
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return null;
+}
+
+/**
+ * Route guard for endpoints that assess a manual Go-Live Readiness check —
+ * only Admin/Manager may record an assessment; Viewer is read-only (see
+ * lib/permissions.ts's canAssessManualChecks, the single rule shared with
+ * the client-side edit action).
+ *
+ * When Supabase isn't configured at all, the synthetic local-dev user is
+ * always treated as Admin — matching contexts/auth-context.tsx, which
+ * hands the same synthetic user an "Admin" role so the UI still renders as
+ * fully editable in local dev.
+ *
+ * Returns a 401/403 NextResponse to short-circuit the route, or null to
+ * proceed. Callers must call requireAuthenticatedUser() first if they also
+ * need the plain-401 behaviour for a fully anonymous request; this guard
+ * folds that check in too, so it is safe to call on its own.
+ */
+export async function requireAdminOrManagerUser(): Promise<NextResponse<{ error: string }> | null> {
+  const allowLocalFallback = process.env.NODE_ENV !== "production";
+  const user = await getAuthenticatedUser({ allowLocalFallback });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasSupabaseConfig) return null;
+
+  const db = createServiceRoleClient();
+  if (!db) return null;
+
+  const { data: profile } = await db.from("user_profiles").select("role").eq("id", user.id).maybeSingle();
+  const role = (profile?.role ?? null) as UserRole | null;
+  if (!canAssessManualChecks(role)) {
+    return NextResponse.json({ error: `Admin or Manager access required (resolved role: ${role ?? "none"})` }, { status: 403 });
+  }
   return null;
 }

@@ -26,11 +26,12 @@ import { scopeProjectData } from "@/lib/project-scope";
 
 // ── Readiness model (Phase 6) ───────────────────────────────────────────────
 //
-// 12 checks: 7 auto-derived from lifecycle data, 5 manual (checklist-backed,
-// phase-gated). Five possible statuses per check:
+// 12 checks: 7 auto-derived from lifecycle data, 5 manual (human-assessed,
+// phase-gated, with a legacy checklist-match fallback — see MANUAL_CHECKS
+// below). Five possible statuses per check:
 //   - Complete / Incomplete / Waived  — a real, assessed outcome
-//   - Not Yet Assessed                — an auto check with no applicable
-//                                        records yet (not a pass, not a fail)
+//   - Not Yet Assessed                — no applicable records yet (not a
+//                                        pass, not a fail)
 //   - Not Yet Required                — a manual check whose gating phase
 //                                        hasn't been reached yet
 // Not Yet Assessed and Not Yet Required are both excluded from the
@@ -50,8 +51,9 @@ export type AutoCheckKey =
   | "risks_closed"
   | "tests_passed";
 
-// The 7 auto-derived checks are the only ones a manual override can target
-// — manual checks are already user-editable directly via go_live_checklists.
+// The 7 auto-derived checks are the only ones an Auto-style override can
+// target — see GO_LIVE_MANUAL_CHECK_KEYS below for the 5 manual checks,
+// which are assessed (edited) rather than overridden.
 export const GO_LIVE_OVERRIDABLE_CHECK_KEYS: readonly AutoCheckKey[] = [
   "requirements_signed_off",
   "development_complete",
@@ -67,6 +69,19 @@ export const GO_LIVE_OVERRIDABLE_CHECK_KEYS: readonly AutoCheckKey[] = [
 // decision, so they are not valid things to override to. Validated
 // server-side in app/api/go-live/overrides/route.ts.
 export const GO_LIVE_OVERRIDE_STATUSES: readonly GoLiveReadinessOverrideStatus[] = ["Complete", "Incomplete", "Waived"];
+
+// The 5 manual checks are human-assessed, not derived — assessing one is an
+// "Edit", not an "Override" (there is no independent auto-derivation to
+// override; the checklist-category match below is only a legacy fallback
+// for checks nobody has explicitly assessed yet). All 5 canonical readiness
+// statuses are valid outcomes of a human assessment, including the two
+// structural states an Auto override may never carry — an assessor may
+// deliberately record "this control isn't required for this go-live" (Not
+// Yet Required) or "nobody has looked at this yet" (Not Yet Assessed).
+// Validated server-side in app/api/go-live/overrides/route.ts.
+export const GO_LIVE_MANUAL_CHECK_STATUSES: readonly ReadinessCheckStatus[] = [
+  "Complete", "Incomplete", "Waived", "Not Yet Assessed", "Not Yet Required",
+];
 
 export type ReadinessOverrideView = { status: ReadinessCheckStatus; reason: string; by: string; at: string };
 
@@ -127,6 +142,8 @@ const MANUAL_CHECKS: Array<{ key: ManualCheckKey; label: string; category: GoLiv
   { key: "hypercare_owner_assigned", label: "Hypercare Owner Assigned", category: "Hypercare", matchItem: "hypercare" },
   { key: "support_rota_confirmed", label: "Support Rota Confirmed", category: "Support", matchItem: "support" },
 ];
+
+export const GO_LIVE_MANUAL_CHECK_KEYS: readonly ManualCheckKey[] = MANUAL_CHECKS.map((def) => def.key);
 
 export const GO_LIVE_CATEGORIES: GoLiveChecklistCategory[] = [
   "Requirements", "Development", "SIT", "UAT", "Data",
@@ -275,11 +292,22 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
     return { key: def.key, label: def.label, source: "Auto", derived, override, effective, checklistItem: null };
   });
 
+  // Manual checks have no reliable independent auto-derivation — the
+  // checklist-category match above is only a legacy fallback for a check
+  // nobody has explicitly assessed yet. Once an assessment (stored in the
+  // same go_live_readiness_overrides table as Auto overrides — see
+  // GO_LIVE_MANUAL_CHECK_STATUSES) exists for a key, it is authoritative:
+  // reusing applyOverride here means a human assessment always wins over
+  // the checklist-derived guess, exactly as an Auto override always wins
+  // over its derived value. A checklist item already flagged Blocked no
+  // longer counts as a blocker once a human has explicitly assessed the
+  // check to something else — the assessment supersedes the stale flag.
   let blockerCount = 0;
   const manualChecks: ReadinessCheckResult[] = MANUAL_CHECKS.map((def) => {
     const { status, match, blocked } = resolveManualCheck(def, checklists, phase);
-    if (blocked) blockerCount += 1;
-    return { key: def.key, label: def.label, source: "Manual", derived: status, override: null, effective: status, checklistItem: match };
+    const { effective, override } = applyOverride(status, overrideByKey.get(def.key));
+    if (blocked && !override) blockerCount += 1;
+    return { key: def.key, label: def.label, source: "Manual", derived: status, override, effective, checklistItem: match };
   });
 
   const checks = [...autoChecks, ...manualChecks];

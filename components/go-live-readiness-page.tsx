@@ -31,12 +31,15 @@ import {
   GO_LIVE_CATEGORIES,
   GO_LIVE_CHECKLIST_STATUSES,
   CUTOVER_STEP_STATUSES,
+  GO_LIVE_MANUAL_CHECK_STATUSES,
   GO_LIVE_OVERRIDE_STATUSES,
   type GoLiveDashboard,
   type GoLiveStatus,
   type ReadinessCheckResult,
   type ReadinessCheckStatus,
 } from "@/lib/go-live-readiness";
+import { canAssessManualChecks } from "@/lib/permissions";
+import { useAuth } from "@/contexts/auth-context";
 import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
 import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
 import { buildProjectState } from "@/lib/project-state";
@@ -99,18 +102,25 @@ function ReadinessGauge({ percent, status }: { percent: number; status: GoLiveSt
 // ── Readiness Check (13-check model, Phase 6) ──────────────────────────────────
 
 type OverrideDraft = { status: GoLiveReadinessOverrideStatus; reason: string; by: string };
+type ManualAssessmentDraft = { status: ReadinessCheckStatus; reason: string };
 
 function ReadinessCheckRow({
-  check, onSetOverride, onClearOverride,
+  check, canAssessManual, onSetOverride, onClearOverride, onSetManualStatus, onClearManualStatus,
 }: {
   check: ReadinessCheckResult;
+  canAssessManual: boolean;
   onSetOverride: (checkKey: string, draft: OverrideDraft) => Promise<void>;
   onClearOverride: (checkKey: string) => Promise<void>;
+  onSetManualStatus: (checkKey: string, draft: ManualAssessmentDraft) => Promise<void>;
+  onClearManualStatus: (checkKey: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<OverrideDraft>({ status: "Complete", reason: "", by: "" });
+  const [manualEditing, setManualEditing] = useState(false);
+  const [manualDraft, setManualDraft] = useState<ManualAssessmentDraft>({ status: "Complete", reason: "" });
   const [saving, setSaving] = useState(false);
   const overridable = check.source === "Auto";
+  const manualEditable = check.source === "Manual" && canAssessManual;
   const passed = check.effective === "Complete" || check.effective === "Waived";
   const excluded = check.effective === "Not Yet Assessed" || check.effective === "Not Yet Required";
 
@@ -128,6 +138,20 @@ function ReadinessCheckRow({
     setSaving(false);
   }
 
+  async function saveManual() {
+    if (!manualDraft.reason.trim()) return;
+    setSaving(true);
+    await onSetManualStatus(check.key, manualDraft);
+    setSaving(false);
+    setManualEditing(false);
+  }
+
+  async function clearManual() {
+    setSaving(true);
+    await onClearManualStatus(check.key);
+    setSaving(false);
+  }
+
   return (
     <div className="border-b py-2.5 last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -141,8 +165,8 @@ function ReadinessCheckRow({
           <span className={cn(check.effective === "Waived" && "text-muted-foreground line-through")}>{check.label}</span>
           <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{check.source}</span>
           {check.override && (
-            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/40 dark:text-blue-300" title={`Derived: ${check.derived}`}>
-              Overridden
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:bg-blue-950/40 dark:text-blue-300" title={check.source === "Auto" ? `Derived: ${check.derived}` : undefined}>
+              {check.source === "Auto" ? "Overridden" : "Assessed"}
             </span>
           )}
         </div>
@@ -156,17 +180,35 @@ function ReadinessCheckRow({
               {check.override ? "Edit override" : "Override"}
             </button>
           )}
-          {check.override && !editing && (
+          {check.source === "Auto" && check.override && !editing && (
             <button className="text-xs text-muted-foreground underline-offset-2 hover:text-destructive hover:underline" onClick={clear} disabled={saving}>
+              Clear
+            </button>
+          )}
+          {manualEditable && !manualEditing && (
+            <button
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => { setManualDraft({ status: check.effective, reason: check.override?.reason ?? "" }); setManualEditing(true); }}
+            >
+              {check.override ? "Edit assessment" : "Assess"}
+            </button>
+          )}
+          {check.source === "Manual" && check.override && canAssessManual && !manualEditing && (
+            <button className="text-xs text-muted-foreground underline-offset-2 hover:text-destructive hover:underline" onClick={clearManual} disabled={saving}>
               Clear
             </button>
           )}
         </div>
       </div>
 
-      {check.override && (
+      {check.override && check.source === "Auto" && (
         <p className="mt-1 pl-6 text-xs text-muted-foreground">
           System derived <span className="font-medium">{check.derived}</span>; overridden to <span className="font-medium">{check.override.status}</span> by {check.override.by} on {check.override.at.slice(0, 10)} — &ldquo;{check.override.reason}&rdquo;
+        </p>
+      )}
+      {check.override && check.source === "Manual" && (
+        <p className="mt-1 pl-6 text-xs text-muted-foreground">
+          Assessed as <span className="font-medium">{check.override.status}</span> by {check.override.by} on {check.override.at.slice(0, 10)} — &ldquo;{check.override.reason}&rdquo;
         </p>
       )}
 
@@ -188,6 +230,23 @@ function ReadinessCheckRow({
           </div>
           <Button size="sm" onClick={save} disabled={saving || !draft.reason.trim() || !draft.by.trim()}>Save</Button>
           <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+        </div>
+      )}
+
+      {manualEditing && (
+        <div className="mt-2 ml-6 flex flex-wrap items-end gap-2 rounded-md border bg-muted/30 p-2">
+          <div>
+            <label className="text-xs font-medium">Status</label>
+            <GoLiveSelect value={manualDraft.status} onChange={(v) => setManualDraft((d) => ({ ...d, status: v as ReadinessCheckStatus }))} className="mt-1 h-8 text-xs">
+              {GO_LIVE_MANUAL_CHECK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </GoLiveSelect>
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <label className="text-xs font-medium">Notes *</label>
+            <Input value={manualDraft.reason} onChange={(e) => setManualDraft((d) => ({ ...d, reason: e.target.value }))} placeholder="Evidence or context for this assessment" className="mt-1 h-8 text-xs" />
+          </div>
+          <Button size="sm" onClick={saveManual} disabled={saving || !manualDraft.reason.trim()}>Save</Button>
+          <Button size="sm" variant="ghost" onClick={() => setManualEditing(false)} disabled={saving}>Cancel</Button>
         </div>
       )}
     </div>
@@ -529,6 +588,8 @@ function CutoverRow({ step, onSave, onDelete }: { step: CutoverStep; onSave: (s:
 
 export function GoLiveReadinessPage() {
   const { data, error, reload, setData } = useProjectData();
+  const { user } = useAuth();
+  const canAssessManual = canAssessManualChecks(user?.role);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -624,6 +685,34 @@ export function GoLiveReadinessPage() {
     setData((prev) => prev ? { ...prev, go_live_readiness_overrides: prev.go_live_readiness_overrides.filter((o) => o.id !== existing.id) } : prev);
   }
 
+  // Manual checks persist through the same go_live_readiness_overrides
+  // table/API as Auto overrides (see lib/go-live-readiness.ts) — this is an
+  // assessment (edit), not an override, so "who" is taken from the signed-in
+  // user rather than a free-text name field, and clearing reuses
+  // clearOverride unchanged (it's already generic over check_key).
+  async function setManualStatus(checkKey: string, draft: { status: ReadinessCheckStatus; reason: string }) {
+    if (!project) return;
+    const existing = data?.go_live_readiness_overrides.find((o) => o.project_id === project.id && o.check_key === checkKey);
+    const now = new Date().toISOString();
+    const record: GoLiveReadinessOverride = {
+      id: existing?.id ?? createId(),
+      project_id: project.id,
+      check_key: checkKey,
+      override_status: draft.status,
+      override_reason: draft.reason.trim(),
+      overridden_by: user?.fullName || user?.email || "Unknown",
+      overridden_at: now,
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    };
+    const saved = await saveRecord("go_live_readiness_overrides", record);
+    setData((prev) => {
+      if (!prev) return prev;
+      const rest = prev.go_live_readiness_overrides.filter((o) => !(o.project_id === project.id && o.check_key === checkKey));
+      return { ...prev, go_live_readiness_overrides: [saved ?? record, ...rest] };
+    });
+  }
+
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
 
@@ -709,7 +798,15 @@ export function GoLiveReadinessPage() {
             </div>
             <div className="mt-1">
               {dashboard.checks.map((check) => (
-                <ReadinessCheckRow key={check.key} check={check} onSetOverride={setOverride} onClearOverride={clearOverride} />
+                <ReadinessCheckRow
+                  key={check.key}
+                  check={check}
+                  canAssessManual={canAssessManual}
+                  onSetOverride={setOverride}
+                  onClearOverride={clearOverride}
+                  onSetManualStatus={setManualStatus}
+                  onClearManualStatus={clearOverride}
+                />
               ))}
             </div>
           </section>

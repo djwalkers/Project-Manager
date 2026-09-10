@@ -127,7 +127,12 @@ export type GoLiveChecklist = {
   updated_at: string;
 };
 
-export type GoLiveReadinessOverrideStatus = "Complete" | "Incomplete" | "Waived";
+// Auto checks may only be overridden to a real assessed outcome (see
+// GO_LIVE_OVERRIDE_STATUSES) — the two structural states below are never a
+// human decision for an auto-derived check. Manual checks use the full
+// vocabulary (see GO_LIVE_MANUAL_CHECK_STATUSES), since a manual check's
+// source of truth is the human assessment itself, not a derivation.
+export type GoLiveReadinessOverrideStatus = "Complete" | "Incomplete" | "Waived" | "Not Yet Assessed" | "Not Yet Required";
 
 export type GoLiveReadinessOverride = {
   id: string;
