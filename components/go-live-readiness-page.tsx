@@ -9,7 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { deleteRecord, saveRecord } from "@/lib/supabase/data-store";
+import { createRecord, deleteRecord, saveRecord, updateRecord } from "@/lib/supabase/data-store";
 
 function GoLiveSelect({ value, onChange, children, className, disabled }: { value: string; onChange: (v: string) => void; children: React.ReactNode; className?: string; disabled?: boolean }) {
   return (
@@ -33,6 +33,7 @@ import {
   CUTOVER_STEP_STATUSES,
   GO_LIVE_MANUAL_CHECK_STATUSES,
   GO_LIVE_OVERRIDE_STATUSES,
+  resolveReadinessOverrideTarget,
   type GoLiveDashboard,
   type GoLiveStatus,
   type ReadinessCheckResult,
@@ -116,40 +117,76 @@ function ReadinessCheckRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<OverrideDraft>({ status: "Complete", reason: "", by: "" });
+  const [error, setError] = useState<string | null>(null);
   const [manualEditing, setManualEditing] = useState(false);
   const [manualDraft, setManualDraft] = useState<ManualAssessmentDraft>({ status: "Complete", reason: "" });
+  const [manualError, setManualError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const overridable = check.source === "Auto";
   const manualEditable = check.source === "Manual" && canAssessManual;
   const passed = check.effective === "Complete" || check.effective === "Waived";
   const excluded = check.effective === "Not Yet Assessed" || check.effective === "Not Yet Required";
 
+  function describeSaveError(e: unknown): string {
+    return e instanceof Error && e.message ? e.message : "Failed to save — please try again.";
+  }
+
+  // Errors (a rejected fetch, a 4xx/5xx from the API) must never be
+  // swallowed: on failure the dialog stays open with the message shown and
+  // the draft preserved, so the user can retry or correct it; it only
+  // closes on confirmed success. `finally` guarantees `saving` always
+  // clears, so a failed save can never leave the Save button stuck
+  // disabled forever.
   async function save() {
     if (!draft.reason.trim() || !draft.by.trim()) return;
     setSaving(true);
-    await onSetOverride(check.key, draft);
-    setSaving(false);
-    setEditing(false);
+    setError(null);
+    try {
+      await onSetOverride(check.key, draft);
+      setEditing(false);
+    } catch (e) {
+      setError(describeSaveError(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function clear() {
     setSaving(true);
-    await onClearOverride(check.key);
-    setSaving(false);
+    setError(null);
+    try {
+      await onClearOverride(check.key);
+    } catch (e) {
+      setError(describeSaveError(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveManual() {
     if (!manualDraft.reason.trim()) return;
     setSaving(true);
-    await onSetManualStatus(check.key, manualDraft);
-    setSaving(false);
-    setManualEditing(false);
+    setManualError(null);
+    try {
+      await onSetManualStatus(check.key, manualDraft);
+      setManualEditing(false);
+    } catch (e) {
+      setManualError(describeSaveError(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function clearManual() {
     setSaving(true);
-    await onClearManualStatus(check.key);
-    setSaving(false);
+    setManualError(null);
+    try {
+      await onClearManualStatus(check.key);
+    } catch (e) {
+      setManualError(describeSaveError(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -175,7 +212,7 @@ function ReadinessCheckRow({
           {overridable && !editing && (
             <button
               className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              onClick={() => { setDraft({ status: check.effective === "Not Yet Assessed" ? "Complete" : (check.effective as GoLiveReadinessOverrideStatus), reason: check.override?.reason ?? "", by: check.override?.by ?? "" }); setEditing(true); }}
+              onClick={() => { setDraft({ status: check.effective === "Not Yet Assessed" ? "Complete" : (check.effective as GoLiveReadinessOverrideStatus), reason: check.override?.reason ?? "", by: check.override?.by ?? "" }); setError(null); setEditing(true); }}
             >
               {check.override ? "Edit override" : "Override"}
             </button>
@@ -188,7 +225,7 @@ function ReadinessCheckRow({
           {manualEditable && !manualEditing && (
             <button
               className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-              onClick={() => { setManualDraft({ status: check.effective, reason: check.override?.reason ?? "" }); setManualEditing(true); }}
+              onClick={() => { setManualDraft({ status: check.effective, reason: check.override?.reason ?? "" }); setManualError(null); setManualEditing(true); }}
             >
               {check.override ? "Edit assessment" : "Assess"}
             </button>
@@ -211,6 +248,8 @@ function ReadinessCheckRow({
           Assessed as <span className="font-medium">{check.override.status}</span> by {check.override.by} on {check.override.at.slice(0, 10)} — &ldquo;{check.override.reason}&rdquo;
         </p>
       )}
+      {error && !editing && <p className="mt-1 pl-6 text-xs text-destructive">{error}</p>}
+      {manualError && !manualEditing && <p className="mt-1 pl-6 text-xs text-destructive">{manualError}</p>}
 
       {editing && (
         <div className="mt-2 ml-6 flex flex-wrap items-end gap-2 rounded-md border bg-muted/30 p-2">
@@ -229,7 +268,8 @@ function ReadinessCheckRow({
             <Input value={draft.by} onChange={(e) => setDraft((d) => ({ ...d, by: e.target.value }))} placeholder="Your name" className="mt-1 h-8 w-32 text-xs" />
           </div>
           <Button size="sm" onClick={save} disabled={saving || !draft.reason.trim() || !draft.by.trim()}>Save</Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setError(null); setEditing(false); }} disabled={saving}>Cancel</Button>
+          {error && <p className="w-full text-xs text-destructive">{error}</p>}
         </div>
       )}
 
@@ -246,7 +286,8 @@ function ReadinessCheckRow({
             <Input value={manualDraft.reason} onChange={(e) => setManualDraft((d) => ({ ...d, reason: e.target.value }))} placeholder="Evidence or context for this assessment" className="mt-1 h-8 text-xs" />
           </div>
           <Button size="sm" onClick={saveManual} disabled={saving || !manualDraft.reason.trim()}>Save</Button>
-          <Button size="sm" variant="ghost" onClick={() => setManualEditing(false)} disabled={saving}>Cancel</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setManualError(null); setManualEditing(false); }} disabled={saving}>Cancel</Button>
+          {manualError && <p className="w-full text-xs text-destructive">{manualError}</p>}
         </div>
       )}
     </div>
@@ -656,7 +697,7 @@ export function GoLiveReadinessPage() {
 
   async function setOverride(checkKey: string, draft: { status: GoLiveReadinessOverrideStatus; reason: string; by: string }) {
     if (!project) return;
-    const existing = data?.go_live_readiness_overrides.find((o) => o.project_id === project.id && o.check_key === checkKey);
+    const { operation, existing } = resolveReadinessOverrideTarget(data?.go_live_readiness_overrides ?? [], project.id, checkKey);
     const now = new Date().toISOString();
     const record: GoLiveReadinessOverride = {
       id: existing?.id ?? createId(),
@@ -669,7 +710,14 @@ export function GoLiveReadinessPage() {
       created_at: existing?.created_at ?? now,
       updated_at: now,
     };
-    const saved = await saveRecord("go_live_readiness_overrides", record);
+    // The create-vs-update HTTP method depends on whether a row already
+    // exists for (project_id, check_key) in what's currently loaded — never
+    // on whether `record` happens to carry an id (it always does: either
+    // the existing row's real id, or a freshly minted client-side one for
+    // a brand-new row). See resolveReadinessOverrideTarget.
+    const saved = operation === "update"
+      ? await updateRecord("go_live_readiness_overrides", record)
+      : await createRecord("go_live_readiness_overrides", record);
     setData((prev) => {
       if (!prev) return prev;
       const rest = prev.go_live_readiness_overrides.filter((o) => !(o.project_id === project.id && o.check_key === checkKey));
@@ -692,7 +740,7 @@ export function GoLiveReadinessPage() {
   // clearOverride unchanged (it's already generic over check_key).
   async function setManualStatus(checkKey: string, draft: { status: ReadinessCheckStatus; reason: string }) {
     if (!project) return;
-    const existing = data?.go_live_readiness_overrides.find((o) => o.project_id === project.id && o.check_key === checkKey);
+    const { operation, existing } = resolveReadinessOverrideTarget(data?.go_live_readiness_overrides ?? [], project.id, checkKey);
     const now = new Date().toISOString();
     const record: GoLiveReadinessOverride = {
       id: existing?.id ?? createId(),
@@ -705,7 +753,9 @@ export function GoLiveReadinessPage() {
       created_at: existing?.created_at ?? now,
       updated_at: now,
     };
-    const saved = await saveRecord("go_live_readiness_overrides", record);
+    const saved = operation === "update"
+      ? await updateRecord("go_live_readiness_overrides", record)
+      : await createRecord("go_live_readiness_overrides", record);
     setData((prev) => {
       if (!prev) return prev;
       const rest = prev.go_live_readiness_overrides.filter((o) => !(o.project_id === project.id && o.check_key === checkKey));

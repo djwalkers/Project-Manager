@@ -271,6 +271,26 @@ function latestOverrideByKey(overrides: GoLiveReadinessOverride[]): Map<string, 
   return byKey;
 }
 
+// Decides whether persisting a check's override/assessment must CREATE a
+// new go_live_readiness_overrides row or UPDATE an existing one — the only
+// reliable signal is whether a row already exists for this exact
+// (project_id, check_key), read from the caller's already-loaded overrides.
+// This must NOT be decided from whether the record object the caller is
+// about to save happens to carry an `id` — a client-generated id is always
+// present (freshly minted for a genuinely new row), so a `record.id ?
+// update : create` dispatch (as components/go-live-readiness-page.tsx used
+// to do via the generic saveRecord() helper) always resolves to "update",
+// even for a check's very first assessment — which then fails against the
+// API (no row exists yet with that id to update).
+export function resolveReadinessOverrideTarget(
+  existingOverrides: GoLiveReadinessOverride[],
+  projectId: string,
+  checkKey: string,
+): { operation: "create" | "update"; existing: GoLiveReadinessOverride | null } {
+  const existing = existingOverrides.find((o) => o.project_id === projectId && o.check_key === checkKey) ?? null;
+  return { operation: existing ? "update" : "create", existing };
+}
+
 function applyOverride(derived: ReadinessCheckStatus, override: GoLiveReadinessOverride | undefined): { effective: ReadinessCheckStatus; override: ReadinessOverrideView | null } {
   if (!override) return { effective: derived, override: null };
   return {
