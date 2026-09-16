@@ -465,8 +465,8 @@ export function ExecutiveTimelinePage() {
 
   const todayLeft = todayPosition(viewWindow.start, viewWindow.end);
   const goLiveLeft = state.goLiveDate.date ? datePosition(state.goLiveDate.date, viewWindow.start, viewWindow.end) : null;
-  const hypercarePosition = project.hypercare_start_date && project.hypercare_end_date
-    ? dateRangePosition(project.hypercare_start_date, project.hypercare_end_date, viewWindow.start, viewWindow.end)
+  const hypercarePosition = state.hypercare.start && state.hypercare.end
+    ? dateRangePosition(state.hypercare.start, state.hypercare.end, viewWindow.start, viewWindow.end)
     : null;
 
   return (

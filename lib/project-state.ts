@@ -25,7 +25,7 @@ import { computeDeliveryConfidence, type DeliveryConfidenceResult } from "@/lib/
 import { buildGoLiveDashboard, type GoLiveDashboard } from "@/lib/go-live-readiness";
 import { classifyProject, type ManagerProjectSummary } from "@/lib/manager-summary";
 import { deriveProjectPhase, type ProjectPhaseEvidence } from "@/lib/project-phase";
-import { resolveGoLiveDate, type GoLiveDateResolution } from "@/lib/project-dates";
+import { resolveGoLiveDate, resolveHypercareDates, type GoLiveDateResolution, type HypercareDatesResolution } from "@/lib/project-dates";
 import { buildProjectIntelligence, type IntelligenceReport } from "@/lib/project-intelligence";
 import { scopeProjectData } from "@/lib/project-scope";
 import { buildDeliveryDiagnostics, buildRecommendationAnalysis, type DeliveryInsightDiagnostics, type Recommendation } from "@/lib/recommendations";
@@ -136,6 +136,7 @@ export type ProjectState = {
   phase: ProjectPhaseEvidence;
   schedule: ScheduleMetrics;
   goLiveDate: GoLiveDateResolution;
+  hypercare: HypercareDatesResolution;
   rollups: LifecycleRollups;
   diagnostics: DeliveryInsightDiagnostics;
   recommendations: Recommendation[];
@@ -161,6 +162,7 @@ export function buildProjectState(data: DataStore, project: Project, now = new D
   const phase = deriveProjectPhase(data, project, now);
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const goLiveDate = resolveGoLiveDate(data, project);
+  const hypercare = resolveHypercareDates(data, project);
   const rollups = buildLifecycleRollups(scoped);
 
   const blockedMilestones = scoped.milestones.filter((m) => m.status === "Blocked").length + schedule.blocked.length;
@@ -182,6 +184,7 @@ export function buildProjectState(data: DataStore, project: Project, now = new D
     phase,
     schedule,
     goLiveDate,
+    hypercare,
     rollups,
     diagnostics,
     recommendations,

@@ -4,6 +4,7 @@ import {
   isActionOpen,
   isDecisionOpen,
   isDecisionOverdue,
+  isRequirementSignedOff,
   isRiskHighOrCritical,
   isRiskOpen,
   isTestPassed,
@@ -70,7 +71,7 @@ export function calculateProgress(data: DataStore, scheduleHealth: RagStatus | n
     {
       label: "Requirements",
       weight: 30,
-      score: score(data.requirements.filter((item) => item.status === "Complete").length, data.requirements.length),
+      score: score(data.requirements.filter((item) => isRequirementSignedOff(item.status)).length, data.requirements.length),
     },
     {
       label: "Milestones",
