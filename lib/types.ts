@@ -18,9 +18,11 @@ export type DeliverableStatus = "Not Started" | "In Analysis" | "In Development"
 
 export type Project = {
   id: string;
+  project_ref: string | null;
   name: string;
   customer: string;
   workstream: string;
+  owner: string | null;
   status: Status;
   health: ProjectHealth;
   schedule_variance: number;

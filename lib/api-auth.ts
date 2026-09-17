@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { canAssessManualChecks } from "@/lib/permissions";
+import { canAssessManualChecks, canCreateProject } from "@/lib/permissions";
 import type { UserRole } from "@/lib/auth";
 
 /**
@@ -83,6 +83,31 @@ export async function requireAdminOrManagerUser(): Promise<NextResponse<{ error:
   const { data: profile } = await db.from("user_profiles").select("role").eq("id", user.id).maybeSingle();
   const role = (profile?.role ?? null) as UserRole | null;
   if (!canAssessManualChecks(role)) {
+    return NextResponse.json({ error: `Admin or Manager access required (resolved role: ${role ?? "none"})` }, { status: 403 });
+  }
+  return null;
+}
+
+/**
+ * Route guard for creating a new project — only Admin/Manager may do so
+ * (see lib/permissions.ts's canCreateProject, the single rule shared with
+ * the client-side "New Project" action). Structurally identical to
+ * requireAdminOrManagerUser above, kept as its own function (rather than a
+ * shared alias) so the two features' permission rules can diverge later
+ * without one silently affecting the other.
+ */
+export async function requireCanCreateProject(): Promise<NextResponse<{ error: string }> | null> {
+  const allowLocalFallback = process.env.NODE_ENV !== "production";
+  const user = await getAuthenticatedUser({ allowLocalFallback });
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasSupabaseConfig) return null;
+
+  const db = createServiceRoleClient();
+  if (!db) return null;
+
+  const { data: profile } = await db.from("user_profiles").select("role").eq("id", user.id).maybeSingle();
+  const role = (profile?.role ?? null) as UserRole | null;
+  if (!canCreateProject(role)) {
     return NextResponse.json({ error: `Admin or Manager access required (resolved role: ${role ?? "none"})` }, { status: 403 });
   }
   return null;

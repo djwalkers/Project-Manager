@@ -29,9 +29,11 @@ const now = "2026-06-22T09:00:00.000Z";
 export const projects: Project[] = [
   {
     id: projectId,
+    project_ref: null,
     name: "CR028 - Delivery Date Range",
     customer: "Sysco",
     workstream: "Replenishment",
+    owner: null,
     status: "Discovery",
     health: "Amber",
     schedule_variance: -4,

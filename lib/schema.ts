@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "026_ai_settings_local_gateway";
-export const latestMigration = "026_ai_settings_local_gateway";
+export const schemaVersion = "027_project_creation_fields";
+export const latestMigration = "027_project_creation_fields";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -29,6 +29,7 @@ export const allMigrations = [
   "024_project_key_dates",
   "025_go_live_readiness_overrides",
   "026_ai_settings_local_gateway",
+  "027_project_creation_fields",
 ] as const;
 
 export type SchemaColumn = {
@@ -56,9 +57,11 @@ export const schemaTables: SchemaTable[] = [
     seedKey: ["name"],
     columns: [
       id,
+      { name: "project_ref", type: "text", required: false },
       { name: "name", type: "text", required: true },
       { name: "customer", type: "text", required: true },
       { name: "workstream", type: "text", required: true },
+      { name: "owner", type: "text", required: false },
       { name: "status", type: "text", required: true },
       { name: "health", type: "text", required: true },
       { name: "schedule_variance", type: "numeric", required: true },

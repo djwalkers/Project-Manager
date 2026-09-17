@@ -38,6 +38,12 @@ export type ModuleConfig = {
   statusField?: string;
   searchFields: string[];
   filterFields?: string[];
+  // Projects: creation goes through the dedicated "+ New Project" flow
+  // (components/app-client.tsx), not the generic "Add {singular}" button —
+  // the projects table's RLS only allows Admin to write, and the generic
+  // path has no role gating or project_ref/owner/lifecycle-date fields. The
+  // generic table is still used for browsing/editing existing projects.
+  hideGenericAddButton?: boolean;
   columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" | "exposure" | "readiness" }[];
   fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string; rows?: number; badge?: boolean }[];
 };
@@ -69,7 +75,7 @@ export const navItems = [
 ];
 
 const acceptanceCriteriaStatusOptions = ["Not Started", "In Progress", "Met", "Failed", "Waived"];
-const statusOptions = ["Discovery", "Open", "In Progress", "Pending", "Blocked", "Approved", "Complete", "Closed"];
+export const statusOptions = ["Discovery", "Open", "In Progress", "Pending", "Blocked", "Approved", "Complete", "Closed"];
 const requirementSourceOptions = [
   "Functional Specification",
   "Technical Design",
@@ -105,8 +111,10 @@ export const modules: ModuleConfig[] = [
     singular: "Project",
     description: "Manage the active project and workstream context.",
     icon: BriefcaseBusiness,
-    searchFields: ["name", "customer", "workstream", "status"],
+    searchFields: ["name", "customer", "workstream", "status", "project_ref"],
+    hideGenericAddButton: true,
     columns: [
+      { key: "project_ref", label: "Reference" },
       { key: "name", label: "Project" },
       { key: "customer", label: "Customer" },
       { key: "workstream", label: "Workstream" },
@@ -114,13 +122,19 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
+      { key: "project_ref", label: "Project reference" },
       { key: "name", label: "Project name" },
       { key: "customer", label: "Customer" },
       { key: "workstream", label: "Workstream" },
+      { key: "owner", label: "Project owner / manager" },
       { key: "status", label: "Status", type: "select", options: statusOptions },
       { key: "health", label: "Project health", type: "select", options: ["Green", "Amber", "Red"] },
       { key: "planned_start_date", label: "Planned start date", type: "date" },
       { key: "planned_end_date", label: "Planned end date", type: "date" },
+      { key: "go_live_date", label: "Go-Live date", type: "date" },
+      { key: "uat_complete_date", label: "UAT complete date", type: "date" },
+      { key: "hypercare_start_date", label: "Hypercare start date", type: "date" },
+      { key: "hypercare_end_date", label: "Hypercare end date", type: "date" },
       { key: "description", label: "Description", type: "textarea" },
     ],
   },

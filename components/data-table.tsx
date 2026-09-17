@@ -231,10 +231,12 @@ export function DataTable({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {selectable && checkedIds.size > 0 && selectionActions}
-            <Button onClick={openNew}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add {config.singular}
-            </Button>
+            {!config.hideGenericAddButton && (
+              <Button onClick={openNew}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add {config.singular}
+              </Button>
+            )}
           </div>
         </div>
 

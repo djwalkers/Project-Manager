@@ -13,3 +13,13 @@ import type { UserRole } from "@/lib/auth";
 export function canAssessManualChecks(role: UserRole | null | undefined): boolean {
   return role === "Admin" || role === "Manager";
 }
+
+// Project creation is likewise an Admin/Manager action; Viewer is read-only.
+// Named and kept separate from canAssessManualChecks (even though the rule
+// is identical today) so a future change to one — e.g. restricting project
+// creation to Admin only — can't silently affect the other. Shared by the
+// client-side create action (components/app-client.tsx) and the
+// server-side route guard (app/api/projects/route.ts, via lib/api-auth.ts).
+export function canCreateProject(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}
