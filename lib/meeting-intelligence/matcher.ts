@@ -1,7 +1,8 @@
 import type { DataStore } from "@/lib/data-store";
 import { isDecisionOpen } from "@/lib/lifecycle";
-import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
+import { scopeProjectData } from "@/lib/project-scope";
 import type { AISuggestion } from "@/lib/meeting-intelligence/types";
+import type { Project } from "@/lib/types";
 
 // Simple keyword overlap score (0–1)
 function similarity(a: string, b: string): number {
@@ -40,12 +41,15 @@ export type EnrichedSuggestion = AISuggestion & {
   matched_existing_ref: string | null;
 };
 
+// Takes the explicit project the suggestions' meeting belongs to — never
+// resolves "the" project internally — so matching against open actions/
+// decisions/risks can't leak in whichever project happens to be globally
+// selected/strongest instead of the meeting's own project.
 export function matchSuggestionsToExisting(
   suggestions: AISuggestion[],
   data: DataStore,
+  project: Project,
 ): EnrichedSuggestion[] {
-  const project = selectActiveProject(data);
-  if (!project) return suggestions.map((s) => ({ ...s, matched_existing_id: null, matched_existing_ref: null }));
   const scoped = scopeProjectData(data, project);
 
   // Build lookup tables per entity type

@@ -68,7 +68,7 @@ function actionColumn(status: string): WorkspaceActionColumn {
 }
 
 function buildNarrative(model: Omit<WorkspaceModel, "narrative">) {
-  const projectRef = model.project.name.replace(" - Delivery Date Range", "");
+  const projectRef = model.project.project_ref ?? model.project.name;
   const target = model.schedule.projectEnd ? `the target delivery date of ${formatScheduleDate(model.schedule.projectEnd)}` : "a delivery date that still needs review";
   const phaseProgress = model.activePhaseProgress === null ? "" : ` at ${model.activePhaseProgress}%`;
   const decisionCount = model.openDecisions.length;

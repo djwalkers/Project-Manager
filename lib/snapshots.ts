@@ -65,7 +65,13 @@ export function buildSnapshotPayload(data: DataStore, project: Project, now = ne
     active_milestone: null,
     active_phase: null,
     // Delivery intelligence fields
-    delivery_confidence: state.confidence.score,
+    // project_snapshots.delivery_confidence is a plain NOT NULL numeric
+    // trend-storage column — it can't represent "Not Assessed" the way the
+    // live ProjectState.confidence.rag can. 0 here is a storage-format
+    // concession for an unassessed project, not a claim that it scored 0;
+    // the live Delivery Confidence UI/DTO always read the real (nullable)
+    // ProjectState value, never this column, so no false-Red is shown live.
+    delivery_confidence: state.confidence.score ?? 0,
     project_readiness: readiness.overall,
     requirements_complete: scoped.requirements.filter((r) =>
       ["Complete", "Closed"].includes(r.status),

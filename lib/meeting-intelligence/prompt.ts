@@ -1,6 +1,7 @@
 import type { DataStore } from "@/lib/data-store";
 import { isDecisionOpen } from "@/lib/lifecycle";
-import { scopeProjectData, selectActiveProject } from "@/lib/project-scope";
+import { scopeProjectData } from "@/lib/project-scope";
+import type { Project } from "@/lib/types";
 
 // Compute rejection rates from past suggestions to bias the prompt
 function computeFeedbackBias(data: DataStore, projectId: string): string {
@@ -35,10 +36,12 @@ function truncate(s: string, max = 80) {
 /**
  * Compact project context string — refs + short titles only.
  * Passed with every chunk prompt to keep token count low.
+ *
+ * Takes the explicit project a meeting belongs to — never resolves "the"
+ * project internally — so analysing a meeting for one project can't pull
+ * context from whichever project happens to be globally selected/strongest.
  */
-export function buildCompactContext(data: DataStore): string {
-  const project = selectActiveProject(data);
-  if (!project) return "";
+export function buildCompactContext(data: DataStore, project: Project): string {
   const scoped = scopeProjectData(data, project);
   const bias = computeFeedbackBias(data, project.id);
 

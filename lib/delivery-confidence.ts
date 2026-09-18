@@ -1,12 +1,12 @@
 import type { DataStore } from "@/lib/data-store";
 import { buildDeliveryInsightAnalysis, recommendationPenalty } from "@/lib/recommendations";
-import { selectActiveProject } from "@/lib/project-scope";
+import { hasDeliveryEvidence, scopeProjectData, selectActiveProject } from "@/lib/project-scope";
 import type { Project } from "@/lib/types";
 
 export type DeliveryConfidenceResult = {
-  score: number;
+  score: number | null;
   reasons: string[];
-  rag: "Green" | "Amber" | "Red";
+  rag: "Green" | "Amber" | "Red" | "Not Assessed";
 };
 
 // project defaults to selectActiveProject(data) — every existing caller
@@ -15,6 +15,16 @@ export type DeliveryConfidenceResult = {
 // it explicitly so this never re-selects a different project underneath.
 export function computeDeliveryConfidence(data: DataStore, project: Project | null = selectActiveProject(data)): DeliveryConfidenceResult {
   if (!project) return { score: 0, reasons: ["No active project"], rag: "Red" };
+
+  // A project with zero delivery evidence of any kind has nothing for the
+  // analysis below to flag — its candidate generation comes back empty by
+  // construction, which previously read as a false 100%/Green ("all
+  // checks passed"). Absence of evidence is not evidence of good (or bad)
+  // delivery: report it as genuinely unassessed instead. See
+  // hasDeliveryEvidence's doc comment for the exact threshold.
+  if (!hasDeliveryEvidence(scopeProjectData(data, project))) {
+    return { score: null, reasons: ["No delivery evidence recorded yet for this project"], rag: "Not Assessed" };
+  }
 
   const analysis = buildDeliveryInsightAnalysis(data, 10, new Date(), project);
   const scoredGaps = analysis.insights

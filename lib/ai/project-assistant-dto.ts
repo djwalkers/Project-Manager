@@ -39,7 +39,8 @@ import {
   isRiskOpen,
   isTestFailedOrBlocked,
 } from "@/lib/lifecycle";
-import type { DateConfidence, ManagementAction } from "@/lib/manager-summary";
+import type { DateConfidence, ManagementAction, ManagerRagStatus } from "@/lib/manager-summary";
+import type { DeliveryConfidenceResult } from "@/lib/delivery-confidence";
 import type { GoLiveDateSource } from "@/lib/project-dates";
 import type { GoLiveStatus, ReadinessCheckStatus } from "@/lib/go-live-readiness";
 import type { ProjectPhase } from "@/lib/project-phase";
@@ -172,8 +173,10 @@ export type ProjectAssistantDTO = {
   phase: { phase: ProjectPhase; confidence: number; source: string; detail: string };
   schedule: { health: RagStatus | null; variance: number | null; daysRemaining: number | null; projectStart: string | null; projectEnd: string | null };
   goLiveDate: { date: string | null; source: GoLiveDateSource; milestoneTitle: string | null };
-  projectHealth: { status: RagStatus; summary: string; attentionRequired: string | null; dateConfidence: DateConfidence; managementAction: ManagementAction };
-  deliveryConfidence: { score: number; rag: RagStatus; reasons: string[] };
+  projectHealth: { status: ManagerRagStatus; summary: string; attentionRequired: string | null; dateConfidence: DateConfidence; managementAction: ManagementAction };
+  // "Not Assessed" (score: null) means insufficient delivery evidence has
+  // been recorded yet — not poor delivery. Never treat a null score as 0.
+  deliveryConfidence: DeliveryConfidenceResult;
   goLiveReadiness: {
     status: GoLiveStatus;
     readinessPercent: number;

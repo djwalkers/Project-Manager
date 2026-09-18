@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AlertTriangle, CheckCircle2, Clock, Send, XCircle,
+  AlertTriangle, CheckCircle2, Clock, CircleHelp, Send, XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -39,6 +39,17 @@ const STATUS_CONFIG: Record<ManagerRagStatus, { label: string; icon: typeof Chec
     badge: "bg-red-600 text-white",
     text: "text-red-700 dark:text-red-400",
   },
+  // A project with no delivery evidence recorded yet — deliberately
+  // neutral, not Green: absence of evidence is not evidence of a healthy
+  // project. See lib/manager-summary.ts's classifyProject.
+  "Not Assessed": {
+    label: "Not Assessed",
+    icon: CircleHelp,
+    bg: "bg-slate-50 dark:bg-slate-900/30",
+    border: "border-l-slate-400",
+    badge: "bg-slate-500 text-white",
+    text: "text-slate-700 dark:text-slate-400",
+  },
 };
 
 function ProjectCard({ summary }: { summary: ManagerProjectSummary }) {
@@ -72,6 +83,7 @@ function ProjectCard({ summary }: { summary: ManagerProjectSummary }) {
               <span className={
                 summary.dateConfidence === "Delayed" ? "font-semibold text-red-600 dark:text-red-400"
                 : summary.dateConfidence === "At Risk" ? "font-semibold text-amber-600 dark:text-amber-400"
+                : summary.dateConfidence === "Not Assessed" ? "font-semibold text-slate-500 dark:text-slate-400"
                 : "font-semibold text-emerald-600 dark:text-emerald-400"
               }>
                 {summary.dateConfidence}
@@ -134,6 +146,7 @@ export function ManagerSummaryPage() {
   const redCount = report?.projects.filter((p) => p.status === "Red").length ?? 0;
   const amberCount = report?.projects.filter((p) => p.status === "Amber").length ?? 0;
   const greenCount = report?.projects.filter((p) => p.status === "Green").length ?? 0;
+  const notAssessedCount = report?.projects.filter((p) => p.status === "Not Assessed").length ?? 0;
 
   return (
     <AppShell>
@@ -168,11 +181,12 @@ export function ManagerSummaryPage() {
       )}
 
       {/* Scorecard */}
-      <div className="mt-5 grid grid-cols-3 gap-3 sm:gap-4">
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
         {[
           { label: "Red", count: redCount, color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900" },
           { label: "Amber", count: amberCount, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900" },
           { label: "Green", count: greenCount, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900" },
+          { label: "Not Assessed", count: notAssessedCount, color: "text-slate-500 dark:text-slate-400", bg: "bg-slate-50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-800" },
         ].map(({ label, count, color, bg }) => (
           <div key={label} className={cn("rounded-lg border p-4 text-center", bg)}>
             <p className={cn("text-3xl font-semibold tabular-nums", color)}>{count}</p>

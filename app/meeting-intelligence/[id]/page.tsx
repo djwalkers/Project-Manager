@@ -217,12 +217,22 @@ export default function MeetingDetailPage() {
       return;
     }
 
+    // Resolve this meeting's own project explicitly — a strict lookup, not
+    // selectProjectById's "fall back to the globally active project"
+    // behaviour, which would otherwise silently substitute a different
+    // project's context when this one can't be found.
+    const project = data.projects.find((p) => p.id === meeting.project_id) ?? null;
+    if (!project) {
+      setAnalyseError({ message: "This meeting's project could not be found." });
+      return;
+    }
+
     setAnalysing(true);
     setAnalyseError(null);
     setStages([]);
 
     try {
-      const compactContext = buildCompactContext(data);
+      const compactContext = buildCompactContext(data, project);
 
       const res = await fetch("/api/meeting/analyse", {
         method: "POST",
@@ -292,7 +302,7 @@ export default function MeetingDetailPage() {
             // Mark all stages done
             setStages((prev) => prev.map((s) => ({ ...s, done: true })));
 
-            const enriched: EnrichedSuggestion[] = matchSuggestionsToExisting(event.suggestions, data);
+            const enriched: EnrichedSuggestion[] = matchSuggestionsToExisting(event.suggestions, data, project);
 
             const updatedMeeting = await saveRecord("meeting_intelligence", {
               ...meeting,

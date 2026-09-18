@@ -204,9 +204,19 @@ export async function getSystemHealth(): Promise<SystemHealthReport> {
     client.from("email_settings").select("daily_brief_enabled,weekly_summary_enabled,manager_summary_enabled,recipient_email,manager_recipient_email").limit(1),
     client.from("email_activity_log").select("email_type,success,sent_at").order("sent_at", { ascending: false }).limit(50),
   ]);
-  const cr028Projects = (projectRows ?? []).filter((project) => String(project.name).toLowerCase().includes("cr028"));
-  if (cr028Projects.length > 1) {
-    mismatches.push(`projects: ${cr028Projects.length} CR028 project rows are visible; active selection will use the project with the strongest control-data ownership`);
+  // Generic duplicate-name detection — no project name is treated
+  // specially. Same grouping convention as lib/project-scope.ts's
+  // selectCanonicalProjects (trim + lowercase), so this warns about
+  // exactly the rows that function would collapse to one "strongest" pick.
+  const projectNameCounts = new Map<string, number>();
+  (projectRows ?? []).forEach((project) => {
+    const key = String(project.name).trim().toLowerCase();
+    projectNameCounts.set(key, (projectNameCounts.get(key) ?? 0) + 1);
+  });
+  const duplicateNameGroups = Array.from(projectNameCounts.values()).filter((count) => count > 1);
+  if (duplicateNameGroups.length > 0) {
+    const totalDuplicateRows = duplicateNameGroups.reduce((sum, count) => sum + count, 0);
+    mismatches.push(`projects: ${totalDuplicateRows} rows share a name across ${duplicateNameGroups.length} duplicate-named project(s); active selection will use the project with the strongest control-data ownership`);
   }
   const visibleProjectIds = new Set((projectRows ?? []).map((project) => project.id));
   const unmatchedTimelineRows = (timelineRows ?? []).filter((item) => !visibleProjectIds.has(item.project_id)).length;

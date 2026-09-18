@@ -35,8 +35,7 @@ import {
 import { canSendQuestion, resolveAssistantReadiness, shouldResetConversation, type AssistantReadiness } from "@/lib/ai/assistant-state";
 import { parseFeasibilityAnswer, type FeasibilityAnswer } from "@/lib/ai/feasibility-answer";
 import { sourceRefHref } from "@/lib/ai/source-refs";
-import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
-import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/lib/project-selection";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
 
@@ -349,16 +348,7 @@ export function LocalAIAssistantPage() {
   const allowed = user?.role === "Admin" || user?.role === "Manager" || user?.role === undefined; // undefined = local dev, no auth backend
 
   const { data, error, reload } = useProjectData();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  useEffect(() => { setSelectedProjectId(loadSelectedProjectId()); }, []);
-
-  const projects = useMemo(() => (data ? selectCanonicalProjects(data) : []), [data]);
-  const project = useMemo(() => (data ? selectProjectById(data, selectedProjectId) : null), [data, selectedProjectId]);
-
-  const handleProjectChange = useCallback((projectId: string) => {
-    setSelectedProjectId(projectId);
-    persistSelectedProjectId(projectId);
-  }, []);
+  const { project, projects, selectProject: handleProjectChange } = useSelectedProject(data);
 
   // ── AI Settings metadata (safe, non-secret — same route AI Settings itself uses) ──
   const [aiMeta, setAiMeta] = useState<AISettingsMeta | null>(null);

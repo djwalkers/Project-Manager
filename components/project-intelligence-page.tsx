@@ -1,15 +1,14 @@
 "use client";
 
 import { AlertTriangle, BrainCircuit, CheckCircle2, CircleAlert, Gauge, Lightbulb, TrendingDown, TrendingUp } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
 import { IntelligenceFindingCard } from "@/components/intelligence-components";
 import { Select } from "@/components/ui/input";
 import { WorkspaceEmpty, WorkspaceMetric, WorkspaceSection } from "@/components/workspace-components";
-import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
-import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/lib/project-selection";
 import { buildProjectIntelligence, type IntelligenceCategory } from "@/lib/project-intelligence";
 import { useProjectData } from "@/lib/use-project-data";
 
@@ -17,23 +16,8 @@ const categories: IntelligenceCategory[] = ["Schedule", "Risk", "Governance", "D
 
 export function ProjectIntelligencePage() {
   const { data, error, reload } = useProjectData();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const projects = useMemo(() => data ? selectCanonicalProjects(data) : [], [data]);
-  const project = data ? selectProjectById(data, selectedProjectId) : null;
+  const { project, projects, selectProject } = useSelectedProject(data);
   const report = useMemo(() => data && project ? buildProjectIntelligence(data, project) : null, [data, project]);
-
-  useEffect(() => {
-    if (!data || !projects.length) return;
-    const stored = loadSelectedProjectId();
-    const next = projects.some((item) => item.id === stored) ? stored : selectProjectById(data, null)?.id ?? projects[0].id;
-    setSelectedProjectId(next);
-    if (next) persistSelectedProjectId(next);
-  }, [data, projects]);
-
-  function selectProject(projectId: string) {
-    setSelectedProjectId(projectId);
-    persistSelectedProjectId(projectId);
-  }
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;

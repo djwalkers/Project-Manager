@@ -16,7 +16,7 @@ import {
   PackageCheck, Rocket, ShieldAlert, Target,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -26,8 +26,7 @@ import {
   buildTimelineIntelligence, monthTicks, weekendRanges, weekTicks, zoomWindow,
   TIMELINE_ZOOMS, type TimelineWindow, type TimelineZoom,
 } from "@/lib/executive-timeline";
-import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
-import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/lib/project-selection";
 import { buildProjectState, type ProjectState } from "@/lib/project-state";
 import { dateRangePosition, datePosition, formatScheduleDate, parseScheduleDate, todayPosition } from "@/lib/schedule";
 import type { Milestone, Requirement, RequirementSignOff, TimelineItem } from "@/lib/types";
@@ -423,16 +422,7 @@ function MobilePhaseCards({ items }: { items: TimelineItem[] }) {
 
 export function ExecutiveTimelinePage() {
   const { data, error, reload } = useProjectData();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  useEffect(() => { setSelectedProjectId(loadSelectedProjectId()); }, []);
-
-  const projects = useMemo(() => (data ? selectCanonicalProjects(data) : []), [data]);
-  const project = useMemo(() => (data ? selectProjectById(data, selectedProjectId) : null), [data, selectedProjectId]);
-
-  const handleProjectChange = useCallback((projectId: string) => {
-    setSelectedProjectId(projectId);
-    persistSelectedProjectId(projectId);
-  }, []);
+  const { project, projects, selectProject: handleProjectChange } = useSelectedProject(data);
 
   // One explicit buildProjectState call — every fact on this page comes from
   // this single object, never recomputed independently.

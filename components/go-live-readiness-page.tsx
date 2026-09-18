@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock,
   GitBranch, ListChecks, Loader2, Plus, Trash2, XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { Button } from "@/components/ui/button";
@@ -41,8 +41,7 @@ import {
 } from "@/lib/go-live-readiness";
 import { canAssessManualChecks } from "@/lib/permissions";
 import { useAuth } from "@/contexts/auth-context";
-import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
-import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/lib/project-selection";
 import { buildProjectState } from "@/lib/project-state";
 import type { CutoverStep, GoLiveChecklist, GoLiveChecklistCategory, GoLiveChecklistStatus, GoLiveReadinessOverride, GoLiveReadinessOverrideStatus } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
@@ -631,14 +630,7 @@ export function GoLiveReadinessPage() {
   const { data, error, reload, setData } = useProjectData();
   const { user } = useAuth();
   const canAssessManual = canAssessManualChecks(user?.role);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelectedProjectId(loadSelectedProjectId());
-  }, []);
-
-  const projects = useMemo(() => data ? selectCanonicalProjects(data) : [], [data]);
-  const project = useMemo(() => data ? (selectedProjectId ? selectProjectById(data, selectedProjectId) : (projects[0] ?? null)) : null, [data, selectedProjectId, projects]);
+  const { project, projects, selectProject: handleProjectChange } = useSelectedProject(data);
 
   // Phase 7: reads Go-Live readiness off the shared ProjectState instead of
   // calling buildGoLiveDashboard directly — same underlying computation,
@@ -651,11 +643,6 @@ export function GoLiveReadinessPage() {
 
   const cutoverSteps = useMemo(() =>
     (data?.cutover_plan ?? []).filter((c) => c.project_id === project?.id), [data, project]);
-
-  const handleProjectChange = useCallback((projectId: string) => {
-    setSelectedProjectId(projectId);
-    persistSelectedProjectId(projectId);
-  }, []);
 
   async function saveChecklist(item: GoLiveChecklist) {
     const saved = await saveRecord("go_live_checklists", item);

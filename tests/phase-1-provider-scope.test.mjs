@@ -208,7 +208,11 @@ run("structural: RaidLogReport reads risks/actions/decisions via buildProjectSta
   const start = source.indexOf("function RaidLogReport");
   const end = source.indexOf("\nfunction ", start + 1);
   const body = source.slice(start, end === -1 ? undefined : end);
-  assert.match(body, /selectActiveProject\(data\)/, "must resolve one explicit project");
+  // Multi-project selection phase: RaidLogReport now resolves the
+  // canonically-selected project (persisted selection, deterministic
+  // name-unbiased fallback) rather than calling selectActiveProject
+  // directly — see lib/project-selection.ts's resolveSelectedProject.
+  assert.match(body, /resolveSelectedProject\(data\)/, "must resolve one explicit project via the canonical selected-project resolver");
   assert.match(body, /buildProjectState\(data, project\)\.scoped/, "must read through ProjectState's scoped data");
   assert.doesNotMatch(body, /data\.risks\.filter|data\.actions\.filter|data\.decisions\.filter/, "must never read the raw, unscoped data.risks/actions/decisions arrays directly");
 });

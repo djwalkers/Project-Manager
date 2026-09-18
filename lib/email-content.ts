@@ -441,13 +441,16 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
 
   const redCount = report.projects.filter((p) => p.status === "Red").length;
   const amberCount = report.projects.filter((p) => p.status === "Amber").length;
+  const notAssessedCount = report.projects.filter((p) => p.status === "Not Assessed").length;
   const actionCount = report.requiresAction.length;
 
   const intro = report.projects.length === 0
     ? "No active projects found."
     : actionCount > 0
       ? `${actionCount} ${actionCount === 1 ? "project requires" : "projects require"} management action. ${redCount > 0 ? `${redCount} Red. ` : ""}${amberCount > 0 ? `${amberCount} Amber.` : ""}`.trim()
-      : "All projects are on track. No management action is required.";
+      : notAssessedCount > 0
+        ? `All assessed projects are on track. ${notAssessedCount} ${notAssessedCount === 1 ? "project has" : "projects have"} no delivery evidence recorded yet and ${notAssessedCount === 1 ? "is" : "are"} not yet assessed.`
+        : "All projects are on track. No management action is required.";
 
   const goLiveHtml = goLiveAlerts.length ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:14px 16px;margin-bottom:16px"><p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:0.05em">Go-Live Alerts</p><ul style="margin:0;padding-left:20px">${goLiveAlerts.map((a) => `<li style="font-size:13px;color:#7f1d1d;margin-bottom:4px">${escapeHtml(a)}</li>`).join("")}</ul></div>` : "";
 

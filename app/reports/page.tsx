@@ -12,7 +12,7 @@ import { useState, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { useProjectData } from "@/lib/use-project-data";
-import { selectActiveProject } from "@/lib/project-scope";
+import { resolveSelectedProject } from "@/lib/project-selection";
 import { buildProjectState } from "@/lib/project-state";
 import {
   buildManagementSummary,
@@ -106,7 +106,7 @@ function PrintButton() {
 // ── Report: Executive Status ──────────────────────────────────────────────────
 
 function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = selectActiveProject(data);
+  const project = resolveSelectedProject(data);
   if (!project) return <p className="text-sm text-muted-foreground">No active project.</p>;
 
   // Phase 7: one buildProjectState call for this project instead of each
@@ -211,7 +211,7 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
 // ── Report: RAID Log ──────────────────────────────────────────────────────────
 
 function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = selectActiveProject(data);
+  const project = resolveSelectedProject(data);
   // Scoped to this exact project via ProjectState (matching every other
   // report on this page) — previously read raw, unscoped data.risks/
   // actions/decisions, which meant a sibling project's RAID items leaked
@@ -324,12 +324,12 @@ function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjec
 // ── Report: Delivery Confidence ───────────────────────────────────────────────
 
 function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = selectActiveProject(data);
+  const project = resolveSelectedProject(data);
   // Phase 7: reads Delivery Confidence for this exact project (via
   // ProjectState) rather than letting computeDeliveryConfidence re-select a
   // project internally.
   const confidence = project ? buildProjectState(data, project).confidence : { score: 0, reasons: ["No active project"], rag: "Red" as const };
-  const healthColor = confidence.rag === "Green" ? "#16a34a" : confidence.rag === "Amber" ? "#d97706" : "#dc2626";
+  const healthColor = confidence.rag === "Green" ? "#16a34a" : confidence.rag === "Amber" ? "#d97706" : confidence.rag === "Red" ? "#dc2626" : "#64748b";
 
   return (
     <div className="report-body space-y-8">
@@ -340,12 +340,14 @@ function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeo
 
       <div className="flex items-center gap-6">
         <div className="text-center">
-          <p style={{ color: healthColor }} className="text-6xl font-bold tabular-nums">{confidence.score}%</p>
+          <p style={{ color: healthColor }} className="text-6xl font-bold tabular-nums">{confidence.score === null ? "—" : `${confidence.score}%`}</p>
           <p className="mt-1 text-sm text-muted-foreground">Overall Confidence</p>
         </div>
         <div className="flex-1 rounded-lg border p-4">
           <p className="text-sm font-medium">RAG Status: <span style={{ color: healthColor }} className="font-bold">{confidence.rag}</span></p>
-          {confidence.reasons.length === 0 ? (
+          {confidence.rag === "Not Assessed" ? (
+            <p className="mt-2 text-sm text-muted-foreground">{confidence.reasons[0] ?? "Not yet assessed — no delivery evidence recorded."}</p>
+          ) : confidence.reasons.length === 0 ? (
             <p className="mt-2 text-sm text-green-700">All confidence checks passed — no gaps detected.</p>
           ) : (
             <ul className="mt-2 space-y-1">
@@ -366,7 +368,7 @@ function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeo
 // ── Report: Requirements Traceability ─────────────────────────────────────────
 
 function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = selectActiveProject(data);
+  const project = resolveSelectedProject(data);
   // Phase 7: requirements/acceptance criteria scoped to this exact project
   // via ProjectState — previously this read every project's requirements.
   const scoped = project ? buildProjectState(data, project).scoped : null;
@@ -417,7 +419,7 @@ function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType
 // scoped to the resolved project via ProjectState; its gate criteria are
 // unchanged.
 function GoLiveReadinessReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = selectActiveProject(data);
+  const project = resolveSelectedProject(data);
   const scoped = project ? buildProjectState(data, project).scoped : null;
   const openRisks = (scoped?.risks ?? []).filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
   const overdueActions = (scoped?.actions ?? []).filter((a) => isOverdue(a.due_date, a.status));

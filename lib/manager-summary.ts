@@ -3,7 +3,7 @@ import { isDecisionOverdue, isDeliverableBlocked, isRiskOpen } from "@/lib/lifec
 import { materialAcceptanceCriteriaFailures, materialTestFailures } from "@/lib/delivery-materiality";
 import { deriveProjectPhase, type ProjectPhase } from "@/lib/project-phase";
 import { resolveGoLiveDate } from "@/lib/project-dates";
-import { scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
+import { hasDeliveryEvidence, scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { isOverdue } from "@/lib/utils";
 import type { AcceptanceCriteria, Deliverable, Project, TestCase } from "@/lib/types";
@@ -19,8 +19,8 @@ function daysUntil(dateStr: string | null, now: Date): number | null {
   return Math.ceil((date.getTime() - today.getTime()) / DAY_MS);
 }
 
-export type ManagerRagStatus = "Green" | "Amber" | "Red";
-export type DateConfidence = "On Track" | "At Risk" | "Delayed";
+export type ManagerRagStatus = "Green" | "Amber" | "Red" | "Not Assessed";
+export type DateConfidence = "On Track" | "At Risk" | "Delayed" | "Not Assessed";
 export type ManagementAction = "Required" | "Not Required";
 
 export type ManagerProjectSummary = {
@@ -45,6 +45,25 @@ export type ManagerExceptionReport = {
 // per-project internally, not a second implementation of the RAG rule.
 export function classifyProject(data: DataStore, project: Project, now: Date): ManagerProjectSummary {
   const scoped = scopeProjectData(data, project);
+
+  // A project with zero delivery evidence of any kind has no risks,
+  // deliverables, decisions, or tests for the Red/Amber signals below to
+  // ever find — they're all vacuously false, which previously fell
+  // through to a false Green/"On Track" ("nothing wrong" read as
+  // "everything's fine"). Absence of evidence is not evidence of a
+  // healthy project: report it as genuinely unassessed instead. See
+  // hasDeliveryEvidence's doc comment for the exact threshold.
+  if (!hasDeliveryEvidence(scoped)) {
+    return {
+      project,
+      status: "Not Assessed",
+      summary: `${project.name} has no delivery evidence recorded yet.`,
+      attentionRequired: null,
+      dateConfidence: "Not Assessed",
+      managementAction: "Not Required",
+    };
+  }
+
   const schedule = calculateSchedule(project, scoped.timeline_items, now);
   const phase = deriveProjectPhase(data, project, now);
   const goLive = resolveGoLiveDate(data, project);

@@ -24,7 +24,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { buildTodaysPriorities } from "@/lib/control-tower";
 import type { Recommendation } from "@/lib/recommendations";
-import { selectActiveProject } from "@/lib/project-scope";
+import { resolveSelectedProject } from "@/lib/project-selection";
 import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { useAuth } from "@/contexts/auth-context";
@@ -175,7 +175,7 @@ export default function WorkbenchPage() {
 
   const wb = useMemo(() => {
     if (!data) return null;
-    const project = selectActiveProject(data);
+    const project = resolveSelectedProject(data);
     if (!project) return null;
     const state = buildProjectState(data, project);
 
@@ -366,15 +366,15 @@ export default function WorkbenchPage() {
               </Link>
             </div>
             <div className="mt-4 text-center">
-              <span className={cn("text-5xl font-bold tabular-nums", wb.confidence.rag === "Green" ? "text-green-700" : wb.confidence.rag === "Amber" ? "text-amber-600" : "text-red-600")}>
-                {wb.confidence.score}%
+              <span className={cn("text-5xl font-bold tabular-nums", wb.confidence.rag === "Green" ? "text-green-700" : wb.confidence.rag === "Amber" ? "text-amber-600" : wb.confidence.rag === "Red" ? "text-red-600" : "text-muted-foreground")}>
+                {wb.confidence.score === null ? "—" : `${wb.confidence.score}%`}
               </span>
-              <p className="mt-1 text-xs text-muted-foreground">{wb.confidence.rag} · {wb.confidence.reasons.length === 0 ? "All checks passed" : `${wb.confidence.reasons.length} gap${wb.confidence.reasons.length > 1 ? "s" : ""} detected`}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{wb.confidence.rag} · {wb.confidence.rag === "Not Assessed" ? "no delivery evidence yet" : wb.confidence.reasons.length === 0 ? "All checks passed" : `${wb.confidence.reasons.length} gap${wb.confidence.reasons.length > 1 ? "s" : ""} detected`}</p>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
               <div
-                className={cn("h-full rounded-full transition-[width] duration-500", wb.confidence.rag === "Green" ? "bg-green-600" : wb.confidence.rag === "Amber" ? "bg-amber-500" : "bg-red-500")}
-                style={{ width: `${wb.confidence.score}%` }}
+                className={cn("h-full rounded-full transition-[width] duration-500", wb.confidence.rag === "Green" ? "bg-green-600" : wb.confidence.rag === "Amber" ? "bg-amber-500" : wb.confidence.rag === "Red" ? "bg-red-500" : "bg-muted-foreground/40")}
+                style={{ width: `${wb.confidence.score ?? 0}%` }}
               />
             </div>
             {wb.confidence.reasons.length > 0 && (

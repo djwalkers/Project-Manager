@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, CheckCheck, X } from "lucide-react";
-import { selectActiveProject } from "@/lib/project-scope";
+import { resolveSelectedProject } from "@/lib/project-selection";
 import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
@@ -67,7 +67,7 @@ export function NotificationBell() {
   // Workbench just displays the top 5 of this same list.
   const notifications = useMemo(() => {
     if (!data) return [];
-    const project = selectActiveProject(data);
+    const project = resolveSelectedProject(data);
     if (!project) return [];
     return buildProjectState(data, project).recommendations;
   }, [data]);

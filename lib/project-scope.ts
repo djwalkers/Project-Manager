@@ -37,10 +37,14 @@ function strongestProject(data: DataStore, projects: Project[]) {
   })[0] ?? null;
 }
 
+// The deterministic fallback pick when nothing has been explicitly
+// selected: the "strongest" (most-populated) project across every
+// distinct (name-deduplicated) project in the dataset. Carries no
+// preference for any specific project name — CR028 wins here only when
+// its data genuinely makes it the strongest candidate, exactly like any
+// other project would.
 export function selectActiveProject(data: DataStore): Project | null {
-  const cr028Projects = data.projects.filter((project) => normalizedProjectName(project.name).includes("cr028"));
-  const candidates = cr028Projects.length ? cr028Projects : data.projects;
-  return strongestProject(data, candidates);
+  return strongestProject(data, selectCanonicalProjects(data));
 }
 
 export function selectCanonicalProjects(data: DataStore): Project[] {
@@ -72,6 +76,31 @@ export function selectProjectById(data: DataStore, projectId?: string | null): P
   return selectCanonicalProjects(data).find((project) => project.id === projectId)
     ?? data.projects.find((project) => project.id === projectId)
     ?? selectActiveProject(data);
+}
+
+// The lifecycle collections computeDeliveryConfidence's candidate
+// generation and classifyProject's signal derivation both draw from — see
+// hasDeliveryEvidence below.
+const EVIDENCE_COLLECTIONS = [
+  "requirements", "deliverables", "risks", "decisions", "actions",
+  "dependencies", "test_cases", "acceptance_criteria", "milestones",
+  "timeline_items", "discovery_questions",
+] as const;
+
+/**
+ * A project has "delivery evidence" once at least one lifecycle record of
+ * any kind has been created against it. This is the exact, non-arbitrary
+ * boundary between a genuinely just-created project (zero records
+ * anywhere — the condition that made buildDeliveryInsightAnalysis's
+ * candidate generation and classifyProject's risk/deliverable/decision
+ * signals come back empty, which previously read as a false 100%/Green)
+ * and one that has begun real work, however small. Not a record-count
+ * threshold — a single requirement, risk, or milestone is enough to leave
+ * "Not Assessed" and enter genuine assessment; see
+ * lib/delivery-confidence.ts and lib/manager-summary.ts.
+ */
+export function hasDeliveryEvidence(scoped: DataStore): boolean {
+  return EVIDENCE_COLLECTIONS.some((key) => (scoped[key]?.length ?? 0) > 0);
 }
 
 export type TimelineScope = {

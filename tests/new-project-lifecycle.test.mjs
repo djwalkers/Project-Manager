@@ -4,10 +4,12 @@
 // selectCanonicalProjects/selectProjectById handle a genuinely empty
 // project without throwing or leaking CR028's data, and buildProjectState/
 // buildProjectWorkspace report the empty project as "not yet assessed" —
-// never as falsely 100% complete/ready/Green — for every calculation that
-// already guards against vacuous truth (see the pre-implementation audit
-// for the two computeDeliveryConfidence/classifyProject false positives
-// that were reported, not fixed, in this phase).
+// never as falsely 100% complete/ready/Green — for every calculation.
+// state.confidence and state.managerSummary are covered here too: the
+// computeDeliveryConfidence/classifyProject false positives originally
+// reported (not fixed) in this phase were subsequently corrected — see
+// tests/empty-project-assessment.test.mjs for the dedicated, exhaustive
+// coverage of that fix and its documented evidence threshold.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import Module from "node:module";
@@ -182,6 +184,16 @@ run("an empty project's Go-Live readiness is Not Assessed at 0%, not falsely Com
   const state = buildProjectState(data, newProject, now);
   assert.equal(state.goLive.status, "Not Assessed");
   assert.equal(state.goLive.readinessPercent, 0);
+});
+
+run("an empty project's Delivery Confidence and Manager Summary are Not Assessed, not falsely Green/100%/On Track", () => {
+  const data = buildFixture();
+  const newProject = data.projects.find((p) => p.id === NEW_PROJECT_ID);
+  const state = buildProjectState(data, newProject, now);
+  assert.equal(state.confidence.rag, "Not Assessed");
+  assert.equal(state.confidence.score, null);
+  assert.equal(state.managerSummary.status, "Not Assessed");
+  assert.equal(state.managerSummary.dateConfidence, "Not Assessed");
 });
 
 run("an empty project's lifecycle rollups report zero everywhere, with allPassed/allMet both false (not vacuously true)", () => {

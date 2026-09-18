@@ -41,7 +41,7 @@ import { computeReadiness } from "@/components/requirement-readiness";
 import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
 import { ProjectTrendsPanel } from "@/components/trend-chart";
 import { isAcceptanceCriteriaFailed, isAcceptanceCriteriaMet, isDecisionOpen } from "@/lib/lifecycle";
-import { selectActiveProject } from "@/lib/project-scope";
+import { resolveSelectedProject } from "@/lib/project-selection";
 import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 
@@ -104,7 +104,7 @@ export default function DashboardPage() {
   // Auto-capture once per day when the page loads
   useEffect(() => {
     if (!data) return;
-    const project = selectActiveProject(data);
+    const project = resolveSelectedProject(data);
     if (!project) return;
     if (!todaySnapshotExists(data, project.id)) {
       void takeSnapshot(data, project);
@@ -114,7 +114,7 @@ export default function DashboardPage() {
   }, [!!data]);
 
   const tower = useMemo(() => {
-    const project = data ? selectActiveProject(data) : null;
+    const project = data ? resolveSelectedProject(data) : null;
     if (!data || !project) return null;
     const state = buildProjectState(data, project);
     const scoped = state.scoped;
@@ -234,7 +234,7 @@ export default function DashboardPage() {
         overallProgress: snapTrend(tower.progress.overall, "progress_percent"),
         acceptancePct: snapTrend(tower.acceptance.pct, "acceptance_complete"),
         projectReadiness: snapTrend(tower.projectReadiness.overall, "project_readiness"),
-        confidence: snapTrend(confidence.score, "delivery_confidence"),
+        confidence: confidence.score === null ? undefined : snapTrend(confidence.score, "delivery_confidence"),
       },
     };
   }, [tower]);
@@ -316,12 +316,12 @@ export default function DashboardPage() {
           <ControlTowerKpi title="Requirements Readiness" value={`${tower.projectReadiness.overall}%`} helper={tower.projectReadiness.dimensions.map((d) => `${d.label} ${d.pct}%`).join(" · ")} icon={ListChecks} progress={tower.projectReadiness.overall} trend={trends.projectReadiness} tone={tower.projectReadiness.overall === 100 ? "good" : tower.projectReadiness.overall >= 70 ? "neutral" : tower.projectReadiness.overall >= 40 ? "warn" : "danger"} />
           <ControlTowerKpi
             title="Delivery Confidence"
-            value={`${tower.confidence.score}%`}
+            value={tower.confidence.score === null ? "Not assessed" : `${tower.confidence.score}%`}
             helper={tower.confidence.reasons.length ? tower.confidence.reasons.join(" · ") : "No confidence gaps detected."}
             icon={Target}
-            progress={tower.confidence.score}
+            progress={tower.confidence.score ?? undefined}
             trend={trends.confidence}
-            tone={tower.confidence.rag === "Green" ? "good" : tower.confidence.rag === "Amber" ? "warn" : "danger"}
+            tone={tower.confidence.rag === "Green" ? "good" : tower.confidence.rag === "Amber" ? "warn" : tower.confidence.rag === "Red" ? "danger" : "neutral"}
           />
         </div>
 
@@ -331,11 +331,13 @@ export default function DashboardPage() {
           <section className="col-span-2 rounded-lg border bg-card p-5 shadow-operational">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">Delivery Confidence</h3>
-              <span className={`text-3xl font-bold tabular-nums ${tower.confidence.rag === "Green" ? "text-green-700" : tower.confidence.rag === "Amber" ? "text-amber-600" : "text-red-600"}`}>
-                {tower.confidence.score}%
+              <span className={`text-3xl font-bold tabular-nums ${tower.confidence.rag === "Green" ? "text-green-700" : tower.confidence.rag === "Amber" ? "text-amber-600" : tower.confidence.rag === "Red" ? "text-red-600" : "text-muted-foreground"}`}>
+                {tower.confidence.score === null ? "—" : `${tower.confidence.score}%`}
               </span>
             </div>
-            {tower.confidence.reasons.length === 0 ? (
+            {tower.confidence.rag === "Not Assessed" ? (
+              <p className="mt-3 text-sm text-muted-foreground">{tower.confidence.reasons[0] ?? "Not yet assessed — no delivery evidence recorded."}</p>
+            ) : tower.confidence.reasons.length === 0 ? (
               <p className="mt-3 text-sm text-green-700">All confidence checks passed — delivery is on track.</p>
             ) : (
               <div className="mt-3">
@@ -352,8 +354,8 @@ export default function DashboardPage() {
             )}
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
               <div
-                className={`h-full rounded-full transition-[width] duration-500 ${tower.confidence.rag === "Green" ? "bg-green-600" : tower.confidence.rag === "Amber" ? "bg-amber-500" : "bg-red-500"}`}
-                style={{ width: `${tower.confidence.score}%` }}
+                className={`h-full rounded-full transition-[width] duration-500 ${tower.confidence.rag === "Green" ? "bg-green-600" : tower.confidence.rag === "Amber" ? "bg-amber-500" : tower.confidence.rag === "Red" ? "bg-red-500" : "bg-muted-foreground/40"}`}
+                style={{ width: `${tower.confidence.score ?? 0}%` }}
               />
             </div>
           </section>

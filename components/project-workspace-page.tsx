@@ -17,7 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
@@ -28,8 +28,7 @@ import { Select } from "@/components/ui/input";
 import { WorkspaceEmpty, WorkspaceMetric, WorkspaceSection } from "@/components/workspace-components";
 import type { DataStore } from "@/lib/data-store";
 import { moduleByKey, type ModuleConfig } from "@/lib/modules";
-import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
-import { selectCanonicalProjects, selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/lib/project-selection";
 import { isDeliverableComplete } from "@/lib/lifecycle";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";
@@ -131,26 +130,15 @@ function GoLiveStrip({ data, projectId }: { data: DataStore; projectId: string }
 export function ProjectWorkspacePage() {
   const { data, setData, error, reload } = useProjectData();
   const { user } = useAuth();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const { project, projects, selectProject } = useSelectedProject(data);
   const [dialog, setDialog] = useState<WorkspaceDialog>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
-  const projects = useMemo(() => data ? selectCanonicalProjects(data) : [], [data]);
-  const project = data ? selectProjectById(data, selectedProjectId) : null;
   const workspace = useMemo(() => data && project ? buildProjectWorkspace(data, project) : null, [data, project]);
   const intelligence = useMemo(() => data && project ? buildProjectIntelligence(data, project) : null, [data, project]);
 
-  useEffect(() => {
-    if (!projects.length) return;
-    const stored = loadSelectedProjectId();
-    const next = projects.some((item) => item.id === stored) ? stored : selectProjectById(data as DataStore, null)?.id ?? projects[0].id;
-    setSelectedProjectId(next);
-    if (next) persistSelectedProjectId(next);
-  }, [data, projects]);
-
   function chooseProject(projectId: string) {
-    setSelectedProjectId(projectId);
-    persistSelectedProjectId(projectId);
+    selectProject(projectId);
     setOperationMessage(null);
   }
 
