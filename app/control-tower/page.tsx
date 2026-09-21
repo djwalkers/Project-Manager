@@ -41,7 +41,7 @@ import { computeReadiness } from "@/components/requirement-readiness";
 import { captureSnapshot, todaySnapshotExists } from "@/lib/snapshots";
 import { ProjectTrendsPanel } from "@/components/trend-chart";
 import { isAcceptanceCriteriaFailed, isAcceptanceCriteriaMet, isDecisionOpen } from "@/lib/lifecycle";
-import { resolveSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 
@@ -78,6 +78,7 @@ function ListPanel({
 
 export default function DashboardPage() {
   const { data, setData, error, reload } = useProjectData();
+  const { project: selectedProject } = useSelectedProject(data);
   const [snapshotting, setSnapshotting] = useState(false);
 
   const takeSnapshot = useCallback(async (d: NonNullable<typeof data>, project: Project) => {
@@ -103,26 +104,23 @@ export default function DashboardPage() {
 
   // Auto-capture once per day when the page loads
   useEffect(() => {
-    if (!data) return;
-    const project = resolveSelectedProject(data);
-    if (!project) return;
-    if (!todaySnapshotExists(data, project.id)) {
-      void takeSnapshot(data, project);
+    if (!data || !selectedProject) return;
+    if (!todaySnapshotExists(data, selectedProject.id)) {
+      void takeSnapshot(data, selectedProject);
     }
-  // Only run on initial data load
+  // Only run on initial data load / when the selected project changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!data]);
+  }, [!!data, selectedProject?.id]);
 
   const tower = useMemo(() => {
-    const project = data ? resolveSelectedProject(data) : null;
-    if (!data || !project) return null;
-    const state = buildProjectState(data, project);
+    if (!data || !selectedProject) return null;
+    const state = buildProjectState(data, selectedProject);
     const scoped = state.scoped;
     const schedule = state.schedule;
     const scheduleVariance = schedule.variance ?? -1;
 
     return {
-      project,
+      project: selectedProject,
       scheduleVariance,
       overdueActions: state.rollups.actions.overdue,
       overdueDecisions: state.rollups.decisions.overdue,
@@ -143,7 +141,7 @@ export default function DashboardPage() {
       // ProjectState.
       needsAttention: buildNeedsAttention(scoped),
       upcomingThisWeek: buildUpcomingThisWeek(scoped),
-      summary: buildManagementSummary(project, state.projectHealth, scoped, state.rollups.actions.overdue, schedule),
+      summary: buildManagementSummary(selectedProject, state.projectHealth, scoped, state.rollups.actions.overdue, schedule),
       openRisks: state.rollups.risks.open,
       openQuestions: scoped.discovery_questions.filter((item) => !["Answered", "Closed"].includes(item.status)).length,
       activeMilestones: scoped.milestones.filter((item) => ["In Progress", "At Risk", "Blocked"].includes(item.status)).length,
@@ -157,7 +155,7 @@ export default function DashboardPage() {
         complete: scoped.requirements.filter((r) => ["Complete", "Closed"].includes(r.status)).length,
       },
       waitingOnOthers: buildWaitingOnOthersGrouped(scoped),
-      todaysPriorities: buildTodaysPriorities(data, project),
+      todaysPriorities: buildTodaysPriorities(data, selectedProject),
       acceptance: (() => {
         const allAC = scoped.acceptance_criteria ?? [];
         const total = allAC.length;
@@ -183,7 +181,7 @@ export default function DashboardPage() {
       confidence: state.confidence,
       snapshots: [...(scoped.project_snapshots ?? [])].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)),
     };
-  }, [data]);
+  }, [data, selectedProject]);
 
   const derived = useMemo(() => {
     if (!tower) return null;

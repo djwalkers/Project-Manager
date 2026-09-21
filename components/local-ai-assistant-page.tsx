@@ -35,7 +35,7 @@ import {
 import { canSendQuestion, resolveAssistantReadiness, shouldResetConversation, type AssistantReadiness } from "@/lib/ai/assistant-state";
 import { parseFeasibilityAnswer, type FeasibilityAnswer } from "@/lib/ai/feasibility-answer";
 import { sourceRefHref } from "@/lib/ai/source-refs";
-import { useSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
 

@@ -1,37 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { EmptyState } from "@/components/empty-state";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { FormDialog } from "@/components/form-dialog";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
-import { loadSelectedProjectId } from "@/lib/project-selection";
-import { selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/contexts/selected-project-context";
+import { scopeProjectData } from "@/lib/project-scope";
 import { moduleByKey } from "@/lib/modules";
 import { saveRecord } from "@/lib/supabase/data-store";
 import type { ActionItem, Decision, Requirement } from "@/lib/types";
 import { nextRef } from "@/lib/utils";
 import { useProjectData } from "@/lib/use-project-data";
+import { Users } from "lucide-react";
 
 type Row = Record<string, unknown>;
 
 export function DecisionsPage() {
   const { data, setData, error, reload } = useProjectData();
   const { user } = useAuth();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const { project: activeProject } = useSelectedProject(data);
   const [createReqFrom, setCreateReqFrom] = useState<Decision | null>(null);
   const [createActionFrom, setCreateActionFrom] = useState<Decision | null>(null);
 
   const config = moduleByKey.get("decisions")!;
   const reqConfig = moduleByKey.get("requirements")!;
   const actionConfig = moduleByKey.get("actions")!;
-  const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
-
-  useEffect(() => {
-    setSelectedProjectId(loadSelectedProjectId());
-  }, []);
+  // Same canonical scoping every other project-scoped page uses — decisions
+  // has its own page (not the generic ModulePageClient) because of the
+  // Create Requirement/Action-from-Decision flow below, but the leakage bug
+  // was identical: data.decisions was passed to DataTable unfiltered.
+  const pageData = data && activeProject ? scopeProjectData(data, activeProject) : null;
 
   const defaultValues = useMemo(
     () => (user?.fullName ? { owner: user.fullName } : undefined),
@@ -118,70 +120,77 @@ export function DecisionsPage() {
   }
 
   const reqDefaultsFromDecision = useMemo((): Row | undefined => {
-    if (!createReqFrom || !data) return undefined;
+    if (!createReqFrom || !pageData) return undefined;
     return {
-      requirement_ref: nextRef(data.requirements as unknown as Row[], "requirement_ref", "REQ"),
+      requirement_ref: nextRef(pageData.requirements as unknown as Row[], "requirement_ref", "REQ"),
       title: createReqFrom.question ?? "",
       description: createReqFrom.decision ?? "",
       status: "Open",
       owner: createReqFrom.owner ?? user?.fullName ?? "",
     };
-  }, [createReqFrom, data, user]);
+  }, [createReqFrom, pageData, user]);
 
   const actionDefaultsFromDecision = useMemo((): Row | undefined => {
-    if (!createActionFrom || !data) return undefined;
+    if (!createActionFrom || !pageData) return undefined;
     return {
-      action_ref: nextRef(data.actions as unknown as Row[], "action_ref", "ACT"),
+      action_ref: nextRef(pageData.actions as unknown as Row[], "action_ref", "ACT"),
       description: createActionFrom.question ?? "",
       owner: createActionFrom.owner ?? user?.fullName ?? "",
       status: "Open",
     };
-  }, [createActionFrom, data, user]);
+  }, [createActionFrom, pageData, user]);
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!activeProject || !pageData) {
+    return (
+      <AppShell>
+        <EmptyState title="No project selected" description="Open a project from the Portfolio page before working in this module." icon={Users} />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <p className="text-sm font-medium text-primary">{activeProject?.name ?? "Project"}</p>
+          <p className="text-sm font-medium text-primary">{activeProject.project_ref ?? activeProject.name}</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal">{config.title}</h2>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{config.description}</p>
         </div>
         <p className="rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground">
-          {data.decisions.length} total records
+          {pageData.decisions.length} total records
         </p>
       </div>
 
       <DataTable
         config={config}
-        data={data}
+        data={pageData}
         onSaveRecord={persistRecord}
         onDeleteRecord={removeRecord}
         defaultValues={defaultValues}
         detailFooter={detailFooter}
       />
 
-      {createReqFrom && data && (
+      {createReqFrom && (
         <FormDialog
           config={reqConfig}
           record={reqDefaultsFromDecision ?? {}}
           open={true}
           onClose={() => setCreateReqFrom(null)}
           onSave={(record) => void saveRequirement(record as Row)}
-          existingRecords={data.requirements as unknown as Row[]}
+          existingRecords={pageData.requirements as unknown as Row[]}
         />
       )}
 
-      {createActionFrom && data && (
+      {createActionFrom && (
         <FormDialog
           config={actionConfig}
           record={actionDefaultsFromDecision ?? {}}
           open={true}
           onClose={() => setCreateActionFrom(null)}
           onSave={(record) => void saveAction(record as Row)}
-          existingRecords={data.actions as unknown as Row[]}
+          existingRecords={pageData.actions as unknown as Row[]}
         />
       )}
     </AppShell>

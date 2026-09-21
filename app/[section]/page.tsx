@@ -3,6 +3,7 @@ import { ModulePageClient, SettingsPageClient } from "@/components/app-client";
 import { DailyBriefPage } from "@/components/daily-brief-page";
 import { DecisionsPage } from "@/components/decisions-page";
 import { DiscoveryQuestionsPage } from "@/components/discovery-questions-page";
+import { ProjectsPortfolioPage } from "@/components/projects-portfolio-page";
 import { ProjectTrendsPage } from "@/components/project-trends-page";
 import { ProjectIntelligencePage } from "@/components/project-intelligence-page";
 import { ProjectWorkspacePage } from "@/components/project-workspace-page";
@@ -38,6 +39,7 @@ export function generateStaticParams() {
 export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
   if (section === "settings") return <SettingsPageClient />;
+  if (section === "projects") return <ProjectsPortfolioPage />;
   if (section === "email-settings") return <EmailSettingsPage />;
   if (section === "system-health") return <SystemHealthPage />;
   if (section === "daily-brief") return <DailyBriefPage />;

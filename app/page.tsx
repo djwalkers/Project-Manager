@@ -24,7 +24,7 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { buildTodaysPriorities } from "@/lib/control-tower";
 import type { Recommendation } from "@/lib/recommendations";
-import { resolveSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { useAuth } from "@/contexts/auth-context";
@@ -172,12 +172,11 @@ function Section({
 export default function WorkbenchPage() {
   const { data, error, reload } = useProjectData();
   const { user } = useAuth();
+  const { project: selectedProject } = useSelectedProject(data);
 
   const wb = useMemo(() => {
-    if (!data) return null;
-    const project = resolveSelectedProject(data);
-    if (!project) return null;
-    const state = buildProjectState(data, project);
+    if (!data || !selectedProject) return null;
+    const state = buildProjectState(data, selectedProject);
 
     // Scoped to this exact project via state.scoped — previously these read
     // raw, unscoped `data.*` arrays, which meant a second canonical project
@@ -199,11 +198,11 @@ export default function WorkbenchPage() {
     // buildRecommendations(data, 5) call exactly, since both read the same
     // deterministically-sorted list.
     const recommendations = state.recommendations.slice(0, 5);
-    const priorities = buildTodaysPriorities(data, project);
+    const priorities = buildTodaysPriorities(data, selectedProject);
     const recentActivity = state.scoped.activity_log.slice(0, 8);
 
     return {
-      project,
+      project: selectedProject,
       overdueActions,
       openRisks: state.rollups.risks.open,
       highRisks: state.rollups.risks.highOrCritical,
@@ -216,7 +215,7 @@ export default function WorkbenchPage() {
       priorities,
       recentActivity,
     };
-  }, [data]);
+  }, [data, selectedProject]);
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState variant="workbench" /></AppShell>;

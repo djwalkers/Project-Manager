@@ -12,7 +12,7 @@ import { useState, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { useProjectData } from "@/lib/use-project-data";
-import { resolveSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectState } from "@/lib/project-state";
 import {
   buildManagementSummary,
@@ -106,7 +106,7 @@ function PrintButton() {
 // ── Report: Executive Status ──────────────────────────────────────────────────
 
 function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = resolveSelectedProject(data);
+  const { project } = useSelectedProject(data);
   if (!project) return <p className="text-sm text-muted-foreground">No active project.</p>;
 
   // Phase 7: one buildProjectState call for this project instead of each
@@ -211,7 +211,7 @@ function ExecutiveStatusReport({ data }: { data: NonNullable<ReturnType<typeof u
 // ── Report: RAID Log ──────────────────────────────────────────────────────────
 
 function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = resolveSelectedProject(data);
+  const { project } = useSelectedProject(data);
   // Scoped to this exact project via ProjectState (matching every other
   // report on this page) — previously read raw, unscoped data.risks/
   // actions/decisions, which meant a sibling project's RAID items leaked
@@ -324,7 +324,7 @@ function RaidLogReport({ data }: { data: NonNullable<ReturnType<typeof useProjec
 // ── Report: Delivery Confidence ───────────────────────────────────────────────
 
 function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = resolveSelectedProject(data);
+  const { project } = useSelectedProject(data);
   // Phase 7: reads Delivery Confidence for this exact project (via
   // ProjectState) rather than letting computeDeliveryConfidence re-select a
   // project internally.
@@ -368,7 +368,7 @@ function DeliveryConfidenceReport({ data }: { data: NonNullable<ReturnType<typeo
 // ── Report: Requirements Traceability ─────────────────────────────────────────
 
 function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = resolveSelectedProject(data);
+  const { project } = useSelectedProject(data);
   // Phase 7: requirements/acceptance criteria scoped to this exact project
   // via ProjectState — previously this read every project's requirements.
   const scoped = project ? buildProjectState(data, project).scoped : null;
@@ -419,7 +419,7 @@ function RequirementsTraceabilityReport({ data }: { data: NonNullable<ReturnType
 // scoped to the resolved project via ProjectState; its gate criteria are
 // unchanged.
 function GoLiveReadinessReport({ data }: { data: NonNullable<ReturnType<typeof useProjectData>["data"]> }) {
-  const project = resolveSelectedProject(data);
+  const { project } = useSelectedProject(data);
   const scoped = project ? buildProjectState(data, project).scoped : null;
   const openRisks = (scoped?.risks ?? []).filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
   const overdueActions = (scoped?.actions ?? []).filter((a) => isOverdue(a.due_date, a.status));

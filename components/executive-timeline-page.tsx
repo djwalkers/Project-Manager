@@ -26,7 +26,7 @@ import {
   buildTimelineIntelligence, monthTicks, weekendRanges, weekTicks, zoomWindow,
   TIMELINE_ZOOMS, type TimelineWindow, type TimelineZoom,
 } from "@/lib/executive-timeline";
-import { useSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectState, type ProjectState } from "@/lib/project-state";
 import { dateRangePosition, datePosition, formatScheduleDate, parseScheduleDate, todayPosition } from "@/lib/schedule";
 import type { Milestone, Requirement, RequirementSignOff, TimelineItem } from "@/lib/types";

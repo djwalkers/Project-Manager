@@ -41,7 +41,7 @@ import {
 } from "@/lib/go-live-readiness";
 import { canAssessManualChecks } from "@/lib/permissions";
 import { useAuth } from "@/contexts/auth-context";
-import { useSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectState } from "@/lib/project-state";
 import type { CutoverStep, GoLiveChecklist, GoLiveChecklistCategory, GoLiveChecklistStatus, GoLiveReadinessOverride, GoLiveReadinessOverrideStatus } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";

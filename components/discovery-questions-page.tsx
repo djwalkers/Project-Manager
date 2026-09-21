@@ -1,15 +1,16 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Clock, ExternalLink, Mail, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, Clock, ExternalLink, Mail, Users, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { EmptyState } from "@/components/empty-state";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { useAuth } from "@/contexts/auth-context";
-import { loadSelectedProjectId } from "@/lib/project-selection";
-import { selectProjectById } from "@/lib/project-scope";
+import { useSelectedProject } from "@/contexts/selected-project-context";
+import { scopeProjectData } from "@/lib/project-scope";
 import { moduleByKey } from "@/lib/modules";
 import { createRecord, saveRecord } from "@/lib/supabase/data-store";
 import type { DiscoveryQuestion } from "@/lib/types";
@@ -226,18 +227,17 @@ function EmailModal({
 export function DiscoveryQuestionsPage() {
   const { data, setData, error, reload } = useProjectData();
   const { user } = useAuth();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const { project: activeProject } = useSelectedProject(data);
   const [selectedQuestions, setSelectedQuestions] = useState<DiscoveryQuestion[]>([]);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [confirmRaised, setConfirmRaised] = useState<{ to: string; cc: string } | null>(null);
   const [quickActionError, setQuickActionError] = useState<string | null>(null);
 
   const config = moduleByKey.get("discovery_questions")!;
-  const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
-
-  useEffect(() => {
-    setSelectedProjectId(loadSelectedProjectId());
-  }, []);
+  // Same canonical scoping every other project-scoped page uses — this page
+  // used to pass the full unscoped data.discovery_questions to DataTable
+  // and to the Query Status/awaiting-queries widgets below.
+  const pageData = data && activeProject ? scopeProjectData(data, activeProject) : null;
 
   const defaultValues = useMemo(
     () => (user?.fullName ? { owner: user.fullName } : undefined),
@@ -353,8 +353,8 @@ export function DiscoveryQuestionsPage() {
     }
   }
 
-  const awaitingQueries = data ? data.discovery_questions.filter((q) => AWAITING_STATUSES.has(q.status)) : [];
-  const answeredNotClosed = data ? data.discovery_questions.filter((q) => q.status === "Answered") : [];
+  const awaitingQueries = pageData ? pageData.discovery_questions.filter((q) => AWAITING_STATUSES.has(q.status)) : [];
+  const answeredNotClosed = pageData ? pageData.discovery_questions.filter((q) => q.status === "Answered") : [];
 
   function detailFooter(row: Row) {
     const q = toQuestion(row);
@@ -383,17 +383,24 @@ export function DiscoveryQuestionsPage() {
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!activeProject || !pageData) {
+    return (
+      <AppShell>
+        <EmptyState title="No project selected" description="Open a project from the Portfolio page before working in this module." icon={Users} />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <p className="text-sm font-medium text-primary">{activeProject?.name ?? "Project"}</p>
+          <p className="text-sm font-medium text-primary">{activeProject.project_ref ?? activeProject.name}</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal">{config.title}</h2>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{config.description}</p>
         </div>
         <p className="rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground">
-          {data.discovery_questions.length} total records
+          {pageData.discovery_questions.length} total records
         </p>
       </div>
 
@@ -441,7 +448,7 @@ export function DiscoveryQuestionsPage() {
 
       <DataTable
         config={config}
-        data={data}
+        data={pageData}
         onSaveRecord={persistRecord}
         onDeleteRecord={removeRecord}
         defaultValues={defaultValues}
@@ -456,7 +463,7 @@ export function DiscoveryQuestionsPage() {
         }
       />
 
-      {emailModalOpen && activeProject && (
+      {emailModalOpen && (
         <EmailModal
           questions={selectedQuestions}
           projectName={activeProject.name}
@@ -464,15 +471,6 @@ export function DiscoveryQuestionsPage() {
           onClose={() => setEmailModalOpen(false)}
           onOpened={handleOpened}
         />
-      )}
-
-      {emailModalOpen && !activeProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="rounded-xl border bg-background p-6 shadow-xl">
-            <p className="text-sm font-medium">No project selected. Please select a project first.</p>
-            <Button className="mt-4" onClick={() => setEmailModalOpen(false)}>Close</Button>
-          </div>
-        </div>
       )}
 
       {confirmRaised && (

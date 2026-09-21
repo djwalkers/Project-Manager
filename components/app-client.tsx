@@ -1,26 +1,22 @@
 "use client";
 
-import { AlertTriangle, Plus } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
+import { useCallback, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AcceptanceCriteriaPanel } from "@/components/acceptance-criteria-panel";
 import { ArtefactLinker } from "@/components/artefact-linker";
-import { FormDialog } from "@/components/form-dialog";
+import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
-import { Button } from "@/components/ui/button";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
-import { getEntityName, logAudit } from "@/lib/audit";
 import { resetData, type DataStore } from "@/lib/data-store";
-import { moduleBySlug, statusOptions, type ModuleConfig } from "@/lib/modules";
-import { canCreateProject } from "@/lib/permissions";
+import { moduleBySlug } from "@/lib/modules";
 import { useAuth } from "@/contexts/auth-context";
-import { loadSelectedProjectId, persistSelectedProjectId } from "@/lib/project-selection";
-import { selectProjectById, selectTimelineItems } from "@/lib/project-scope";
+import { useSelectedProject } from "@/contexts/selected-project-context";
+import { scopeProjectData, selectTimelineItems } from "@/lib/project-scope";
 import {
   deleteRecord,
   createRecord,
@@ -29,38 +25,7 @@ import {
   saveRecord,
 } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
-import type { AcceptanceCriteria, Deliverable, Evidence, Project, RequirementSignOff, TestCase } from "@/lib/types";
-
-// The dedicated "New Project" dialog's fields — distinct from the generic
-// `projects` module config (lib/modules.ts) so creation can require the
-// fields a brand-new project actually needs (reference, name, customer,
-// workstream) while leaving every lifecycle date optional and blank by
-// default (see lib/project-creation.ts — no date is ever invented).
-const newProjectFormConfig: ModuleConfig = {
-  key: "projects",
-  slug: "projects",
-  title: "New Project",
-  singular: "Project",
-  description: "",
-  icon: moduleBySlug.get("projects")!.icon,
-  searchFields: [],
-  columns: [],
-  fields: [
-    { key: "project_ref", label: "Project reference / code", required: true },
-    { key: "name", label: "Project name", required: true },
-    { key: "customer", label: "Customer", required: true },
-    { key: "workstream", label: "Workstream", required: true },
-    { key: "owner", label: "Project owner / manager" },
-    { key: "status", label: "Status", type: "select", options: statusOptions },
-    { key: "description", label: "Description", type: "textarea" },
-    { key: "planned_start_date", label: "Planned start date", type: "date" },
-    { key: "planned_end_date", label: "Planned end date", type: "date" },
-    { key: "go_live_date", label: "Go-Live date", type: "date" },
-    { key: "uat_complete_date", label: "UAT complete date", type: "date" },
-    { key: "hypercare_start_date", label: "Hypercare start date", type: "date" },
-    { key: "hypercare_end_date", label: "Hypercare end date", type: "date" },
-  ],
-};
+import type { AcceptanceCriteria, Deliverable, Evidence, RequirementSignOff, TestCase } from "@/lib/types";
 
 const LINKABLE = new Set([
   "requirements", "acceptance_criteria", "decisions", "discovery_questions",
@@ -167,25 +132,23 @@ type Row = Record<string, unknown>;
 export function ModulePageClient({ section }: { section: string }) {
   const { data, setData, error, reload } = useProjectData();
   const { user } = useAuth();
-  const router = useRouter();
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const { project: activeProject } = useSelectedProject(data);
   const config = moduleBySlug.get(section);
-  const activeProject = data ? selectProjectById(data, selectedProjectId) : null;
+  // scopeProjectData is the same canonical scoping every ProjectState
+  // consumer (Workspace, Control Tower, Dashboard, Reports, ...) already
+  // uses — every module here used to pass the FULL unscoped DataStore
+  // straight to DataTable (timeline_items was the one accidental
+  // exception, via its own selectTimelineItems call), so selecting a
+  // project never changed what Milestones/Requirements/Risks/etc. showed.
+  // See tests/project-scoping-isolation.test.mjs.
+  const pageData = data && activeProject ? scopeProjectData(data, activeProject) : null;
   const timelineScope = data && activeProject ? selectTimelineItems(data, activeProject) : null;
-  const pageData = data && config?.key === "timeline_items" && timelineScope
-    ? { ...data, timeline_items: timelineScope.items }
-    : data;
-
-  useEffect(() => {
-    setSelectedProjectId(loadSelectedProjectId());
-  }, []);
 
   async function persistRecord(record: Row) {
     if (!config) throw new Error("Unknown module");
     const saved = await saveRecord(config.key, {
       ...record,
-      ...(config.key === "projects" ? {} : { project_id: record.project_id ?? activeProject?.id }),
+      project_id: record.project_id ?? activeProject?.id,
     });
     const activity = config.key === "deliverables" && activeProject
       ? await createRecord("activity_log", {
@@ -207,30 +170,6 @@ export function ModulePageClient({ section }: { section: string }) {
       return activity ? { ...next, activity_log: [activity, ...next.activity_log] } : next;
     });
     return saved as Row;
-  }
-
-  // Goes through the dedicated, service-role-backed app/api/projects route
-  // (see its own file for why) rather than saveRecord()/createRecord() —
-  // the projects table's RLS only allows Admin to write, which would
-  // silently reject a Manager's insert even though canCreateProject()
-  // permits it. On success: persist it as the selected project and jump
-  // straight to its Workspace, so ProjectState and every scoped consumer
-  // immediately operate against the new project.
-  async function createProjectAndOpen(record: Row) {
-    const res = await fetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(record),
-    });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((body as { error?: string } | null)?.error ?? `Failed to create project (${res.status})`);
-
-    const created = body as Project;
-    setData((current) => (current ? { ...current, projects: [created, ...current.projects] } : current));
-    logAudit("projects", created.id, getEntityName("projects", created as unknown as Row), "Create", null);
-    persistSelectedProjectId(created.id);
-    setNewProjectOpen(false);
-    router.push("/project-workspace");
   }
 
   async function removeRecord(record: Row) {
@@ -325,13 +264,24 @@ export function ModulePageClient({ section }: { section: string }) {
 
   if (!config) return null;
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
-  if (!data || !pageData) return <AppShell><LoadingState /></AppShell>;
+  if (!data) return <AppShell><LoadingState /></AppShell>;
+  if (!activeProject || !pageData) {
+    return (
+      <AppShell>
+        <EmptyState
+          title="No project selected"
+          description="Open a project from the Portfolio page before working in this module."
+          icon={AlertTriangle}
+        />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <p className="text-sm font-medium text-primary">CR028 Replenishment</p>
+          <p className="text-sm font-medium text-primary">{activeProject.project_ref ?? activeProject.name}</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal">{config.title}</h2>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{config.description}</p>
         </div>
@@ -339,23 +289,8 @@ export function ModulePageClient({ section }: { section: string }) {
           <p className="rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground">
             {pageData[config.key].length} total records
           </p>
-          {config.key === "projects" && canCreateProject(user?.role) && (
-            <Button onClick={() => setNewProjectOpen(true)}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New Project
-            </Button>
-          )}
         </div>
       </div>
-      {config.key === "projects" && (
-        <FormDialog
-          config={newProjectFormConfig}
-          record={newProjectOpen ? {} : null}
-          open={newProjectOpen}
-          onClose={() => setNewProjectOpen(false)}
-          onSave={createProjectAndOpen}
-        />
-      )}
       {config.key === "documents" ? (
         <div className="mb-5 rounded-lg border bg-secondary p-4 text-sm font-medium text-secondary-foreground">
           Document upload will be added in v2.
@@ -366,7 +301,7 @@ export function ModulePageClient({ section }: { section: string }) {
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           <div>
             <p className="font-semibold">Timeline project ownership needs review</p>
-            <p className="mt-1">{timelineScope?.mode === "duplicate-project" ? "Phases were found against a duplicate CR028 project and are shown here for continuity." : "Timeline records exist, but none belong to the active CR028 project."}</p>
+            <p className="mt-1">{timelineScope?.mode === "duplicate-project" ? `Phases were found against a duplicate ${activeProject.name} project and are shown here for continuity.` : `Timeline records exist, but none belong to the active ${activeProject.name} project.`}</p>
           </div>
         </div>
       ) : null}

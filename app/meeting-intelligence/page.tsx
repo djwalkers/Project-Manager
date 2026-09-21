@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { saveRecord } from "@/lib/supabase/data-store";
 import { useProjectData } from "@/lib/use-project-data";
-import { resolveSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { nextRef } from "@/lib/utils";
 import type { MeetingIntelligence, MeetingSource, MeetingStatus } from "@/lib/types";
 
@@ -48,6 +48,7 @@ const emptyForm = (): NewForm => ({
 
 export default function MeetingIntelligencePage() {
   const { data, setData, error, reload } = useProjectData();
+  const { project } = useSelectedProject(data);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NewForm>(emptyForm());
   const [saving, setSaving] = useState(false);
@@ -55,8 +56,6 @@ export default function MeetingIntelligencePage() {
 
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
-
-  const project = resolveSelectedProject(data);
   const meetings: MeetingIntelligence[] = (data.meeting_intelligence ?? [])
     .filter((m) => !project || m.project_id === project.id)
     .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""));

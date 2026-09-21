@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, CheckCheck, X } from "lucide-react";
-import { resolveSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectState } from "@/lib/project-state";
 import { useProjectData } from "@/lib/use-project-data";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ function saveDismissed(ids: Set<string>) {
 
 export function NotificationBell() {
   const { data } = useProjectData();
+  const { project: selectedProject } = useSelectedProject(data);
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [hydrated, setHydrated] = useState(false);
@@ -66,11 +67,9 @@ export function NotificationBell() {
   // ProjectState.recommendations, generated with maxCount 10) — the
   // Workbench just displays the top 5 of this same list.
   const notifications = useMemo(() => {
-    if (!data) return [];
-    const project = resolveSelectedProject(data);
-    if (!project) return [];
-    return buildProjectState(data, project).recommendations;
-  }, [data]);
+    if (!data || !selectedProject) return [];
+    return buildProjectState(data, selectedProject).recommendations;
+  }, [data, selectedProject]);
   const visible = hydrated ? notifications.filter((n) => !dismissed.has(n.id)) : notifications;
   const count = visible.length;
 

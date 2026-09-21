@@ -211,8 +211,12 @@ run("structural: RaidLogReport reads risks/actions/decisions via buildProjectSta
   // Multi-project selection phase: RaidLogReport now resolves the
   // canonically-selected project (persisted selection, deterministic
   // name-unbiased fallback) rather than calling selectActiveProject
-  // directly — see lib/project-selection.ts's resolveSelectedProject.
-  assert.match(body, /resolveSelectedProject\(data\)/, "must resolve one explicit project via the canonical selected-project resolver");
+  // directly. Upgraded again in the multi-project scoping-context phase to
+  // the reactive useSelectedProject(data) hook (contexts/selected-project-
+  // context.tsx) so this report also updates immediately if the project is
+  // switched from the header while this page is mounted — same resolver,
+  // now shared and live rather than read once via localStorage.
+  assert.match(body, /useSelectedProject\(data\)/, "must resolve one explicit project via the canonical, reactive selected-project hook");
   assert.match(body, /buildProjectState\(data, project\)\.scoped/, "must read through ProjectState's scoped data");
   assert.doesNotMatch(body, /data\.risks\.filter|data\.actions\.filter|data\.decisions\.filter/, "must never read the raw, unscoped data.risks/actions/decisions arrays directly");
 });

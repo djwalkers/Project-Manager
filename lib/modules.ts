@@ -178,7 +178,7 @@ export const modules: ModuleConfig[] = [
     slug: "requirements",
     title: "Requirements",
     singular: "Requirement",
-    description: "Track CR028 Replenishment requirements from discovery through approval.",
+    description: "Track requirements from discovery through approval.",
     icon: ListChecks,
     searchFields: ["requirement_ref", "title", "owner", "source", "status"],
     filterFields: ["source", "category", "status", "priority", "owner"],

@@ -28,7 +28,7 @@ import { Select } from "@/components/ui/input";
 import { WorkspaceEmpty, WorkspaceMetric, WorkspaceSection } from "@/components/workspace-components";
 import type { DataStore } from "@/lib/data-store";
 import { moduleByKey, type ModuleConfig } from "@/lib/modules";
-import { useSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { isDeliverableComplete } from "@/lib/lifecycle";
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildGoLiveDashboard } from "@/lib/go-live-readiness";

@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/empty-state";
 import { IntelligenceFindingCard } from "@/components/intelligence-components";
 import { Select } from "@/components/ui/input";
 import { WorkspaceEmpty, WorkspaceMetric, WorkspaceSection } from "@/components/workspace-components";
-import { useSelectedProject } from "@/lib/project-selection";
+import { useSelectedProject } from "@/contexts/selected-project-context";
 import { buildProjectIntelligence, type IntelligenceCategory } from "@/lib/project-intelligence";
 import { useProjectData } from "@/lib/use-project-data";
 
