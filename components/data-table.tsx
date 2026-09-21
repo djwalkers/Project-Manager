@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import type { DataStore } from "@/lib/data-store";
 import type { ModuleConfig } from "@/lib/modules";
+import { sortRowsByRef } from "@/lib/ref-sort";
 import { cn, isOverdue, nextRef } from "@/lib/utils";
 
 type Row = Record<string, unknown>;
@@ -56,6 +57,7 @@ function readinessDot(statusValue: string): string {
   return "#3b82f6";
 }
 
+
 export function DataTable({
   config,
   data,
@@ -78,7 +80,12 @@ export function DataTable({
   detailFooter?: (row: Row) => React.ReactNode;
 }) {
   const Icon = config.icon;
-  const rows = data[config.key] as Row[];
+  // Ref ascending (natural/alphanumeric) is the sensible default ordering
+  // when the user hasn't chosen anything else — there is no other sort
+  // control today, so this simply replaces "whatever order the query
+  // returned rows in" (created_at, effectively insertion order) with a
+  // stable, predictable one. See sortRowsByRef above.
+  const rows = useMemo(() => sortRowsByRef(data[config.key] as Row[], config), [data, config]);
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(() => searchParams?.get("q") ?? "");
   const [status, setStatus] = useState(() => searchParams?.get("status") ?? "All");
