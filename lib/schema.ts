@@ -458,6 +458,17 @@ export const schemaTables: SchemaTable[] = [
       createdAt, updatedAt,
     ],
   },
+  {
+    name: "artefact_links",
+    columns: [
+      id, projectId,
+      { name: "source_entity", type: "text", required: true },
+      { name: "source_id", type: "uuid", required: true },
+      { name: "target_entity", type: "text", required: true },
+      { name: "target_id", type: "uuid", required: true },
+      createdAt,
+    ],
+  },
   // ai_settings is intentionally excluded from schemaTables —
   // it is a server-only table (api_key must never reach the client DataStore).
 ];

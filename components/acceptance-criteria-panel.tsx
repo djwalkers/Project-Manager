@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { EvidencePanel } from "@/components/evidence-panel";
+import { StatusBadge } from "@/components/status-badge";
+import { formatVerificationLabel, type AcceptanceCriteriaVerification } from "@/lib/lifecycle/test-verification";
 import { saveRecord, deleteRecord } from "@/lib/supabase/data-store";
 import type { AcceptanceCriteria, AcceptanceCriteriaStatus, Evidence } from "@/lib/types";
 import { nextRef } from "@/lib/utils";
@@ -73,6 +75,7 @@ export function AcceptanceCriteriaPanel({
   evidence,
   onUpdate,
   onEvidenceUpdate,
+  verificationByAcId,
 }: {
   requirementId: string;
   projectId: string;
@@ -81,6 +84,12 @@ export function AcceptanceCriteriaPanel({
   evidence: Evidence[];
   onUpdate: (updated: AcceptanceCriteria[]) => void;
   onEvidenceUpdate: (updated: Evidence[]) => void;
+  /**
+   * Derived from lib/lifecycle/test-verification.ts — purely informational.
+   * Never used to change `ac.status`; the manual status above stays the only
+   * source of truth for AC approval, exactly as before.
+   */
+  verificationByAcId?: Record<string, AcceptanceCriteriaVerification>;
 }) {
   const [adding, setAdding]   = useState(false);
   const [editId, setEditId]   = useState<string | null>(null);
@@ -236,6 +245,17 @@ export function AcceptanceCriteriaPanel({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-semibold text-muted-foreground">{ac.ac_ref}</span>
                     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(ac.status)}`}>{ac.status}</span>
+                    {verificationByAcId?.[ac.id] && (
+                      <span
+                        className="inline-flex items-center gap-1"
+                        title="Derived from linked tests — does not change the manual status above"
+                      >
+                        <StatusBadge value={verificationByAcId[ac.id].state} className="text-[11px]" />
+                        {verificationByAcId[ac.id].state === "Testing" && (
+                          <span className="text-xs text-muted-foreground">{formatVerificationLabel(verificationByAcId[ac.id])}</span>
+                        )}
+                      </span>
+                    )}
                     {ac.owner && <span className="text-xs text-muted-foreground">{ac.owner}</span>}
                     {acEvidence.length > 0 && (
                       <button

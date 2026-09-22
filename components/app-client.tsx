@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
+import { RequirementTestCoverage } from "@/components/requirement-test-coverage";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
@@ -16,6 +17,7 @@ import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
 import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
+import { computeTestVerification, formatTestCountsLabel } from "@/lib/lifecycle/test-verification";
 import { scopeProjectData, selectTimelineItems } from "@/lib/project-scope";
 import {
   deleteRecord,
@@ -144,6 +146,23 @@ export function ModulePageClient({ section }: { section: string }) {
   const pageData = data && activeProject ? scopeProjectData(data, activeProject) : null;
   const timelineScope = data && activeProject ? selectTimelineItems(data, activeProject) : null;
 
+  // Canonical derived test-verification rollup (lib/lifecycle/test-verification.ts)
+  // — Requirement -> Acceptance Criteria -> linked Test Cases, computed once
+  // per render from the same scoped data as everything else. Purely
+  // read-only display data: never written back to requirements.status,
+  // acceptance_criteria.status, or requirement_sign_offs.
+  const verification = pageData ? computeTestVerification(pageData) : null;
+  if (pageData && verification && config?.key === "requirements") {
+    pageData.requirements = pageData.requirements.map((requirement) => {
+      const rv = verification.byRequirement[requirement.id];
+      return {
+        ...requirement,
+        _verificationState: rv?.state ?? "No Tests Linked",
+        _testsSummary: rv ? formatTestCountsLabel(rv) : "—",
+      };
+    }) as typeof pageData.requirements;
+  }
+
   async function persistRecord(record: Row) {
     if (!config) throw new Error("Unknown module");
     const saved = await saveRecord(config.key, {
@@ -192,7 +211,14 @@ export function ModulePageClient({ section }: { section: string }) {
     const evidence = (pageData.evidence ?? []) as Evidence[];
     const reqEvidence = evidence.filter((ev) => criteria.some((ac) => ac.id === ev.ac_id));
     const signOffs = ((pageData.requirement_sign_offs ?? []) as RequirementSignOff[]).filter((s) => s.requirement_id === recordId);
-    const testCases = (pageData.test_cases ?? []) as TestCase[];
+    const allTestCases = (pageData.test_cases ?? []) as TestCase[];
+    // Requirement-scoped tests only — resolved via the canonical verification
+    // rollup (Requirement -> AC -> linked Test Cases, plus any test linked
+    // directly to the requirement), never the project's full test_cases
+    // array. See tests/requirement-test-scoping.test.mjs.
+    const requirementVerification = verification?.byRequirement[recordId] ?? null;
+    const linkedTestIds = new Set((requirementVerification?.tests ?? []).map((t) => t.testId));
+    const linkedTestCases = allTestCases.filter((t) => linkedTestIds.has(t.id));
     const isTestCase = config.key === "test_cases";
     const testStatus = String(row.status ?? "");
     const requirementStatus = String(row.status ?? "");
@@ -207,14 +233,16 @@ export function ModulePageClient({ section }: { section: string }) {
         )}
         {isRequirement && pid && recordId && (
           <>
-            <RequirementReadiness criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={testCases} />
-            <ReadinessGates criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={testCases} requirementStatus={requirementStatus} />
+            {requirementVerification && <RequirementTestCoverage verification={requirementVerification} />}
+            <RequirementReadiness criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} />
+            <ReadinessGates criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} requirementStatus={requirementStatus} />
             <AcceptanceCriteriaPanel
               requirementId={recordId}
               projectId={pid}
               criteria={criteria}
               allCriteria={allCriteria}
               evidence={reqEvidence}
+              verificationByAcId={verification?.byAcceptanceCriteria}
               onUpdate={(updated) => {
                 setData((current) => {
                   if (!current) return current;
@@ -260,7 +288,7 @@ export function ModulePageClient({ section }: { section: string }) {
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config?.key, activeProject?.id, pageData]);
+  }, [config?.key, activeProject?.id, pageData, verification]);
 
   if (!config) return null;
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;

@@ -1,5 +1,6 @@
 import type { DataStore } from "@/lib/data-store";
 import {
+  computeTestVerification,
   isAcceptanceCriteriaFailed,
   isAcceptanceCriteriaMet,
   isActionBlocked,
@@ -19,6 +20,7 @@ import {
   isSitComplete,
   isTestPassed,
   isUatComplete,
+  type TestVerificationResult,
 } from "@/lib/lifecycle";
 import { calculateProgress, calculateProjectHealth, type ProgressComponent, type RagStatus } from "@/lib/control-tower";
 import { computeDeliveryConfidence, type DeliveryConfidenceResult } from "@/lib/delivery-confidence";
@@ -138,6 +140,13 @@ export type ProjectState = {
   goLiveDate: GoLiveDateResolution;
   hypercare: HypercareDatesResolution;
   rollups: LifecycleRollups;
+  // Canonical derived test-verification rollup (lib/lifecycle/test-verification.ts)
+  // — Requirement -> Acceptance Criteria -> linked Test Cases, purely derived,
+  // never written back into requirements.status/acceptance_criteria.status/
+  // requirement_sign_offs. The one place this is computed; every consumer
+  // (Requirements page, requirement/AC detail panels, a future Test Status
+  // email, ...) reads this instead of re-deriving it.
+  verification: TestVerificationResult;
   diagnostics: DeliveryInsightDiagnostics;
   recommendations: Recommendation[];
   confidence: DeliveryConfidenceResult;
@@ -164,6 +173,7 @@ export function buildProjectState(data: DataStore, project: Project, now = new D
   const goLiveDate = resolveGoLiveDate(data, project);
   const hypercare = resolveHypercareDates(data, project);
   const rollups = buildLifecycleRollups(scoped);
+  const verification = computeTestVerification(scoped);
 
   const blockedMilestones = scoped.milestones.filter((m) => m.status === "Blocked").length + schedule.blocked.length;
   const overdueItems = rollups.actions.overdue + rollups.decisions.overdue;
@@ -186,6 +196,7 @@ export function buildProjectState(data: DataStore, project: Project, now = new D
     goLiveDate,
     hypercare,
     rollups,
+    verification,
     diagnostics,
     recommendations,
     confidence,

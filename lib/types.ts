@@ -503,6 +503,7 @@ export type EntityMap = {
   requirement_sign_offs: RequirementSignOff;
   meeting_intelligence: MeetingIntelligence;
   meeting_suggestions: MeetingSuggestion;
+  artefact_links: ArtefactLink;
 };
 
 export type EntityName = keyof EntityMap;

@@ -189,6 +189,11 @@ export const modules: ModuleConfig[] = [
       { key: "category", label: "Category" },
       { key: "status", label: "Status", type: "status" },
       { key: "owner", label: "Owner" },
+      // Derived from lib/lifecycle/test-verification.ts — injected onto each
+      // row in components/app-client.tsx, never persisted. See _verificationState/
+      // _testsSummary there.
+      { key: "_verificationState", label: "Verification", type: "status" },
+      { key: "_testsSummary", label: "Tests" },
     ],
     fields: [
       { key: "requirement_ref", label: "Reference", refPrefix: "REP" },

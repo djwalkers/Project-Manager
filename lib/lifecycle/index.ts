@@ -6,3 +6,4 @@ export * from "@/lib/lifecycle/dependency";
 export * from "@/lib/lifecycle/test-case";
 export * from "@/lib/lifecycle/acceptance-criteria";
 export * from "@/lib/lifecycle/deliverable";
+export * from "@/lib/lifecycle/test-verification";

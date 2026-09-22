@@ -6,7 +6,7 @@ type Row = Record<string, unknown>;
 // TST-034 before TST-034a before TST-034b) — plain string sort would put
 // TST-10 before TST-9 whenever a ref isn't uniformly zero-padded. Built once
 // and reused (an Intl.Collator instance is expensive to construct per call).
-const REF_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+export const REF_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 // Every module's system-generated reference field (milestone_ref, test_ref,
 // requirement_ref, ...) is the one with `refPrefix` set (lib/modules.ts) —

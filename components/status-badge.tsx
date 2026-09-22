@@ -8,6 +8,11 @@ const statusStyles: Record<string, string> = {
   Red:      "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   "At Risk":"border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   Failed:   "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
+  // Derived test-verification states (lib/lifecycle/test-verification.ts) —
+  // never a manually-set lifecycle/sign-off status, purely a display of the
+  // canonical derived rollup.
+  "Test Failure":   "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
+  "Testing Blocked":"border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
   // Rejected is a closed decision status (see lib/lifecycle/decision.ts) but a negative
   // outcome, unlike Approved/Closed/Resolved — styled red like Failed, not green.
   Rejected: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
@@ -19,6 +24,7 @@ const statusStyles: Record<string, string> = {
   // Proposed is an open decision status (see lib/lifecycle/decision.ts) — not yet actioned.
   Proposed:     "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   "Not Started":"border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+  "No Tests Linked":"border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
   Superseded:   "border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400",
   // Cyan — in-flight discovery / ready states
   Discovery:            "border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900/60 dark:bg-cyan-950/40 dark:text-cyan-200",
@@ -28,6 +34,7 @@ const statusStyles: Record<string, string> = {
   "Ready for Deployment":"border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900/60 dark:bg-cyan-950/40 dark:text-cyan-200",
   // Amber — Medium priority / in-progress / awaiting
   "In Progress":        "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
+  Testing:              "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
   "In Development":     "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
   Amber:                "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
   Warning:              "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200",
@@ -52,6 +59,7 @@ const statusStyles: Record<string, string> = {
   Met:       "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
   Applied:   "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
   Resolved:  "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
+  Verified:  "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200",
   // Neutral-blue — informational states
   Analysed:  "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200",
   Draft:     "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
@@ -68,10 +76,14 @@ const icons: Record<string, typeof Circle> = {
   "At Risk": ShieldAlert,
   Failed: XCircle,
   Rejected: XCircle,
+  "Test Failure": XCircle,
+  "Testing Blocked": XCircle,
   Open: Circle,
   Proposed: Circle,
   Pending: Clock3,
   "Not Started": Circle,
+  "No Tests Linked": Circle,
+  Testing: Loader2,
   Superseded: MinusCircle,
   Discovery: Loader2,
   "In Analysis": Loader2,
@@ -100,6 +112,7 @@ const icons: Record<string, typeof Circle> = {
   Met: CheckCircle2,
   Applied: CheckCircle2,
   Resolved: CheckCircle2,
+  Verified: CheckCircle2,
   Analysed: CheckCircle2,
   Draft: Circle,
   Waived: MinusCircle,

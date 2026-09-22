@@ -1,5 +1,6 @@
 import type {
   AcceptanceCriteria,
+  ArtefactLink,
   Evidence,
   RequirementSignOff,
   MeetingIntelligence,
@@ -393,4 +394,5 @@ export const seedData = {
   requirement_sign_offs: [] as RequirementSignOff[],
   meeting_intelligence: [] as MeetingIntelligence[],
   meeting_suggestions: [] as MeetingSuggestion[],
+  artefact_links: [] as ArtefactLink[],
 };

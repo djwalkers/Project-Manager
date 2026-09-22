@@ -34,7 +34,7 @@ export function computeReadiness(
   const dimensions: ReadinessDimension[] = [
     { label: "Acceptance", pct: acPct,        detail: `${acMet}/${acTotal} criteria met` },
     { label: "Evidence",   pct: evidencePct,   detail: `${acWithEvidence}/${acTotal} criteria have evidence` },
-    { label: "Testing",    pct: testPct,        detail: `${testPassed}/${testTotal} tests passed (project)` },
+    { label: "Testing",    pct: testPct,        detail: `${testPassed}/${testTotal} linked tests passed` },
     { label: "Sign-off",   pct: signOffPct,     detail: `${signOffApproved}/${signOffTotal} sign-offs approved` },
   ];
 

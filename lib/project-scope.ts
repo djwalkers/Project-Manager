@@ -156,5 +156,6 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
     requirement_sign_offs: belongsToProject(data.requirement_sign_offs ?? []),
     meeting_intelligence: belongsToProject(data.meeting_intelligence ?? []),
     meeting_suggestions: belongsToProject(data.meeting_suggestions ?? []),
+    artefact_links: belongsToProject(data.artefact_links ?? []),
   };
 }
