@@ -177,7 +177,7 @@ export type EmailSettings = {
 
 export type EmailActivity = {
   id: string;
-  email_type: "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary";
+  email_type: "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary" | "Test Status";
   recipient: string;
   sent_at: string;
   success: boolean;

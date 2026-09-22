@@ -1,16 +1,25 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { DataStore } from "@/lib/data-store";
-import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildManagerSummaryEmail, buildTestEmail, type EmailContent } from "@/lib/email-content";
+import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildManagerSummaryEmail, buildTestEmail, buildTestStatusEmail, type EmailContent } from "@/lib/email-content";
+import { isValidEmailAddress, validateRecipients } from "@/lib/email-recipients";
 import { getChangesSince } from "@/lib/audit";
 import { selectEmailProjects } from "@/lib/project-scope";
 import { schemaTables } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
-import type { EmailActivity, EmailSettings } from "@/lib/types";
+import type { EmailActivity, EmailSettings, Project } from "@/lib/types";
 
-export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary";
+export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary" | "Test Status";
 export type TriggerType = "Manual" | "Scheduled";
-export type EmailRequestPayload = { data?: DataStore; recipient?: string; settings?: Partial<EmailSettings> };
-export type EmailStatus = "sent" | "skipped_disabled" | "skipped_duplicate" | "skipped_no_recipient" | "skipped_no_projects" | "auth_error" | "config_error" | "send_error";
+// project_id and recipients are used only for kind "Test Status":
+//   - project_id: the exact project explicitly selected by the caller. It
+//     is never inferred (no selectActiveProject(), no name/reference
+//     matching) — see executeEmail.
+//   - recipients: a one-off, user-typed list for this single manual send
+//     only — never read from or written back to email_settings, and
+//     re-validated here server-side via lib/email-recipients.ts (never
+//     trusting the client's own validation alone).
+export type EmailRequestPayload = { data?: DataStore; recipient?: string; recipients?: string[]; settings?: Partial<EmailSettings>; project_id?: string };
+export type EmailStatus = "sent" | "skipped_disabled" | "skipped_duplicate" | "skipped_no_recipient" | "skipped_no_projects" | "skipped_invalid_project" | "auth_error" | "config_error" | "send_error";
 export type EmailExecutionResult = { ok: boolean; skipped?: boolean; status: EmailStatus; message: string; activity?: EmailActivity };
 
 const defaultRecipient = "Andrew.Walker@bluestonex.com";
@@ -28,8 +37,11 @@ function serverSupabase(): SupabaseClient | null {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+// Delegates to the one canonical email-format check (lib/email-recipients.ts)
+// so the single-recipient kinds and Test Status's multi-recipient list are
+// never validated by two different regexes.
 function validEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  return isValidEmailAddress(value);
 }
 
 function londonDateKey(date: Date) {
@@ -135,14 +147,17 @@ async function logActivity(client: SupabaseClient | null, activity: EmailActivit
   return data as EmailActivity;
 }
 
-async function sendWithResend(recipient: string, content: EmailContent) {
+// `recipients` is Resend's own existing multi-recipient mechanism — its
+// `to` field has always accepted an array; every single-recipient kind
+// simply passes a one-element array, unchanged from before.
+async function sendWithResend(recipients: string[], content: EmailContent) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY is not configured.");
   const from = process.env.RESEND_FROM_EMAIL || "Project Manager <onboarding@resend.dev>";
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [recipient], subject: content.subject, html: content.html, text: content.text }),
+    body: JSON.stringify({ from, to: recipients, subject: content.subject, html: content.html, text: content.text }),
   });
   const result = await response.json().catch(() => ({})) as { id?: string; message?: string };
   if (!response.ok) throw new Error(result.message || `Resend returned HTTP ${response.status}.`);
@@ -172,7 +187,20 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
     const stored = await loadSettings(client);
     console.log(`[email] ${kind} — settings loaded, daily_brief_enabled=${stored.daily_brief_enabled} recipient="${stored.recipient_email}"`);
 
-    if (kind === "Manager Summary") {
+    // Test Status recipients are one-off and user-typed for this single
+    // manual send only — resolved entirely from payload.recipients, never
+    // from email_settings, and re-validated here server-side (never
+    // trusting the client's own validation alone: format, non-empty,
+    // per-address and total-count limits, case-insensitive de-dup).
+    let testStatusRecipients: string[] | null = null;
+    if (kind === "Test Status") {
+      const validation = validateRecipients(payload.recipients);
+      if (!validation.ok) {
+        return await skip("skipped_no_recipient", validation.error);
+      }
+      testStatusRecipients = validation.recipients;
+      recipient = testStatusRecipients.join(", ");
+    } else if (kind === "Manager Summary") {
       const managerRecipient = payload.settings?.manager_recipient_email?.trim() || stored.manager_recipient_email?.trim();
       recipient = managerRecipient || payload.settings?.recipient_email?.trim() || stored.recipient_email?.trim() || recipient;
     } else {
@@ -180,16 +208,25 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
     }
     console.log(`[email] ${kind} — resolved recipient="${recipient}"`);
 
-    if (!recipient || !validEmail(recipient)) {
-      return await skip("skipped_no_recipient", "A valid recipient email is not configured.");
+    if (kind !== "Test Status") {
+      if (!recipient || !validEmail(recipient)) {
+        return await skip("skipped_no_recipient", "A valid recipient email is not configured.");
+      }
+      recipient = recipient.toLowerCase();
     }
-    recipient = recipient.toLowerCase();
 
-    const enabled = kind === "Daily Brief"
-      ? (payload.settings?.daily_brief_enabled ?? stored.daily_brief_enabled)
-      : kind === "Manager Summary"
-        ? (payload.settings?.manager_summary_enabled ?? stored.manager_summary_enabled)
-        : (payload.settings?.weekly_summary_enabled ?? stored.weekly_summary_enabled);
+    // "Test Status" has no settings toggle and is manual-only (no GET/cron
+    // route ever calls it with trigger="Scheduled"), so this value is never
+    // actually consulted for it below — set to true purely so it doesn't
+    // fall through to reading weekly_summary_enabled, which would be
+    // misleading in logs.
+    const enabled = kind === "Test Status"
+      ? true
+      : kind === "Daily Brief"
+        ? (payload.settings?.daily_brief_enabled ?? stored.daily_brief_enabled)
+        : kind === "Manager Summary"
+          ? (payload.settings?.manager_summary_enabled ?? stored.manager_summary_enabled)
+          : (payload.settings?.weekly_summary_enabled ?? stored.weekly_summary_enabled);
     console.log(`[email] ${kind} — enabled=${enabled} trigger=${trigger}`);
 
     if (trigger === "Scheduled" && kind !== "Test" && !enabled) {
@@ -210,6 +247,20 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
 
     console.log(`[email] ${kind} — loading project data`);
     const data = payload.data ?? await loadProjectData(client);
+
+    // Test Status is project-scoped and MUST use only the caller's
+    // explicitly-selected project — never selectActiveProject(), never a
+    // name/reference match. An id lookup against the exact request payload
+    // is the only resolution path; a missing or unmatched id is rejected
+    // outright rather than silently falling back to any other project.
+    let testStatusProject: Project | null = null;
+    if (kind === "Test Status") {
+      testStatusProject = data.projects.find((p) => p.id === payload.project_id) ?? null;
+      if (!testStatusProject) {
+        return await skip("skipped_invalid_project", "Test Status requires a valid project_id matching the currently selected project.");
+      }
+    }
+
     const emailProjects = selectEmailProjects(data);
     const projectIds = emailProjects.map((p) => p.id);
     console.log(`[email] ${kind} — projects found: ${data.projects.length} total, ${emailProjects.length} selected`);
@@ -226,10 +277,12 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
       kind === "Test" ? buildTestEmail(now)
       : kind === "Daily Brief" ? buildAutomatedDailyBrief(data, now, recentAuditChanges)
       : kind === "Manager Summary" ? buildManagerSummaryEmail(data, now)
+      : kind === "Test Status" ? buildTestStatusEmail(data, testStatusProject as Project, now)
       : buildAutomatedWeeklySummary(data, now, weeklyAuditChanges);
 
     console.log(`[email] ${kind} — built content, subject="${content.subject}", sending via Resend`);
-    await sendWithResend(recipient, content);
+    const resendRecipients = kind === "Test Status" ? (testStatusRecipients as string[]) : [recipient];
+    await sendWithResend(resendRecipients, content);
 
     const sentAt = new Date().toISOString();
     console.log(`[email] ${kind} — sent successfully to ${recipient}, logging activity`);

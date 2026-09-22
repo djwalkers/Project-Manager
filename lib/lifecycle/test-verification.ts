@@ -192,3 +192,23 @@ export function formatTestCountsLabel(v: VerificationCounts): string {
   if (v.blocked > 0) parts.push(`${v.blocked} blocked`);
   return parts.join(" · ");
 }
+
+/**
+ * Project-wide requirement counts by derived verification state — e.g. for
+ * the "Requirement Verification Summary" section of a Test Status report.
+ * Always returns all five state keys (zero-filled), never a partial object,
+ * so a consumer can render a fixed-shape summary without existence checks.
+ */
+export function summarizeVerificationStates(result: TestVerificationResult): Record<VerificationState, number> {
+  const summary: Record<VerificationState, number> = {
+    "No Tests Linked": 0,
+    "Testing": 0,
+    "Test Failure": 0,
+    "Testing Blocked": 0,
+    "Verified": 0,
+  };
+  for (const rv of Object.values(result.byRequirement)) {
+    summary[rv.state] += 1;
+  }
+  return summary;
+}

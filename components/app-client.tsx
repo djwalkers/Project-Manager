@@ -10,6 +10,7 @@ import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
 import { RequirementTestCoverage } from "@/components/requirement-test-coverage";
+import { TestStatusEmailAction } from "@/components/test-status-email-panel";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
 import { TimelineSchedule } from "@/components/timeline-schedule";
@@ -314,6 +315,9 @@ export function ModulePageClient({ section }: { section: string }) {
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{config.description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {config.key === "test_cases" && data && (
+            <TestStatusEmailAction data={data} project={activeProject} onReload={reload} />
+          )}
           <p className="rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground">
             {pageData[config.key].length} total records
           </p>

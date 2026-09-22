@@ -40,7 +40,7 @@ Module._extensions[".ts"] = function compileTypeScript(module, filename) {
 };
 
 const req = Module.createRequire(import.meta.url);
-const { computeTestVerification, formatVerificationLabel, formatTestCountsLabel } = req("../lib/lifecycle/test-verification.ts");
+const { computeTestVerification, formatVerificationLabel, formatTestCountsLabel, summarizeVerificationStates } = req("../lib/lifecycle/test-verification.ts");
 
 function run(name, fn) {
   try {
@@ -321,6 +321,59 @@ run("formatTestCountsLabel renders a compact ratio, with failed/blocked counts a
   assert.equal(formatTestCountsLabel({ testCount: 0, passed: 0, failed: 0, blocked: 0, pending: 0 }), "—");
   assert.equal(formatTestCountsLabel({ testCount: 6, passed: 5, failed: 0, blocked: 0, pending: 1 }), "5/6");
   assert.equal(formatTestCountsLabel({ testCount: 6, passed: 4, failed: 1, blocked: 1, pending: 0 }), "4/6 · 1 failed · 1 blocked");
+});
+
+// ── Project-wide state summary (for consumers like the Test Status email) ───
+
+run("summarizeVerificationStates counts every requirement's derived state exactly once, all five buckets present", () => {
+  const r1 = requirement(); // no AC -> No Tests Linked
+  const r2 = requirement();
+  const a2 = ac(r2.id);
+  const t2 = test("Passed");
+  const r3 = requirement();
+  const a3 = ac(r3.id);
+  const t3a = test("Passed");
+  const t3b = test("Pending");
+  const r4 = requirement();
+  const a4 = ac(r4.id);
+  const t4 = test("Failed");
+  const r5 = requirement();
+  const a5 = ac(r5.id);
+  const t5 = test("Blocked");
+
+  const result = computeTestVerification(scope({
+    requirements: [r1, r2, r3, r4, r5],
+    acceptance_criteria: [a2, a3, a4, a5],
+    test_cases: [t2, t3a, t3b, t4, t5],
+    artefact_links: [
+      link("acceptance_criteria", a2.id, "test_cases", t2.id),
+      link("acceptance_criteria", a3.id, "test_cases", t3a.id),
+      link("acceptance_criteria", a3.id, "test_cases", t3b.id),
+      link("acceptance_criteria", a4.id, "test_cases", t4.id),
+      link("acceptance_criteria", a5.id, "test_cases", t5.id),
+    ],
+  }));
+
+  const summary = summarizeVerificationStates(result);
+  assert.deepEqual(summary, {
+    "No Tests Linked": 1,
+    "Testing": 1,
+    "Test Failure": 1,
+    "Testing Blocked": 1,
+    "Verified": 1,
+  });
+});
+
+run("summarizeVerificationStates on zero requirements returns all-zero buckets, not missing keys", () => {
+  const result = computeTestVerification(scope({}));
+  const summary = summarizeVerificationStates(result);
+  assert.deepEqual(summary, {
+    "No Tests Linked": 0,
+    "Testing": 0,
+    "Test Failure": 0,
+    "Testing Blocked": 0,
+    "Verified": 0,
+  });
 });
 
 console.log("\nAll test-verification module tests passed.\n");
