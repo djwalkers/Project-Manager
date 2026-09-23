@@ -1,5 +1,6 @@
 import { LoginForm } from "@/components/login-form";
-import { Boxes } from "lucide-react";
+import Image from "next/image";
+import { BRAND } from "@/lib/brand";
 
 export default function LoginPage() {
   return (
@@ -7,12 +8,10 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Boxes className="h-6 w-6" aria-hidden="true" />
-          </span>
+          <Image src={BRAND.logo.mark} alt="" width={56} height={56} priority />
           <div className="text-center">
-            <h1 className="text-xl font-semibold">Project Manager</h1>
-            <p className="text-sm text-muted-foreground">CR028 Control Centre</p>
+            <h1 className="text-xl font-semibold tracking-tight">{BRAND.productName}</h1>
+            <p className="text-sm text-muted-foreground">{BRAND.productDescription}</p>
           </div>
         </div>
 

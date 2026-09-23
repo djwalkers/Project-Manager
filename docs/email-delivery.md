@@ -9,7 +9,7 @@ Add these server-side variables locally and in Vercel:
 ```dotenv
 RESEND_API_KEY=re_...
 DAILY_BRIEF_RECIPIENT=Andrew.Walker@bluestonex.com
-RESEND_FROM_EMAIL=Project Manager <projects@your-verified-domain.com>
+RESEND_FROM_EMAIL=Test Manager <projects@your-verified-domain.com>
 CRON_SECRET=generate-a-long-random-value
 ```
 

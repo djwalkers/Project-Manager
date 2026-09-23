@@ -367,10 +367,10 @@ run("header uses project data only; current phase shown when a timeline item is 
   assert.match(emailWith.text, /Test Status · System Test · Globex · 22 September 2026/);
 });
 
-run("footer replaces the old 'manual report' line", () => {
+run("footer carries the Test Manager product name and no old branding", () => {
   const f = fixture();
   const c = buildTestStatusEmail(f.data, f.p, now);
-  assert.match(c.html, /Project Manager · Test Status Report · Generated 22 Sept? 2026, 13:00/);
+  assert.match(c.html, /Test Manager<\/strong> · Test Status Report · Generated 22 Sept? 2026, 13:00/);
   assert.doesNotMatch(c.html + c.text, /manual report/);
 });
 
@@ -429,7 +429,7 @@ run("both variants render the Full Test Status from the same model: the section 
   assert.equal(email.subject, print.subject);
   const printFull = fullSection(print.html).replace(APPENDIX_HTML, "");
   assert.equal(fullSection(email.html), printFull);
-  const fullText = (t) => t.slice(t.indexOf("FULL TEST STATUS"), t.search(/\n\n(APPENDIX|Project Manager · Test Status Report)/));
+  const fullText = (t) => t.slice(t.indexOf("FULL TEST STATUS"), t.search(/\n\n(APPENDIX|Test Manager · Test Status Report)/));
   assert.equal(fullText(email.text), fullText(print.text));
 });
 

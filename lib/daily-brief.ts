@@ -14,6 +14,7 @@ import { buildSinceYesterday, buildWeeklyExecutiveSummary, type SinceYesterday, 
 import type { IntelligenceFinding } from "@/lib/project-intelligence";
 import { formatScheduleDate } from "@/lib/schedule";
 import type { Milestone, Project } from "@/lib/types";
+import { BRAND } from "@/lib/brand";
 
 export type DailyBriefProject = {
   project: Project;
@@ -95,7 +96,7 @@ function buildPlainText(date: Date, summary: string, projects: DailyBriefProject
   const auditLines = recentAuditChanges.length
     ? recentAuditChanges.slice(0, 10).map((e) => `- [${e.action_type}] ${formatAuditChange(e)} — ${e.changed_by_name}`).join("\n")
     : "- No data changes recorded in the last 24 hours.";
-  return `DAILY PROJECT BRIEF — ${emailDate(date).toUpperCase()}\n\nEXECUTIVE SUMMARY\n${summary}\n\nTODAY'S RECOMMENDATIONS\n${recommendationLines}\n\nTODAY'S DELIVERABLES REQUIRING ATTENTION\n${deliverableLines}\n\nSINCE YESTERDAY\n${yesterday || "- Snapshot history is still building."}\n\nCHANGES SINCE YESTERDAY (AUDIT)\n${auditLines}\n\nPROJECT STATUS\n${projectLines || "No projects available."}\n\nATTENTION REQUIRED\n${list(attention, "No items require attention.")}\n\nUPCOMING THIS WEEK\n${list(upcoming, "No items are due in the next seven days.")}\n\nWEEKLY EXECUTIVE SUMMARY\n${weeklyList("WHAT IMPROVED", weekly.improved, "No measured improvements yet.")}\n${weeklyList("WHAT WORSENED", weekly.worsened, "No measured deterioration.")}\n${weeklyList("UPCOMING MILESTONES", weekly.upcomingMilestones, "No milestones scheduled.")}\n${weeklyList("PROJECTS REQUIRING ATTENTION", weekly.projectsRequiringAttention, "No projects require attention.")}\n\nPrepared by Project Manager / Control Centre`;
+  return `DAILY PROJECT BRIEF — ${emailDate(date).toUpperCase()}\n\nEXECUTIVE SUMMARY\n${summary}\n\nTODAY'S RECOMMENDATIONS\n${recommendationLines}\n\nTODAY'S DELIVERABLES REQUIRING ATTENTION\n${deliverableLines}\n\nSINCE YESTERDAY\n${yesterday || "- Snapshot history is still building."}\n\nCHANGES SINCE YESTERDAY (AUDIT)\n${auditLines}\n\nPROJECT STATUS\n${projectLines || "No projects available."}\n\nATTENTION REQUIRED\n${list(attention, "No items require attention.")}\n\nUPCOMING THIS WEEK\n${list(upcoming, "No items are due in the next seven days.")}\n\nWEEKLY EXECUTIVE SUMMARY\n${weeklyList("WHAT IMPROVED", weekly.improved, "No measured improvements yet.")}\n${weeklyList("WHAT WORSENED", weekly.worsened, "No measured deterioration.")}\n${weeklyList("UPCOMING MILESTONES", weekly.upcomingMilestones, "No milestones scheduled.")}\n${weeklyList("PROJECTS REQUIRING ATTENTION", weekly.projectsRequiringAttention, "No projects require attention.")}\n\nPrepared by ${BRAND.productName}`;
 }
 
 function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], attention: InsightItem[], upcoming: InsightItem[], sinceYesterday: SinceYesterday[], recentAuditChanges: AuditLog[], weekly: WeeklyExecutiveSummary, recommendations: DailyBrief["todaysRecommendations"], deliverables: DailyBrief["todaysDeliverables"]) {
@@ -129,7 +130,7 @@ function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], a
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Project Brief</title></head>
 <body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif;"><div style="max-width:960px;margin:0 auto;padding:24px;">
-  <div style="background:#0f172a;color:#fff;padding:24px;border-radius:8px 8px 0 0;"><p style="margin:0 0 6px;color:#93c5fd;font-size:13px;font-weight:bold;text-transform:uppercase;">Project Manager / Control Centre</p><h1 style="margin:0;font-size:26px;">Daily Project Brief</h1><p style="margin:8px 0 0;color:#cbd5e1;">${escapeHtml(emailDate(date))}</p></div>
+  <div style="background:#0f172a;color:#fff;padding:24px;border-radius:8px 8px 0 0;"><p style="margin:0 0 6px;color:#93c5fd;font-size:13px;font-weight:bold;text-transform:uppercase;">${BRAND.productName}</p><h1 style="margin:0;font-size:26px;">Daily Project Brief</h1><p style="margin:8px 0 0;color:#cbd5e1;">${escapeHtml(emailDate(date))}</p></div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;"><h2 style="margin:0 0 10px;font-size:18px;">Executive Summary</h2><p style="margin:0;line-height:1.6;">${escapeHtml(summary)}</p></div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Today&#39;s Recommendations</h2>${recommendationHtml}</div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Today&#39;s Deliverables Requiring Attention</h2>${deliverableHtml}</div>
@@ -139,7 +140,7 @@ function buildHtml(date: Date, summary: string, projects: DailyBriefProject[], a
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Attention Required</h2>${list(attention, "No items require attention.")}</div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;"><h2 style="margin:0 0 14px;font-size:18px;">Upcoming This Week</h2>${list(upcoming, "No items are due in the next seven days.")}</div>
   <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 8px 8px;"><h2 style="margin:0 0 14px;font-size:18px;">Weekly Executive Summary</h2><h3 style="font-size:14px;">What improved</h3>${textList(weekly.improved, "No measured improvements yet.")}<h3 style="font-size:14px;">What worsened</h3>${textList(weekly.worsened, "No measured deterioration.")}<h3 style="font-size:14px;">Upcoming milestones</h3>${textList(weekly.upcomingMilestones, "No milestones scheduled.")}<h3 style="font-size:14px;">Projects requiring attention</h3>${textList(weekly.projectsRequiringAttention, "No projects require attention.")}</div>
-  <p style="margin:18px 0 0;text-align:center;color:#64748b;font-size:12px;">Prepared by Project Manager / Control Centre</p>
+  <p style="margin:18px 0 0;text-align:center;color:#64748b;font-size:12px;">Prepared by ${BRAND.productName}</p>
 </div></body></html>`;
 }
 

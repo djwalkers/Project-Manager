@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Boxes,
   ChevronDown,
   Clock,
   Search,
@@ -15,6 +14,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { ROLE_NAV_ACCESS } from "@/lib/auth";
 import { ALL_ITEMS, NAV_GROUPS, STANDALONE_ITEMS, type NavGroup, type NavItem } from "@/lib/nav-data";
 import { cn } from "@/lib/utils";
+import { BrandLogo } from "@/components/brand-logo";
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -297,15 +297,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     <div className="flex h-full flex-col">
       {/* Logo */}
       <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b px-4">
-        <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Boxes className="h-4 w-4" aria-hidden="true" />
-          </span>
-          <div>
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Project Manager</p>
-            <p className="text-xs text-muted-foreground">Control Centre</p>
-          </div>
-        </div>
+        <BrandLogo size={32} nameClassName="text-base" />
         {onClose && (
           <button
             onClick={onClose}

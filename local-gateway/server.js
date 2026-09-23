@@ -1,6 +1,6 @@
 // Phase A2 — gateway foundation.
 //
-// Standalone, loopback-only gateway between the Project Manager web app
+// Standalone, loopback-only gateway between the Test Manager web app
 // and a local Ollama instance. Not part of the Next.js/Vercel build — run
 // this on the same Mac as Ollama. Phase A1 proved the browser -> gateway ->
 // Ollama -> browser path against the real production Vercel origin in

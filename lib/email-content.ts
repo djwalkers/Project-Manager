@@ -22,6 +22,7 @@ import { buildProjectState, type ProjectState } from "@/lib/project-state";
 import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
 import { countTests, groupTestsByRequirement, parseTestScenario, splitSteps, summariseAreas, testPositionMessage, type AreaPosition, type AreaSummary } from "@/lib/test-report-format";
+import { BRAND, brandLockupPrintHtml } from "@/lib/brand";
 
 export type EmailContent = { subject: string; html: string; text: string };
 
@@ -303,12 +304,12 @@ export function buildAutomatedDailyBrief(data: DataStore, now = new Date(), rece
   const recentHtml = briefSection("Recent Activity (Last 24 Hours)", briefList(activityItems, "No changes recorded in the last 24 hours."));
   const top3Html = briefSection("Top 3 Priorities", briefList(top3, "No priorities identified."));
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Brief</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:700px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0"><p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Project Manager / Control Centre</p><h1 style="margin:0;font-size:22px">Daily Brief</h1><p style="margin:6px 0 0;color:#cbd5e1;font-size:13px">${escapeHtml(subjectDate(now))}</p></header>${projectBlocks.join("")}${recentHtml}${top3Html}<p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px">Prepared by Project Manager / Control Centre</p></div></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Brief</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:700px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0"><p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">${BRAND.productName}</p><h1 style="margin:0;font-size:22px">Daily Brief</h1><p style="margin:6px 0 0;color:#cbd5e1;font-size:13px">${escapeHtml(subjectDate(now))}</p></header>${projectBlocks.join("")}${recentHtml}${top3Html}<p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px">Prepared by ${BRAND.productName}</p></div></body></html>`;
 
   const text = `DAILY BRIEF — ${subjectDate(now).toUpperCase()}\n${projectTexts.join("\n")}\n\nRECENT ACTIVITY (LAST 24H)\n${activityItems.map((i) => `- ${i}`).join("\n") || "- No changes recorded."}\n\nTOP 3 PRIORITIES\n${top3.join("\n") || "- No priorities identified."}`;
 
   return {
-    subject: `[Project Manager] Daily Brief — ${subjectDate(now)}`,
+    subject: `[${BRAND.productName}] Daily Brief — ${subjectDate(now)}`,
     html,
     text,
   };
@@ -367,17 +368,17 @@ export function buildAutomatedWeeklySummary(data: DataStore, now = new Date(), w
     ["What Worsened", [...summary.worsened], "No measured deterioration."],
     ["Intelligence Summary", intelligence, "No critical or warning findings."],
   ];
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Weekly Executive Summary</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:900px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:24px;border-radius:8px 8px 0 0"><p style="margin:0 0 6px;color:#93c5fd;font-size:13px;font-weight:bold;text-transform:uppercase">Project Manager / Control Centre</p><h1 style="margin:0;font-size:26px">Weekly Executive Summary</h1><p style="margin:8px 0 0;color:#cbd5e1">${escapeHtml(subjectDate(now))}</p></header>${groups.map(([title, items, empty]) => section(title, listHtml(items, empty))).join("")}<p style="text-align:center;color:#64748b;font-size:12px">Prepared by Project Manager / Control Centre</p></div></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Weekly Executive Summary</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:900px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:24px;border-radius:8px 8px 0 0"><p style="margin:0 0 6px;color:#93c5fd;font-size:13px;font-weight:bold;text-transform:uppercase">${BRAND.productName}</p><h1 style="margin:0;font-size:26px">Weekly Executive Summary</h1><p style="margin:8px 0 0;color:#cbd5e1">${escapeHtml(subjectDate(now))}</p></header>${groups.map(([title, items, empty]) => section(title, listHtml(items, empty))).join("")}<p style="text-align:center;color:#64748b;font-size:12px">Prepared by ${BRAND.productName}</p></div></body></html>`;
   return {
-    subject: `[Project Manager] Weekly Executive Summary - ${subjectDate(now)}`,
+    subject: `[${BRAND.productName}] Weekly Executive Summary - ${subjectDate(now)}`,
     html,
     text: groups.map(([title, items, empty]) => plainList(title, items, empty)).join("\n\n"),
   };
 }
 
 export function buildTestEmail(now = new Date()): EmailContent {
-  const subject = `[Project Manager] Test Email - ${subjectDate(now)}`;
-  return { subject, html: `<div style="font-family:Arial,sans-serif;max-width:640px;padding:24px"><h1>Project Manager email delivery is working</h1><p>This test was generated by CR028 Control Centre on ${escapeHtml(subjectDate(now))}.</p></div>`, text: `Project Manager email delivery is working. Test generated ${subjectDate(now)}.` };
+  const subject = `[${BRAND.productName}] Test Email - ${subjectDate(now)}`;
+  return { subject, html: `<div style="font-family:Arial,sans-serif;max-width:640px;padding:24px"><h1>${BRAND.productName} email delivery is working</h1><p>This test was generated by ${BRAND.productName} on ${escapeHtml(subjectDate(now))}.</p></div>`, text: `${BRAND.productName} email delivery is working. Test generated ${subjectDate(now)}.` };
 }
 
 // ── Test Status Email (manual, project-scoped) ──────────────────────────────
@@ -532,7 +533,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
       <div style="margin-top:8px;font-size:15px;font-weight:600;color:#334155">Test Status Report${phaseName ? ` <span style="font-weight:400;color:#64748b">· ${escapeHtml(phaseName)}</span>` : ""}</div>
       <div style="margin-top:2px;font-size:12px;color:#64748b">${metaParts.map(escapeHtml).join(" · ")}</div>
     </td>
-    <td class="nw" style="vertical-align:bottom;text-align:right;white-space:nowrap;font-size:11px;color:#64748b">Generated<br><span style="color:#334155">${escapeHtml(generated)}</span></td>
+    <td class="nw" style="vertical-align:bottom;text-align:right;white-space:nowrap;font-size:11px;color:#64748b"><div style="margin-bottom:6px">${brandLockupPrintHtml(16)}</div>Generated<br><span style="color:#334155">${escapeHtml(generated)}</span></td>
   </tr></table></header>`;
 
   const summaryHtml = `<table role="presentation" class="kpi" width="100%" style="table-layout:fixed"><tr>
@@ -632,7 +633,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     ? reportSection("Appendix — Detailed Test Procedures", `<div style="font-size:12px;color:#64748b;margin-bottom:4px">Full objective, steps and recorded result for each test, in reference order.</div>${proceduresHtml}`, "appendix")
     : "";
 
-  const footer = `<footer style="margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">Project Manager · Test Status Report · Generated ${escapeHtml(generated)}</footer>`;
+  const footer = `<footer style="margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8"><strong style="color:#64748b">${BRAND.productName}</strong> · Test Status Report · Generated ${escapeHtml(generated)}</footer>`;
 
   // ── Email-only presentation blocks ──────────────────────────────────────
   const emailHeader = `<header style="padding-bottom:10px;border-bottom:1px solid #cbd5e1"><table role="presentation" width="100%"><tr>
@@ -732,7 +733,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
       `EXCEPTIONS & ATTENTION\n${exceptionsText}`,
       `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
       total > 0 ? `APPENDIX — DETAILED TEST PROCEDURES\n${proceduresText}` : "",
-      `Project Manager · Test Status Report · Generated ${generated}`,
+      `${BRAND.productName} · Test Status Report · Generated ${generated}`,
     ].filter(Boolean).join("\n\n")
     : [
       `${project.project_ref ?? project.name} — TEST STATUS`,
@@ -750,7 +751,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
         remainingAreas.length ? `Remaining testing:\n${remainingAreas.map((a) => `- ${areaLabel(a)}: ${remainingDetail(a)}`).join("\n")}` : "",
       ].filter(Boolean).join("\n")}`,
       `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
-      `Project Manager · Test Status Report · Generated ${generated}`,
+      `${BRAND.productName} · Test Status Report · Generated ${generated}`,
     ].filter(Boolean).join("\n\n");
 
   return {
@@ -847,7 +848,7 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
 <body style="margin:0;background:#f1f5f9;font-family:Arial,sans-serif;color:#0f172a">
 <div style="max-width:700px;margin:0 auto;padding:24px">
   <div style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0">
-    <p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Project Manager / Control Centre</p>
+    <p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">${BRAND.productName}</p>
     <h1 style="margin:0;font-size:22px">Manager Exception Report</h1>
     <p style="margin:6px 0 0;color:#cbd5e1;font-size:13px">${escapeHtml(subjectDate(now))}</p>
   </div>
@@ -857,7 +858,7 @@ export function buildManagerSummaryEmail(data: DataStore, now = new Date()): Ema
   <div style="padding:16px 0">
     ${goLiveHtml}${projectHtml || `<p style="color:#64748b;font-size:14px">No projects to report.</p>`}
   </div>
-  <p style="margin:0;text-align:center;color:#94a3b8;font-size:11px">Prepared by Project Manager / Control Centre — exceptions only</p>
+  <p style="margin:0;text-align:center;color:#94a3b8;font-size:11px">Prepared by ${BRAND.productName} — exceptions only</p>
 </div>
 </body></html>`;
 

@@ -3,12 +3,16 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/auth-context";
 import { SelectedProjectProvider } from "@/contexts/selected-project-context";
+import { BRAND } from "@/lib/brand";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
 
+// Icons come from the Next.js file conventions: app/favicon.ico,
+// app/icon.png and app/apple-icon.png (Test Manager brand pack).
 export const metadata: Metadata = {
-  title: "Project Manager",
-  description: "Multi-project delivery control centre",
+  title: { default: BRAND.productName, template: `%s | ${BRAND.productName}` },
+  description: BRAND.productDescription,
+  applicationName: BRAND.productName,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

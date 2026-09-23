@@ -7,6 +7,7 @@ import { selectEmailProjects } from "@/lib/project-scope";
 import { schemaTables } from "@/lib/schema";
 import { seedData } from "@/lib/seed-data";
 import type { EmailActivity, EmailSettings, Project } from "@/lib/types";
+import { BRAND } from "@/lib/brand";
 
 export type EmailKind = "Test" | "Daily Brief" | "Weekly Summary" | "Manager Summary" | "Test Status";
 export type TriggerType = "Manual" | "Scheduled";
@@ -153,7 +154,7 @@ async function logActivity(client: SupabaseClient | null, activity: EmailActivit
 async function sendWithResend(recipients: string[], content: EmailContent) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY is not configured.");
-  const from = process.env.RESEND_FROM_EMAIL || "Project Manager <onboarding@resend.dev>";
+  const from = process.env.RESEND_FROM_EMAIL || `${BRAND.productName} <onboarding@resend.dev>`;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
