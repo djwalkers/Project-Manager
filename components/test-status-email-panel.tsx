@@ -42,12 +42,13 @@ function TestStatusPreviewModal({
   // function the server calls at send time (lib/email-content.ts's
   // buildTestStatusEmail), so the preview can never drift from what
   // actually gets sent. Opening this modal never sends anything itself.
-  // The preview is the email exactly as sent (no procedures appendix). The
+  // The preview is the email exactly as sent (concise "email" variant). The
   // Print / PDF view is the same builder and the same generation time with
-  // includeProcedures: true — one canonical report, two render variants.
+  // variant "print" — the comprehensive report including the procedures
+  // appendix. One canonical report model, two presentations.
   const [generatedAt] = useState(() => new Date());
   const content = useMemo(() => buildTestStatusEmail(data, project, generatedAt), [data, project, generatedAt]);
-  const printContent = useMemo(() => buildTestStatusEmail(data, project, generatedAt, { includeProcedures: true }), [data, project, generatedAt]);
+  const printContent = useMemo(() => buildTestStatusEmail(data, project, generatedAt, { variant: "print" }), [data, project, generatedAt]);
 
   const tabs: { value: PreviewMode; label: string; icon: typeof Eye }[] = [
     { value: "rendered", label: "Rendered", icon: Eye },
@@ -55,7 +56,7 @@ function TestStatusPreviewModal({
     { value: "plain", label: "Plain text", icon: FileText },
   ];
 
-  // Opens the FULL report (main report + Detailed Test Procedures appendix)
+  // Opens the comprehensive print report (incl. Detailed Test Procedures)
   // as its own standalone page so it can be printed / saved as PDF without
   // any application chrome. Display only — sends nothing.
   function openPrintableReport() {

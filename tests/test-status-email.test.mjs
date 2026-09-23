@@ -134,7 +134,7 @@ run("executive summary counts Total/Executed/Passed/Failed/Blocked/Pending corre
     testCase(pl10.id, "TST-006", "In Progress"),
   ];
 
-  const content = buildTestStatusEmail(data, pl10, now);
+  const content = buildTestStatusEmail(data, pl10, now, { variant: "print" });
   assert.match(content.text, /Total:?\s*6/i);
   assert.match(content.text, /Executed:?\s*3/i, "Executed must be Passed(2) + Failed(1) = 3, not counting Blocked/Pending/In Progress");
   assert.match(content.text, /Passed:?\s*2/i);
@@ -143,6 +143,12 @@ run("executive summary counts Total/Executed/Passed/Failed/Blocked/Pending corre
   assert.match(content.text, /Pending:?\s*1/i);
   assert.match(content.text, /In Progress:?\s*1/i);
   assert.match(content.text, /50%/, "execution percentage must be 3/6 = 50%");
+
+  // The email presents the same counts as a single test position.
+  const email = buildTestStatusEmail(data, pl10, now);
+  assert.match(email.text, /2 of 6 tests passed · 50% executed/);
+  assert.match(email.text, /Remaining: 2 \(1 in progress, 1 pending\) · Failed: 1 · Blocked: 1/, "remaining = Pending + In Progress; Blocked is shown separately");
+  assert.match(email.text, /1 test failed and 1 is blocked\. 2 tests remain to be executed \(1 in progress\)\. See attention items below\./);
 });
 
 // ── 2. Natural Ref ordering ──────────────────────────────────────────────────
@@ -216,11 +222,13 @@ run("Requirement Verification Summary reflects the canonical computeTestVerifica
     link(pl10.id, "acceptance_criteria", acFailure.id, "test_cases", tFail.id),
   ];
 
-  const content = buildTestStatusEmail(data, pl10, now);
+  const content = buildTestStatusEmail(data, pl10, now, { variant: "print" });
   assert.match(content.text, /Verified:?\s*1/i);
   assert.match(content.text, /Test Failure:?\s*1/i);
   assert.match(content.text, /Testing Blocked:?\s*0/i);
   assert.match(content.text, /No Tests Linked:?\s*0/i);
+  const email = buildTestStatusEmail(data, pl10, now);
+  assert.doesNotMatch(email.text + email.html, /REQUIREMENT VERIFICATION|Requirement Verification Summary|requirements verified/i, "the email omits the requirement verification summary");
 });
 
 run("structural: buildTestStatusEmail imports/uses the canonical test-verification module, never re-deriving requirement verification itself", () => {
@@ -296,8 +304,11 @@ run("a project with zero test cases produces a graceful empty report, not a cras
 
   const content = buildTestStatusEmail(data, pl10, now);
   assert.match(content.subject, /Empty Project|PL10/i);
-  assert.match(content.text, /Total:?\s*0/i);
   assert.match(content.text, /no test cases/i);
+  assert.doesNotMatch(content.text, /tests passed/, "no '0 of 0 tests passed' headline for an empty project");
+  const print = buildTestStatusEmail(data, pl10, now, { variant: "print" });
+  assert.match(print.text, /Total:?\s*0/i);
+  assert.match(print.text, /no test cases/i);
 });
 
 // ── 8. No Failed/Blocked tests -> concise positive statement ────────────────
@@ -309,8 +320,11 @@ run("with no Failed or Blocked tests, the Exceptions & Attention section shows a
   data.test_cases = [testCase(pl10.id, "TST-1", "Passed"), testCase(pl10.id, "TST-2", "Pending")];
 
   const content = buildTestStatusEmail(data, pl10, now);
-  assert.match(content.text, /no failed or blocked tests/i);
-  assert.doesNotMatch(content.html + content.text, /all (executed )?tests are passing/i, "must not claim everything is passing while Pending tests exist");
+  assert.match(content.text, /No failures or blockers\./);
+  assert.match(content.html, /No failures or blockers\./);
+  const print = buildTestStatusEmail(data, pl10, now, { variant: "print" });
+  assert.match(print.text, /no failed or blocked tests/i);
+  for (const c of [content, print]) assert.doesNotMatch(c.html + c.text, /all (executed )?tests are passing|all tests have passed/i, "must not claim everything is passing while Pending tests exist");
 });
 
 // ── 9. Failed/Blocked prominence ────────────────────────────────────────────
@@ -321,7 +335,11 @@ run("Exceptions & Attention section appears before the Full Test Status section 
   data.projects = [pl10];
   data.test_cases = [testCase(pl10.id, "TST-1", "Passed"), testCase(pl10.id, "TST-2", "Failed")];
 
-  const content = buildTestStatusEmail(data, pl10, now);
+  const content = buildTestStatusEmail(data, pl10, now, { variant: "print" });
+  const email = buildTestStatusEmail(data, pl10, now);
+  const emailAttIdx = email.text.search(/ATTENTION & REMAINING/);
+  assert.ok(emailAttIdx >= 0 && emailAttIdx < email.text.search(/FULL TEST STATUS/), "email: Attention & Remaining precedes Full Test Status");
+  assert.ok(email.html.search(/Attention &amp; Remaining/) < email.html.search(/Full Test Status/));
   const textExcIdx = content.text.search(/Exceptions & Attention/i);
   const textFullIdx = content.text.search(/Full Test Status/i);
   assert.ok(textExcIdx >= 0 && textFullIdx >= 0 && textExcIdx < textFullIdx, "Exceptions & Attention must appear before Full Test Status in the text version");
@@ -373,7 +391,7 @@ run("Full Test Status does not include expected_result/actual_result content (ke
   const content = buildTestStatusEmail(data, pl10, now);
   assert.doesNotMatch(content.html + content.text, /SHOULD_NOT_APPEAR_IN_EMAIL/);
   assert.doesNotMatch(content.html + content.text, /ALSO_SHOULD_NOT_APPEAR/, "the emailed report never carries recorded results");
-  const print = buildTestStatusEmail(data, pl10, now, { includeProcedures: true });
+  const print = buildTestStatusEmail(data, pl10, now, { variant: "print" });
   const mainHtml = print.html.slice(0, print.html.indexOf("Detailed Test Procedures"));
   assert.doesNotMatch(mainHtml, /ALSO_SHOULD_NOT_APPEAR/);
   assert.doesNotMatch(print.html, /SHOULD_NOT_APPEAR_IN_EMAIL/, "expected_result is never printed anywhere in the report");

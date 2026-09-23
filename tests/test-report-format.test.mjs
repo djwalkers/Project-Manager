@@ -46,7 +46,7 @@ Module._extensions[".ts"] = function compileTypeScript(module, filename) {
 
 const req = Module.createRequire(import.meta.url);
 const { buildTestStatusEmail } = req("../lib/email-content.ts");
-const { parseTestScenario, splitSteps, groupTestsByRequirement, TEST_TITLE_MAX_LENGTH } = req("../lib/test-report-format.ts");
+const { parseTestScenario, splitSteps, groupTestsByRequirement, TEST_TITLE_MAX_LENGTH, countTests, areaPosition, summariseAreas, testPositionMessage } = req("../lib/test-report-format.ts");
 const { computeTestVerification } = req("../lib/lifecycle/test-verification.ts");
 const { seedData } = req("../lib/seed-data.ts");
 
@@ -284,7 +284,7 @@ run("main status list shows concise titles, never 'Objective:' / 'Steps:' text",
 
 run("appendix (print variant) keeps the full objective and numbered steps", () => {
   const f = fixture();
-  const c = buildTestStatusEmail(f.data, f.p, now, { includeProcedures: true });
+  const c = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   const appendix = c.html.slice(c.html.indexOf("Detailed Test Procedures"));
   assert.match(appendix, /Objective:<\/span> verify via AC\./);
   assert.match(appendix, /<li[^>]*>Do it\.<\/li>/);
@@ -301,7 +301,7 @@ run("every status renders as a labelled badge (readable without colour)", () => 
 
 run("Failed and Blocked tests are surfaced in Exceptions & Attention with requirement and reason", () => {
   const f = fixture();
-  const c = buildTestStatusEmail(f.data, f.p, now);
+  const c = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   const exc = c.html.slice(c.html.indexOf("Exceptions"), c.html.indexOf("Full Test Status"));
   assert.match(exc, /1 failed · 1 blocked/);
   assert.match(exc, /TST-003/);
@@ -326,7 +326,7 @@ run("groups show 'x / y passed' and the canonical verification state", () => {
 
 run("verification states render in reading order: Verified, Testing, Test Failure, Testing Blocked, No Tests Linked", () => {
   const f = fixture();
-  const c = buildTestStatusEmail(f.data, f.p, now);
+  const c = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   const vs = c.html.slice(c.html.indexOf('class="vs"'));
   const order = ["Verified", "Testing", "Test Failure", "Testing Blocked", "No Tests Linked"].map((st) => vs.indexOf(`</span>${st}</div>`));
   assert.ok(order.every((i) => i >= 0), JSON.stringify(order));
@@ -335,7 +335,7 @@ run("verification states render in reading order: Verified, Testing, Test Failur
 
 run("refs are non-breaking and print CSS guards page breaks", () => {
   const f = fixture();
-  const c = buildTestStatusEmail(f.data, f.p, now);
+  const c = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   assert.match(c.html, /<span class="nw" style="white-space:nowrap;font-weight:600">TST-001<\/span>/);
   assert.match(c.html, /<span class="nw" style="white-space:nowrap;font-weight:400">AC-001<\/span>/);
   assert.match(c.html, /@page\{size:A4/);
@@ -344,22 +344,27 @@ run("refs are non-breaking and print CSS guards page breaks", () => {
   assert.match(c.html, /max-width:780px/);
 });
 
-run("header uses project data only; current phase shown when a timeline item is In Progress, omitted otherwise", () => {
+run("header uses project data only; current phase shown when a timeline item is In Progress, omitted otherwise (both variants)", () => {
   const f = fixture();
   f.p.project_ref = "ZZ9";
   f.p.customer = "Globex";
-  const without = buildTestStatusEmail(f.data, f.p, now);
+  const without = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   assert.match(without.html, /ZZ9<\/div>/);
   assert.match(without.html, /Globex · 22 September 2026/);
   assert.doesNotMatch(without.html, /Test Status Report <span/);
   assert.doesNotMatch(without.text, /Current phase/);
+  const emailWithout = buildTestStatusEmail(f.data, f.p, now);
+  assert.match(emailWithout.html, /<strong[^>]*>Test Status<\/strong> · Globex · 22 September 2026/);
   f.data.timeline_items = [
     { id: "t1", project_id: f.p.id, phase_ref: "P1", phase_name: "Build", start_date: "2026-08-01", end_date: "2026-08-30", owner: null, status: "Complete", progress_percent: 100, notes: null, created_at: "", updated_at: "" },
     { id: "t2", project_id: f.p.id, phase_ref: "P2", phase_name: "System Test", start_date: "2026-09-01", end_date: "2026-09-30", owner: null, status: "In Progress", progress_percent: 50, notes: null, created_at: "", updated_at: "" },
   ];
-  const withPhase = buildTestStatusEmail(f.data, f.p, now);
+  const withPhase = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   assert.match(withPhase.html, /Test Status Report <span[^>]*>· System Test<\/span>/);
   assert.match(withPhase.text, /Current phase: System Test/);
+  const emailWith = buildTestStatusEmail(f.data, f.p, now);
+  assert.match(emailWith.html, /<strong[^>]*>Test Status<\/strong> · System Test · Globex · 22 September 2026/);
+  assert.match(emailWith.text, /Test Status · System Test · Globex · 22 September 2026/);
 });
 
 run("footer replaces the old 'manual report' line", () => {
@@ -374,18 +379,22 @@ run("a small all-passed project renders without exceptions block or appendix noi
   const data = baseDataStore();
   data.projects = [p];
   data.test_cases = [testCase(p.id, "TST-1", "Passed", { scenario: "Only test" })];
-  const c = buildTestStatusEmail(data, p, now);
+  const c = buildTestStatusEmail(data, p, now, { variant: "print" });
   assert.match(c.html, /No failed or blocked tests\./);
   assert.doesNotMatch(c.html, /Awaiting execution/);
   assert.match(c.html, /Not linked to a requirement/);
   assert.match(c.html, /No requirements recorded for this project\./);
+  const email = buildTestStatusEmail(data, p, now);
+  assert.match(email.text, /No failures or blockers\. All 1 test has passed\./);
+  assert.match(email.text, /Not linked to a requirement — 1\/1 passed — Complete/);
+  assert.doesNotMatch(email.text, /Remaining testing:/);
 });
 
 run("an empty project omits the appendix even in the print variant", () => {
   const p = project("empty");
   const data = baseDataStore();
   data.projects = [p];
-  const c = buildTestStatusEmail(data, p, now, { includeProcedures: true });
+  const c = buildTestStatusEmail(data, p, now, { variant: "print" });
   assert.doesNotMatch(c.html + c.text, /Detailed Test Procedures|DETAILED TEST PROCEDURES/);
   assert.match(c.html, /No test cases recorded for this project\./);
 });
@@ -393,7 +402,6 @@ run("an empty project omits the appendix even in the print variant", () => {
 // ── Email vs Print / PDF variants ───────────────────────────────────────────
 
 const APPENDIX_HTML = /<section class="rs appendix"[\s\S]*?<\/section>/;
-const APPENDIX_TEXT = /\n\nAPPENDIX — DETAILED TEST PROCEDURES\n[\s\S]*?(?=\n\nProject Manager · Test Status Report · Generated)/;
 
 run("email output (default) excludes the Detailed Test Procedures appendix", () => {
   const f = fixture();
@@ -401,47 +409,144 @@ run("email output (default) excludes the Detailed Test Procedures appendix", () 
   assert.doesNotMatch(c.html, /Detailed Test Procedures/);
   assert.doesNotMatch(c.html, /class="proc"/);
   assert.doesNotMatch(c.text, /DETAILED TEST PROCEDURES|Recorded result:|Steps:/);
-  assert.deepEqual(buildTestStatusEmail(f.data, f.p, now, { includeProcedures: false }), c, "explicit false is the same as the default");
+  assert.deepEqual(buildTestStatusEmail(f.data, f.p, now, { variant: "email" }), c, "explicit false is the same as the default");
 });
 
 run("print / PDF output includes the appendix with every test's procedure", () => {
   const f = fixture();
-  const c = buildTestStatusEmail(f.data, f.p, now, { includeProcedures: true });
+  const c = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
   assert.match(c.html, /Appendix — Detailed Test Procedures/);
   assert.equal((c.html.match(/class="proc"/g) ?? []).length, f.data.test_cases.length);
   assert.match(c.html, /\.appendix\{break-before:page/, "A4 appendix page-break rule preserved");
   assert.match(c.text, /APPENDIX — DETAILED TEST PROCEDURES/);
 });
 
-run("both variants share an identical main report: print minus appendix === email, html and text", () => {
+run("both variants render the Full Test Status from the same model: the section is byte-identical", () => {
   const f = fixture();
-  for (const [data, p] of [[f.data, f.p], (() => { const q = project("one"); const d = baseDataStore(); d.projects = [q]; d.test_cases = [testCase(q.id, "TST-1", "Pending")]; return [d, q]; })()]) {
-    const email = buildTestStatusEmail(data, p, now);
-    const print = buildTestStatusEmail(data, p, now, { includeProcedures: true });
-    assert.equal(email.subject, print.subject);
-    assert.match(print.html, APPENDIX_HTML);
-    assert.equal(print.html.replace(APPENDIX_HTML, ""), email.html);
-    assert.match(print.text, APPENDIX_TEXT);
-    assert.equal(print.text.replace(APPENDIX_TEXT, ""), email.text);
-    for (const section of ["Executive Test Summary", "Requirement Verification Summary", "Exceptions &amp; Attention", "Full Test Status", "Project Manager · Test Status Report · Generated"]) {
-      assert.ok(email.html.includes(section) && print.html.includes(section), section);
-    }
-  }
+  const fullSection = (html) => html.slice(html.indexOf("Full Test Status</h2>"), html.indexOf("<footer"));
+  const email = buildTestStatusEmail(f.data, f.p, now);
+  const print = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
+  assert.equal(email.subject, print.subject);
+  const printFull = fullSection(print.html).replace(APPENDIX_HTML, "");
+  assert.equal(fullSection(email.html), printFull);
+  const fullText = (t) => t.slice(t.indexOf("FULL TEST STATUS"), t.search(/\n\n(APPENDIX|Project Manager · Test Status Report)/));
+  assert.equal(fullText(email.text), fullText(print.text));
 });
 
-run("structural: the send path and the preview use the default (appendix-free) variant; Print / PDF uses the full one", () => {
+run("email vs print: email is the concise presentation, print keeps every comprehensive section", () => {
+  const f = fixture();
+  const email = buildTestStatusEmail(f.data, f.p, now);
+  const print = buildTestStatusEmail(f.data, f.p, now, { variant: "print" });
+  const titles = (html) => [...html.matchAll(/<h2 class="rh"[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1]);
+  assert.deepEqual(titles(email.html), ["Test Position", "Testing by Area", "Attention &amp; Remaining", "Full Test Status"]);
+  assert.deepEqual(titles(print.html), ["Executive Test Summary", "Requirement Verification Summary", "Exceptions &amp; Attention", "Full Test Status", "Appendix — Detailed Test Procedures"]);
+  assert.doesNotMatch(email.html, /class="kpi"|class="vs"|requirements verified/, "no eight-tile KPI strip or verification counters in email");
+  assert.match(print.html, /class="kpi"/);
+  assert.match(print.html, /requirements verified by linked tests/);
+});
+
+
+run("structural: the send path and the preview use the default email variant; Print / PDF uses the print variant", () => {
   const delivery = fs.readFileSync(path.join(root, "lib/email-delivery.ts"), "utf8");
-  assert.match(delivery, /kind === "Test Status" \? buildTestStatusEmail\(data, testStatusProject as Project, now\)/, "send must not pass includeProcedures");
-  assert.doesNotMatch(delivery, /includeProcedures/);
+  assert.match(delivery, /kind === "Test Status" \? buildTestStatusEmail\(data, testStatusProject as Project, now\)/, "send must use the default email variant");
+  assert.doesNotMatch(delivery, /variant/);
   const panel = fs.readFileSync(path.join(root, "components/test-status-email-panel.tsx"), "utf8");
   assert.match(panel, /const content = useMemo\(\(\) => buildTestStatusEmail\(data, project, generatedAt\), /, "preview = the email as sent");
-  assert.match(panel, /const printContent = useMemo\(\(\) => buildTestStatusEmail\(data, project, generatedAt, \{ includeProcedures: true \}\)/);
+  assert.match(panel, /const printContent = useMemo\(\(\) => buildTestStatusEmail\(data, project, generatedAt, \{ variant: "print" \}\)/);
   assert.match(panel, /srcDoc=\{content\.html\}/, "rendered preview shows the email variant");
   assert.match(panel, /mode === "html" \? content\.html : content\.text/, "HTML / plain-text tabs show the email variant");
   const printFn = panel.slice(panel.indexOf("function openPrintableReport"), panel.indexOf("async function sendNow"));
   assert.match(printFn, /new Blob\(\[printContent\.html\]/, "Print / PDF opens the full report, not the email DOM");
   const sendFn = panel.slice(panel.indexOf("async function sendNow"));
   assert.doesNotMatch(sendFn.slice(0, sendFn.indexOf("return (")), /printContent/, "send never uses the print variant");
+});
+
+// ── Test position helpers ───────────────────────────────────────────────────
+
+const statuses = (spec) => Object.entries(spec).flatMap(([status, n]) => Array.from({ length: n }, () => ({ status })));
+
+run("countTests: every test counted once; remaining = Pending + In Progress; executed = Passed + Failed", () => {
+  const c = countTests(statuses({ Passed: 38, "In Progress": 15 }));
+  assert.deepEqual(c, { total: 53, passed: 38, failed: 0, blocked: 0, inProgress: 15, pending: 0, remaining: 15, executed: 38, executionPct: 72 });
+  const m = countTests(statuses({ Passed: 2, Failed: 1, Blocked: 1, Pending: 1, "In Progress": 1 }));
+  assert.equal(m.passed + m.failed + m.blocked + m.remaining, m.total);
+  assert.equal(m.executed, 3);
+  assert.equal(m.executionPct, 50);
+  assert.equal(countTests([]).executionPct, 0);
+});
+
+run("regression: In Progress and Pending are reported exactly as stored, never merged or swapped", () => {
+  const p = project("ip");
+  const data = baseDataStore();
+  data.projects = [p];
+  data.test_cases = [testCase(p.id, "TST-1", "Passed"), testCase(p.id, "TST-2", "In Progress"), testCase(p.id, "TST-3", "In Progress"), testCase(p.id, "TST-4", "Pending")];
+  const email = buildTestStatusEmail(data, p, now);
+  assert.match(email.text, /Remaining: 3 \(2 in progress, 1 pending\)/);
+  assert.match(email.html, /◐ In Progress<\/span>/);
+  assert.match(email.html, /○ Pending<\/span>/);
+  const print = buildTestStatusEmail(data, p, now, { variant: "print" });
+  assert.match(print.text, /In Progress: 2\n/);
+  assert.match(print.text, /Pending: 1\n/);
+  data.test_cases = [testCase(p.id, "TST-5", "Pending"), testCase(p.id, "TST-6", "Pending")];
+  const pendingOnly = buildTestStatusEmail(data, p, now);
+  assert.match(pendingOnly.text, /Remaining: 2 \(0 in progress, 2 pending\)/);
+  assert.match(pendingOnly.text, /2 tests remain to be executed\./);
+  assert.doesNotMatch(pendingOnly.text, /\(\d+ in progress\)\./, "no in-progress claim when nothing is in progress");
+});
+
+run("areaPosition: failure/block take precedence; Complete only when all passed", () => {
+  const pos = (spec) => areaPosition(countTests(statuses(spec)));
+  assert.equal(pos({ Passed: 3 }), "Complete");
+  assert.equal(pos({ Passed: 2, Pending: 1 }), "Testing");
+  assert.equal(pos({ Passed: 2, "In Progress": 1 }), "Testing");
+  assert.equal(pos({ "In Progress": 1, Pending: 1 }), "In Progress");
+  assert.equal(pos({ Pending: 2 }), "Pending");
+  assert.equal(pos({ Passed: 5, Failed: 1 }), "Failed");
+  assert.equal(pos({ Passed: 5, Blocked: 1 }), "Blocked");
+  assert.equal(pos({ Failed: 1, Blocked: 1 }), "Failed");
+  assert.equal(pos({}), "Pending");
+});
+
+run("summariseAreas: one area per requirement with tests, using stored titles, plus unlinked", () => {
+  const f = fixture();
+  const v = computeTestVerification(f.data);
+  const areas = summariseAreas(groupTestsByRequirement(f.data.requirements, f.data.test_cases, v));
+  assert.deepEqual(areas.map((a) => [a.ref, a.title, a.counts.passed, a.counts.total, a.position]), [
+    ["REQ-001", "First requirement", 0, 3, "Failed"],
+    ["REQ-002", "Second requirement", 1, 3, "Blocked"],
+    [null, "Not linked to a requirement", 0, 1, "Pending"],
+  ]);
+  // Agrees with the canonical verification tallies for every requirement area.
+  for (const a of areas.filter((x) => x.ref)) {
+    const req = f.data.requirements.find((r) => r.requirement_ref === a.ref);
+    assert.equal(a.counts.passed, v.byRequirement[req.id].passed);
+    assert.equal(a.counts.total, v.byRequirement[req.id].testCount);
+  }
+});
+
+run("testPositionMessage: factual, no subjective claims", () => {
+  const msg = (spec) => testPositionMessage(countTests(statuses(spec)));
+  assert.equal(msg({ Passed: 38, "In Progress": 15 }), "No failures or blockers. 15 tests remain to be executed (15 in progress).");
+  assert.equal(msg({ Passed: 1, Pending: 1 }), "No failures or blockers. 1 test remains to be executed.");
+  assert.equal(msg({ Passed: 4 }), "No failures or blockers. All 4 tests have passed.");
+  assert.equal(msg({ Passed: 1, Failed: 2, Blocked: 1 }), "2 tests failed and 1 is blocked. See attention items below.");
+  assert.equal(msg({ Blocked: 2, Pending: 1 }), "2 tests are blocked. 1 test remains to be executed. See attention items below.");
+  assert.equal(msg({ Failed: 1 }), "1 test failed. See attention items below.");
+  assert.equal(msg({}), "No test cases recorded for this project.");
+  for (const spec of [{ Passed: 1 }, { Pending: 1 }, { Failed: 1 }]) assert.doesNotMatch(msg(spec), /on track|at risk|good|healthy/i);
+});
+
+run("email: headline, three secondary metrics, area table and remaining-by-area come from live counts", () => {
+  const f = fixture();
+  const c = buildTestStatusEmail(f.data, f.p, now);
+  assert.match(c.html, /<span style="color:#15803d">1<\/span> of 6 tests passed/);
+  assert.match(c.html, /33% executed/, "executed = Passed 1 + Failed 1 of 6");
+  const metrics = [...c.html.matchAll(/font-size:20px;line-height:24px;font-weight:700;color:(#[0-9a-f]+)">(\d+)<\/div><div[^>]*>(\w+)<\/div>/g)].map((m) => [m[3], Number(m[2]), m[1]]);
+  assert.deepEqual(metrics, [["Remaining", 3, "#0f172a"], ["Failed", 1, "#b91c1c"], ["Blocked", 1, "#b91c1c"]]);
+  assert.match(c.text, /REQ-001 First requirement — 0\/3 passed — Failed/);
+  assert.match(c.text, /Remaining testing:\n- REQ-001 First requirement: 1\n- REQ-002 Second requirement: 1\n- Not linked to a requirement: 1/);
+  assert.match(c.html, /1 failed · 1 blocked/, "failures/blockers shown clearly before remaining testing");
+  assert.match(c.text, /1 requirement has no linked tests/);
 });
 
 run("structural: the report builder contains no project-specific literals", () => {

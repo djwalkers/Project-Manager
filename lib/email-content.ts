@@ -10,7 +10,6 @@ import {
   isDependencyOpen,
   isRiskHighOrCritical,
   isRiskOpen,
-  isTestClosed,
   isTestPassed,
   summarizeVerificationStates,
   type VerificationState,
@@ -22,7 +21,7 @@ import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildProjectState, type ProjectState } from "@/lib/project-state";
 import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
-import { groupTestsByRequirement, parseTestScenario, splitSteps } from "@/lib/test-report-format";
+import { countTests, groupTestsByRequirement, parseTestScenario, splitSteps, summariseAreas, testPositionMessage, type AreaPosition, type AreaSummary } from "@/lib/test-report-format";
 
 export type EmailContent = { subject: string; html: string; text: string };
 
@@ -424,7 +423,7 @@ body{margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,Helvetica,sans-
 table{border-collapse:collapse}
 .nw{white-space:nowrap}
 .wrap{overflow-wrap:anywhere;word-break:normal}
-@media (max-width:620px){.sheet{padding:18px 16px!important}.kpi td{display:inline-block!important;width:25%!important;box-sizing:border-box;margin-bottom:8px}.kpi .nw{white-space:normal!important}.vs td{display:inline-block!important;width:33%!important;box-sizing:border-box;margin-bottom:8px}.c-ac{display:none!important}.ac-m{display:block!important}.c-ref{width:58px!important}.c-st{width:84px!important}}
+@media (max-width:620px){.sheet{padding:18px 16px!important}.kpi td{display:inline-block!important;width:25%!important;box-sizing:border-box;margin-bottom:8px}.kpi .nw{white-space:normal!important}.vs td{display:inline-block!important;width:33%!important;box-sizing:border-box;margin-bottom:8px}.c-ac{display:none!important}.ac-m{display:block!important}.c-ref{width:58px!important}.c-st{width:84px!important}.pos>tbody>tr>td{display:block!important}.pos td.pos-m{padding-top:8px}.pos td.pos-m table{float:none!important}.pos td.pos-m td{padding:0 18px 0 0!important;text-align:left!important}.area-ref{display:block!important;margin:0 0 1px!important}.hide-m{display:none!important}}
 @page{size:A4;margin:14mm 12mm}
 @media print{
   body{background:#fff!important}
@@ -468,16 +467,29 @@ function currentPhaseName(timeline: { phase_name: string; status: string; start_
 
 export type TestStatusReportOptions = {
   /**
-   * Append the Detailed Test Procedures appendix (objective, steps and
-   * recorded result per test). Off by default so the emailed report — and
-   * the preview of it — stays concise; the Print / PDF view turns it on.
-   * The main report is rendered identically either way.
+   * "email" (default) — the concise management presentation that is sent
+   * and previewed: test position, status message, testing by area,
+   * attention & remaining, then the grouped Full Test Status.
+   * "print" — the comprehensive Print / PDF report: executive summary,
+   * requirement verification, exceptions & attention, Full Test Status and
+   * the Detailed Test Procedures appendix.
+   * Both are rendered from the same report model (counts, grouping, areas).
    */
-  includeProcedures?: boolean;
+  variant?: "email" | "print";
+};
+
+const AREA_POSITION_COLOR: Record<AreaPosition, string> = {
+  Complete: "#15803d",
+  Testing: "#b45309",
+  "In Progress": "#1d4ed8",
+  Pending: "#475569",
+  Failed: "#b91c1c",
+  Blocked: "#b91c1c",
 };
 
 export function buildTestStatusEmail(data: DataStore, project: Project, now = new Date(), options: TestStatusReportOptions = {}): EmailContent {
-  const includeProcedures = options.includeProcedures === true;
+  const variant = options.variant ?? "email";
+  const includeProcedures = variant === "print";
   const scoped = scopeProjectData(data, project);
   const tests = [...scoped.test_cases].sort((a, b) => REF_COLLATOR.compare(a.test_ref, b.test_ref));
   const verification = computeTestVerification(scoped);
@@ -489,17 +501,12 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
   const titleOf = (t: TestCase) => parsed.get(t.id)?.title ?? "—";
   const phaseName = currentPhaseName(scoped.timeline_items ?? []);
 
-  const total = tests.length;
-  const passed = tests.filter((t) => isTestPassed(t.status)).length;
-  const failed = tests.filter((t) => t.status === "Failed").length;
-  const blocked = tests.filter((t) => t.status === "Blocked").length;
-  const pending = tests.filter((t) => t.status === "Pending").length;
-  const inProgress = tests.filter((t) => t.status === "In Progress").length;
-  // Executed = Passed + Failed (lib/lifecycle/test-case.ts's existing
-  // RESOLVED_TEST_STATUSES/isTestClosed) — Pending, In Progress and Blocked
-  // are all still open, not a successfully-executed outcome either way.
-  const executed = tests.filter((t) => isTestClosed(t.status)).length;
-  const executionPct = total > 0 ? Math.round((executed / total) * 100) : 0;
+  // One set of counts for both presentations. Executed = Passed + Failed
+  // (lib/lifecycle/test-case.ts's RESOLVED_TEST_STATUSES/isTestClosed) —
+  // Pending, In Progress and Blocked are all still open.
+  const counts = countTests(tests);
+  const { total, passed, failed, blocked, pending, inProgress, executed, executionPct } = counts;
+  const areas = summariseAreas(grouped);
 
   const requirementCount = scoped.requirements.length;
   const exceptions = tests.filter((t) => t.status === "Failed" || t.status === "Blocked");
@@ -627,8 +634,55 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
 
   const footer = `<footer style="margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">Project Manager · Test Status Report · Generated ${escapeHtml(generated)}</footer>`;
 
+  // ── Email-only presentation blocks ──────────────────────────────────────
+  const emailHeader = `<header style="padding-bottom:10px;border-bottom:1px solid #cbd5e1"><table role="presentation" width="100%"><tr>
+    <td style="vertical-align:bottom">
+      ${project.project_ref ? `<div class="nw" style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#2563eb;white-space:nowrap">${escapeHtml(project.project_ref)}</div>` : ""}
+      <div style="font-size:17px;line-height:22px;font-weight:700;color:#0f172a">${escapeHtml(project.name)}</div>
+      <div style="margin-top:3px;font-size:13px;color:#64748b"><strong style="color:#334155">Test Status</strong>${[phaseName, ...metaParts].filter(Boolean).map((part) => ` · ${escapeHtml(part)}`).join("")}</div>
+    </td>
+    <td class="nw hide-m" style="vertical-align:bottom;text-align:right;white-space:nowrap;font-size:10px;color:#94a3b8">Generated ${escapeHtml(generated)}</td>
+  </tr></table></header>`;
+
+  const metric = (value: number, label: string, alert: boolean) => `<td style="padding:0 0 0 18px;vertical-align:bottom;text-align:right"><div style="font-size:20px;line-height:24px;font-weight:700;color:${alert && value > 0 ? "#b91c1c" : "#0f172a"}">${value}</div><div class="nw" style="font-size:11px;color:#64748b;white-space:nowrap">${escapeHtml(label)}</div></td>`;
+  const barSegments = ([
+    [passed, TEST_STATUS_STYLE.Passed.color, "Passed"],
+    [failed, TEST_STATUS_STYLE.Failed.color, "Failed"],
+    [blocked, "#7f1d1d", "Blocked"],
+    [counts.remaining, "#cbd5e1", "Remaining"],
+  ] as const).filter(([n]) => n > 0)
+    .map(([n, color, label]) => `<td title="${label}" style="width:${(n / Math.max(total, 1)) * 100}%;height:6px;padding:0;background:${color};border-right:2px solid #fff"></td>`).join("");
+  const positionHtml = total > 0
+    ? `<div class="keep"><table role="presentation" class="pos" width="100%"><tr>
+        <td style="vertical-align:bottom"><div style="font-size:24px;line-height:30px;font-weight:700;color:#0f172a"><span style="color:${passed ? TEST_STATUS_STYLE.Passed.color : "#0f172a"}">${passed}</span> of ${total} tests passed</div><div style="font-size:14px;color:#475569">${executionPct}% executed</div></td>
+        <td class="pos-m" style="vertical-align:bottom"><table role="presentation" align="right"><tr>${metric(counts.remaining, "Remaining", false)}${metric(failed, "Failed", true)}${metric(blocked, "Blocked", true)}</tr></table></td>
+      </tr></table>
+      <table role="presentation" class="bar" width="100%" style="table-layout:fixed;margin-top:10px"><tr>${barSegments}</tr></table>
+      <p style="margin:10px 0 0;font-size:14px;color:#1e293b">${escapeHtml(testPositionMessage(counts))}</p></div>`
+    : `<p style="margin:0;font-size:14px;color:#64748b">${escapeHtml(testPositionMessage(counts))}</p>`;
+
+  const areaRows = areas.map((a) => `<tr>
+      <td style="padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:13px;color:#0f172a;overflow-wrap:break-word">${a.ref ? `<span class="nw area-ref" style="white-space:nowrap;font-size:11px;font-weight:700;color:#2563eb;margin-right:6px">${escapeHtml(a.ref)}</span>` : ""}${escapeHtml(a.title)}</td>
+      <td class="nw" style="width:70px;padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;text-align:right;white-space:nowrap;font-size:13px;color:#334155">${a.counts.passed} / ${a.counts.total}</td>
+      <td class="nw" style="width:86px;padding:6px 0;border-top:1px solid #f1f5f9;vertical-align:top;white-space:nowrap;font-size:12px;font-weight:700;color:${AREA_POSITION_COLOR[a.position]}">${escapeHtml(a.position)}</td>
+    </tr>`).join("");
+  const areasHtml = areas.length
+    ? `<table role="presentation" width="100%" style="table-layout:fixed"><tr style="text-align:left"><th style="padding:0 10px 4px 0;font-size:11px;font-weight:700;color:#64748b">Area</th><th class="nw" style="width:70px;padding:0 10px 4px 0;font-size:11px;font-weight:700;color:#64748b;text-align:right;white-space:nowrap">Passed</th><th style="width:86px;padding:0 0 4px;font-size:11px;font-weight:700;color:#64748b">Position</th></tr>${areaRows}</table>${grouped.untestedRequirements.length ? `<div style="margin-top:6px;font-size:11px;color:#64748b">${grouped.untestedRequirements.length} ${grouped.untestedRequirements.length === 1 ? "requirement has" : "requirements have"} no linked tests.</div>` : ""}`
+    : `<p style="margin:0;color:#64748b;font-size:13px">${total > 0 ? "No tests are linked to requirements." : "No test cases recorded for this project."}</p>`;
+
+  const remainingAreas = areas.filter((a) => a.counts.remaining > 0);
+  const areaLabel = (a: AreaSummary) => a.ref ? `${a.ref} ${a.title}` : a.title;
+  const remainingDetail = (a: AreaSummary) => String(a.counts.remaining);
+  const attentionHtml = (exceptions.length > 0 ? exceptionsCore : `<p style="margin:0;font-size:14px;color:#15803d"><strong>✓</strong> No failures or blockers.</p>`)
+    + (remainingAreas.length
+      ? `<div style="margin-top:12px;font-size:13px;color:#334155"><strong>Remaining testing:</strong></div><table role="presentation" width="100%" style="margin-top:4px">${remainingAreas.map((a) => `<tr><td style="padding:2px 10px 2px 0;font-size:13px;color:#334155;overflow-wrap:break-word">${a.ref ? `<span class="nw area-ref" style="white-space:nowrap;font-size:11px;font-weight:700;color:#2563eb;margin-right:6px">${escapeHtml(a.ref)}</span>` : ""}${escapeHtml(a.title)}</td><td class="nw" style="padding:2px 0;text-align:right;white-space:nowrap;font-size:13px;font-weight:700;color:#0f172a">${escapeHtml(remainingDetail(a))}</td></tr>`).join("")}</table>`
+      : "");
+
   const docTitle = `${project.project_ref ?? project.name} Test Status Report`;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(docTitle)}</title><style>${REPORT_CSS}</style></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,Helvetica,sans-serif"><div class="page" style="max-width:780px;margin:0 auto;padding:24px 12px"><div class="sheet" style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:28px 32px">${header}${reportSection("Executive Test Summary", summaryHtml, "keep")}${reportSection("Requirement Verification Summary", verificationHtml)}${reportSection("Exceptions & Attention", exceptionsHtml)}${reportSection("Full Test Status", fullStatusHtml)}${appendixHtml}${footer}</div></div></body></html>`;
+  const body = variant === "print"
+    ? `${header}${reportSection("Executive Test Summary", summaryHtml, "keep")}${reportSection("Requirement Verification Summary", verificationHtml)}${reportSection("Exceptions & Attention", exceptionsHtml)}${reportSection("Full Test Status", fullStatusHtml)}${appendixHtml}${footer}`
+    : `${emailHeader}${reportSection("Test Position", positionHtml)}${reportSection("Testing by Area", areasHtml)}${reportSection("Attention & Remaining", attentionHtml)}${reportSection("Full Test Status", fullStatusHtml)}${footer}`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(docTitle)}</title><style>${REPORT_CSS}</style></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,Helvetica,sans-serif"><div class="page" style="max-width:780px;margin:0 auto;padding:24px 12px"><div class="sheet" style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:${variant === "print" ? "28px 32px" : "22px 28px"}">${body}</div></div></body></html>`;
 
   // ── Plain text ─────────────────────────────────────────────────────────
   const acText = (refs: string[]) => refs.length ? refs.map((ref) => `${ref}: ${acTitles.get(ref) ?? ref}`).join("; ") : "—";
@@ -638,10 +692,9 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     ? `${verificationStates.map((state) => `${state}: ${stateSummary[state]}`).join("\n")}\n(${stateSummary.Verified} of ${requirementCount} requirements verified)`
     : "No requirements recorded for this project.";
 
+  const exceptionLinesText = exceptions.map((t) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — Requirement: ${reqText(reqRefsFor(t))} — AC: ${acText(acRefsFor(t))} — Reason: ${t.actual_result?.trim() || "No result or reason recorded."}`).join("\n");
   const exceptionsText = [
-    exceptions.length > 0
-      ? exceptions.map((t) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — Requirement: ${reqText(reqRefsFor(t))} — AC: ${acText(acRefsFor(t))} — Reason: ${t.actual_result?.trim() || "No result or reason recorded."}`).join("\n")
-      : "No failed or blocked tests.",
+    exceptions.length > 0 ? exceptionLinesText : "No failed or blocked tests.",
     openTotal > 0 ? `Awaiting execution: ${openTotal} ${openTotal === 1 ? "test is" : "tests are"} pending or in progress${openAreas.length ? ` — ${openAreas.join(", ")}` : ""}. These are open, not defects.` : "",
   ].filter(Boolean).join("\n");
 
@@ -666,20 +719,39 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 
-  const text = [
-    `${project.project_ref ?? project.name} — TEST STATUS REPORT`,
-    project.project_ref ? project.name : "",
-    [...metaParts, phaseName ? `Current phase: ${phaseName}` : ""].filter(Boolean).join(" · "),
-    `Generated ${generated}`,
-    `${"=".repeat(60)}`,
-    `EXECUTIVE TEST SUMMARY`,
-    `Total: ${total}\nExecuted: ${executed} (${executionPct}%)\nPassed: ${passed}\nFailed: ${failed}\nBlocked: ${blocked}\nIn Progress: ${inProgress}\nPending: ${pending}`,
-    `REQUIREMENT VERIFICATION SUMMARY\n${verificationText}`,
-    `EXCEPTIONS & ATTENTION\n${exceptionsText}`,
-    `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
-    includeProcedures && total > 0 ? `APPENDIX — DETAILED TEST PROCEDURES\n${proceduresText}` : "",
-    `Project Manager · Test Status Report · Generated ${generated}`,
-  ].filter(Boolean).join("\n\n");
+  const text = variant === "print"
+    ? [
+      `${project.project_ref ?? project.name} — TEST STATUS REPORT`,
+      project.project_ref ? project.name : "",
+      [...metaParts, phaseName ? `Current phase: ${phaseName}` : ""].filter(Boolean).join(" · "),
+      `Generated ${generated}`,
+      `${"=".repeat(60)}`,
+      `EXECUTIVE TEST SUMMARY`,
+      `Total: ${total}\nExecuted: ${executed} (${executionPct}%)\nPassed: ${passed}\nFailed: ${failed}\nBlocked: ${blocked}\nIn Progress: ${inProgress}\nPending: ${pending}`,
+      `REQUIREMENT VERIFICATION SUMMARY\n${verificationText}`,
+      `EXCEPTIONS & ATTENTION\n${exceptionsText}`,
+      `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
+      total > 0 ? `APPENDIX — DETAILED TEST PROCEDURES\n${proceduresText}` : "",
+      `Project Manager · Test Status Report · Generated ${generated}`,
+    ].filter(Boolean).join("\n\n")
+    : [
+      `${project.project_ref ?? project.name} — TEST STATUS`,
+      project.project_ref ? project.name : "",
+      ["Test Status", phaseName, ...metaParts].filter(Boolean).join(" · "),
+      `Generated ${generated}`,
+      `${"=".repeat(60)}`,
+      `TEST POSITION`,
+      total > 0
+        ? `${passed} of ${total} tests passed · ${executionPct}% executed\nRemaining: ${counts.remaining} (${inProgress} in progress, ${pending} pending) · Failed: ${failed} · Blocked: ${blocked}\n${testPositionMessage(counts)}`
+        : testPositionMessage(counts),
+      `TESTING BY AREA\n${areas.length ? areas.map((a) => `${areaLabel(a)} — ${a.counts.passed}/${a.counts.total} passed — ${a.position}`).join("\n") : "No tests are linked to requirements."}${grouped.untestedRequirements.length ? `\n(${grouped.untestedRequirements.length} ${grouped.untestedRequirements.length === 1 ? "requirement has" : "requirements have"} no linked tests.)` : ""}`,
+      `ATTENTION & REMAINING\n${[
+        exceptions.length > 0 ? exceptionLinesText : "No failures or blockers.",
+        remainingAreas.length ? `Remaining testing:\n${remainingAreas.map((a) => `- ${areaLabel(a)}: ${remainingDetail(a)}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n")}`,
+      `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
+      `Project Manager · Test Status Report · Generated ${generated}`,
+    ].filter(Boolean).join("\n\n");
 
   return {
     subject: `[${project.project_ref || project.name}] Test Status - ${subjectDate(now)}`,

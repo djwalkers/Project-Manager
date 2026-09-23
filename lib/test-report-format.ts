@@ -1,3 +1,4 @@
+import { isTestClosed, isTestPassed } from "@/lib/lifecycle/test-case";
 import { REF_COLLATOR } from "@/lib/ref-sort";
 import type { RequirementVerification, TestVerificationResult, VerificationState } from "@/lib/lifecycle/test-verification";
 import type { TestCase } from "@/lib/types";
@@ -158,4 +159,101 @@ export function groupTestsByRequirement(
     .sort((a, b) => REF_COLLATOR.compare(a.test_ref, b.test_ref));
 
   return { groups, untestedRequirements, unlinkedTests, requirementRefsByTest };
+}
+
+// ── Test position (shared by the email and print presentations) ────────────
+
+export type TestCounts = {
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  inProgress: number;
+  pending: number;
+  /** Not yet executed and not blocked: Pending + In Progress. */
+  remaining: number;
+  /** Passed + Failed (lib/lifecycle/test-case.ts RESOLVED_TEST_STATUSES). */
+  executed: number;
+  executionPct: number;
+};
+
+/**
+ * Counts tests by their stored status. Executed follows the canonical
+ * isTestClosed() rule (Passed + Failed); total = passed + failed + blocked +
+ * remaining, so every test is counted exactly once.
+ */
+export function countTests(tests: { status: string }[]): TestCounts {
+  const total = tests.length;
+  const passed = tests.filter((t) => isTestPassed(t.status)).length;
+  const failed = tests.filter((t) => t.status === "Failed").length;
+  const blocked = tests.filter((t) => t.status === "Blocked").length;
+  const inProgress = tests.filter((t) => t.status === "In Progress").length;
+  const pending = tests.filter((t) => t.status === "Pending").length;
+  const executed = tests.filter((t) => isTestClosed(t.status)).length;
+  return {
+    total, passed, failed, blocked, inProgress, pending,
+    remaining: total - executed - blocked,
+    executed,
+    executionPct: total > 0 ? Math.round((executed / total) * 100) : 0,
+  };
+}
+
+export type AreaPosition = "Complete" | "Testing" | "In Progress" | "Pending" | "Failed" | "Blocked";
+
+/**
+ * Presentation-only position for a set of tests. Complete only when every
+ * test has passed; a failure or block always takes precedence.
+ */
+export function areaPosition(c: TestCounts): AreaPosition {
+  if (c.failed > 0) return "Failed";
+  if (c.blocked > 0) return "Blocked";
+  if (c.total > 0 && c.passed === c.total) return "Complete";
+  if (c.passed > 0) return "Testing";
+  if (c.inProgress > 0) return "In Progress";
+  return "Pending";
+}
+
+export type AreaSummary = {
+  /** Requirement ref, or null for tests not linked to any requirement. */
+  ref: string | null;
+  title: string;
+  counts: TestCounts;
+  position: AreaPosition;
+};
+
+/**
+ * One area per requirement that has linked tests (in requirement-ref
+ * order), plus a final "Not linked to a requirement" area when needed.
+ * Areas are the project's own requirements — nothing is merged or renamed.
+ */
+export function summariseAreas(grouped: GroupedTestReport): AreaSummary[] {
+  const areas: AreaSummary[] = grouped.groups.map((g) => {
+    const counts = countTests(g.rows.map((r) => r.test));
+    return { ref: g.requirementRef, title: g.requirementTitle, counts, position: areaPosition(counts) };
+  });
+  if (grouped.unlinkedTests.length > 0) {
+    const counts = countTests(grouped.unlinkedTests);
+    areas.push({ ref: null, title: "Not linked to a requirement", counts, position: areaPosition(counts) });
+  }
+  return areas;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Factual one-line status statement built only from the counts. */
+export function testPositionMessage(c: TestCounts): string {
+  if (c.total === 0) return "No test cases recorded for this project.";
+  const remainingSentence = c.remaining > 0
+    ? `${plural(c.remaining, "test remains", "tests remain")} to be executed${c.inProgress > 0 ? ` (${c.inProgress} in progress)` : ""}.`
+    : "";
+  if (c.failed > 0 || c.blocked > 0) {
+    const parts: string[] = [];
+    if (c.failed > 0) parts.push(`${plural(c.failed, "test", "tests")} failed`);
+    if (c.blocked > 0) parts.push(c.failed > 0 ? `${c.blocked} ${c.blocked === 1 ? "is" : "are"} blocked` : `${plural(c.blocked, "test is", "tests are")} blocked`);
+    return [`${parts.join(" and ")}.`, remainingSentence, "See attention items below."].filter(Boolean).join(" ");
+  }
+  if (c.remaining > 0) return `No failures or blockers. ${remainingSentence}`;
+  return `No failures or blockers. All ${plural(c.total, "test has", "tests have")} passed.`;
 }

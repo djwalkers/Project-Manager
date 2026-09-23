@@ -40,7 +40,7 @@ run("structural: Print / PDF opens the same built report HTML standalone and nev
   assert.match(panel, /Print \/ PDF/);
   const fn = panel.slice(panel.indexOf("function openPrintableReport"), panel.indexOf("async function sendNow"));
   assert.match(fn, /new Blob\(\[printContent\.html\]/, "must print the full canonical report (with procedures), not the appendix-free email DOM");
-  assert.match(panel, /buildTestStatusEmail\(data, project, generatedAt, \{ includeProcedures: true \}\)/, "the print variant comes from the same canonical builder");
+  assert.match(panel, /buildTestStatusEmail\(data, project, generatedAt, \{ variant: "print" \}\)/, "the print variant comes from the same canonical builder");
   assert.doesNotMatch(fn, /fetch\(/, "printing must never trigger a send");
 });
 
