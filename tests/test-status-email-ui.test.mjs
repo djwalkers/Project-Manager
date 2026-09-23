@@ -36,6 +36,14 @@ run("structural: the panel builds the preview via the canonical buildTestStatusE
   assert.match(panel, /import\s*\{[^}]*buildTestStatusEmail[^}]*\}\s*from\s*"@\/lib\/email-content"/);
 });
 
+run("structural: Print / PDF opens the same built report HTML standalone and never sends", () => {
+  assert.match(panel, /Print \/ PDF/);
+  const fn = panel.slice(panel.indexOf("function openPrintableReport"), panel.indexOf("async function sendNow"));
+  assert.match(fn, /new Blob\(\[printContent\.html\]/, "must print the full canonical report (with procedures), not the appendix-free email DOM");
+  assert.match(panel, /buildTestStatusEmail\(data, project, generatedAt, \{ includeProcedures: true \}\)/, "the print variant comes from the same canonical builder");
+  assert.doesNotMatch(fn, /fetch\(/, "printing must never trigger a send");
+});
+
 run("structural: opening the preview never itself calls fetch/send — no useEffect triggers sendNow on mount", () => {
   // The only fetch() in this file must be inside the sendNow-style
   // function, never inside a useEffect (which would run on open/mount).

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Code2, Eye, FileText, Loader2, Mail, Send, X, XCircle } from "lucide-react";
+import { CheckCircle2, Code2, Eye, FileText, Loader2, Mail, Printer, Send, X, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,13 +42,27 @@ function TestStatusPreviewModal({
   // function the server calls at send time (lib/email-content.ts's
   // buildTestStatusEmail), so the preview can never drift from what
   // actually gets sent. Opening this modal never sends anything itself.
-  const content = useMemo(() => buildTestStatusEmail(data, project, new Date()), [data, project]);
+  // The preview is the email exactly as sent (no procedures appendix). The
+  // Print / PDF view is the same builder and the same generation time with
+  // includeProcedures: true — one canonical report, two render variants.
+  const [generatedAt] = useState(() => new Date());
+  const content = useMemo(() => buildTestStatusEmail(data, project, generatedAt), [data, project, generatedAt]);
+  const printContent = useMemo(() => buildTestStatusEmail(data, project, generatedAt, { includeProcedures: true }), [data, project, generatedAt]);
 
   const tabs: { value: PreviewMode; label: string; icon: typeof Eye }[] = [
     { value: "rendered", label: "Rendered", icon: Eye },
     { value: "html", label: "HTML", icon: Code2 },
     { value: "plain", label: "Plain text", icon: FileText },
   ];
+
+  // Opens the FULL report (main report + Detailed Test Procedures appendix)
+  // as its own standalone page so it can be printed / saved as PDF without
+  // any application chrome. Display only — sends nothing.
+  function openPrintableReport() {
+    const url = URL.createObjectURL(new Blob([printContent.html], { type: "text/html" }));
+    window.open(url, "_blank", "noopener");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
 
   async function sendNow() {
     if (sending || !validation.ok) return; // double-send guard + never send with an unvalidated/invalid recipient list
@@ -123,6 +137,10 @@ function TestStatusPreviewModal({
               </Button>
             );
           })}
+          <Button size="sm" variant="outline" className="ml-auto" onClick={openPrintableReport} title="Open the full report, including detailed test procedures, on its own page to print or save as PDF">
+            <Printer className="h-4 w-4" aria-hidden="true" />
+            Print / PDF
+          </Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto bg-muted/40 p-3 sm:p-5">

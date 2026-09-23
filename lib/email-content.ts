@@ -13,8 +13,7 @@ import {
   isTestClosed,
   isTestPassed,
   summarizeVerificationStates,
-  type RequirementVerification,
-  type TestVerificationResult,
+  type VerificationState,
 } from "@/lib/lifecycle";
 import { REF_COLLATOR } from "@/lib/ref-sort";
 import type { AuditLog, Project, TestCase } from "@/lib/types";
@@ -23,6 +22,7 @@ import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildProjectState, type ProjectState } from "@/lib/project-state";
 import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
+import { groupTestsByRequirement, parseTestScenario, splitSteps } from "@/lib/test-report-format";
 
 export type EmailContent = { subject: string; html: string; text: string };
 
@@ -394,64 +394,100 @@ function subjectDateTime(date: Date) {
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Europe/London" }).format(date);
 }
 
-const TEST_STATUS_COLOR: Record<string, string> = {
-  Passed: "#16a34a",
-  Failed: "#dc2626",
-  Blocked: "#d97706",
-  Pending: "#64748b",
-  "In Progress": "#2563eb",
-};
-
-function testStatusBadge(status: string) {
-  const c = TEST_STATUS_COLOR[status] ?? "#64748b";
-  return `<span style="color:${c};font-weight:700">${escapeHtml(status)}</span>`;
+function reportLongDate(date: Date) {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" }).format(date);
 }
 
-const VERIFICATION_COLOR: Record<string, string> = {
-  Verified: "#16a34a",
-  Testing: "#d97706",
-  "Test Failure": "#dc2626",
-  "Testing Blocked": "#dc2626",
+// Semantic status colours — darker shades than the app's -500 palette so
+// they stay legible on white paper and in greyscale print. Every badge also
+// carries its status word (and a symbol), so colour is never the only cue.
+const TEST_STATUS_STYLE: Record<string, { color: string; symbol: string }> = {
+  Passed: { color: "#15803d", symbol: "✓" },
+  Failed: { color: "#b91c1c", symbol: "✕" },
+  Blocked: { color: "#b91c1c", symbol: "■" },
+  "In Progress": { color: "#1d4ed8", symbol: "◐" },
+  Pending: { color: "#475569", symbol: "○" },
+};
+
+const VERIFICATION_STYLE: Record<VerificationState, string> = {
+  Verified: "#15803d",
+  Testing: "#b45309",
+  "Test Failure": "#b91c1c",
+  "Testing Blocked": "#b91c1c",
   "No Tests Linked": "#64748b",
 };
 
-type TestTrace = { requirementRef: string; requirementTitle: string; acRefs: string[] };
+const VERIFICATION_DISPLAY_ORDER: VerificationState[] = ["Verified", "Testing", "Test Failure", "Testing Blocked", "No Tests Linked"];
 
-// One row per (test, requirement) it is linked under — a test linked to
-// ACs/requirements from more than one requirement gets one entry per
-// requirement here, each carrying only that requirement's own AC refs.
-// Built directly from the canonical verification's own per-requirement
-// `tests` lists (already de-duplicated by test id), so this never
-// re-derives which tests are linked — only re-indexes that same output by
-// test id for a per-test display.
-function buildTestTraceIndex(
-  requirements: { id: string; requirement_ref: string; title: string }[],
-  verification: TestVerificationResult,
-): Map<string, TestTrace[]> {
-  const index = new Map<string, TestTrace[]>();
-  for (const req of requirements) {
-    const rv: RequirementVerification | undefined = verification.byRequirement[req.id];
-    if (!rv) continue;
-    for (const t of rv.tests) {
-      const list = index.get(t.testId) ?? [];
-      list.push({ requirementRef: req.requirement_ref, requirementTitle: req.title, acRefs: t.acceptanceCriteriaRefs });
-      index.set(t.testId, list);
-    }
-  }
-  return index;
+const REPORT_CSS = `
+body{margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%}
+table{border-collapse:collapse}
+.nw{white-space:nowrap}
+.wrap{overflow-wrap:anywhere;word-break:normal}
+@media (max-width:620px){.sheet{padding:18px 16px!important}.kpi td{display:inline-block!important;width:25%!important;box-sizing:border-box;margin-bottom:8px}.kpi .nw{white-space:normal!important}.vs td{display:inline-block!important;width:33%!important;box-sizing:border-box;margin-bottom:8px}.c-ac{display:none!important}.ac-m{display:block!important}.c-ref{width:58px!important}.c-st{width:84px!important}}
+@page{size:A4;margin:14mm 12mm}
+@media print{
+  body{background:#fff!important}
+  .page{max-width:none!important;padding:0!important}
+  .sheet{border:0!important;padding:0!important}
+  .keep,.proc,tr,.kpi,.vs,.exc{break-inside:avoid;page-break-inside:avoid}
+  .rh,.gh{break-after:avoid;page-break-after:avoid}
+  thead{display:table-header-group}
+  .appendix{break-before:page;page-break-before:always}
+  .badge,.bar td,.exc{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}`;
+
+function statusBadge(status: string) {
+  const s = TEST_STATUS_STYLE[status] ?? { color: "#475569", symbol: "•" };
+  return `<span class="badge nw" style="display:inline-block;white-space:nowrap;padding:1px 8px;border:1px solid ${s.color};border-radius:10px;color:${s.color};font-size:11px;font-weight:700;line-height:16px">${s.symbol} ${escapeHtml(status)}</span>`;
 }
 
-function acTitleLookup(acceptanceCriteria: { ac_ref: string; criterion: string }[]): Map<string, string> {
-  return new Map(acceptanceCriteria.map((ac) => [ac.ac_ref, ac.criterion]));
+function refHtml(ref: string, weight = 600) {
+  return `<span class="nw" style="white-space:nowrap;font-weight:${weight}">${escapeHtml(ref)}</span>`;
 }
 
-export function buildTestStatusEmail(data: DataStore, project: Project, now = new Date()): EmailContent {
+function refListHtml(refs: string[]) {
+  return refs.length ? refs.map((r) => refHtml(r, 400)).join(", ") : `<span style="color:#94a3b8">—</span>`;
+}
+
+function reportSection(title: string, body: string, className = "") {
+  return `<section class="rs ${className}" style="margin-top:26px"><h2 class="rh" style="margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#334155">${escapeHtml(title)}</h2>${body}</section>`;
+}
+
+function kpiTile(label: string, value: string, accent: string, sub?: string) {
+  return `<td style="padding:0 6px 0 0;vertical-align:top"><div style="border-left:3px solid ${accent};padding:4px 0 4px 8px"><div class="nw" style="font-size:10px;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;color:#64748b;white-space:nowrap">${escapeHtml(label)}</div><div style="font-size:24px;line-height:30px;font-weight:700;color:${accent === "#cbd5e1" ? "#0f172a" : accent}">${escapeHtml(value)}</div>${sub ? `<div class="nw" style="font-size:11px;color:#64748b;white-space:nowrap">${escapeHtml(sub)}</div>` : `<div style="font-size:11px">&nbsp;</div>`}</div></td>`;
+}
+
+// Current timeline phase (e.g. "System Testing") as report context. Display
+// only — the earliest-starting In Progress timeline item, omitted entirely
+// when the project has none. Never inferred from free text.
+function currentPhaseName(timeline: { phase_name: string; status: string; start_date: string }[]): string | null {
+  const active = timeline.filter((t) => t.status === "In Progress" && t.phase_name?.trim()).sort((a, b) => a.start_date.localeCompare(b.start_date));
+  return active[0]?.phase_name.trim() ?? null;
+}
+
+export type TestStatusReportOptions = {
+  /**
+   * Append the Detailed Test Procedures appendix (objective, steps and
+   * recorded result per test). Off by default so the emailed report — and
+   * the preview of it — stays concise; the Print / PDF view turns it on.
+   * The main report is rendered identically either way.
+   */
+  includeProcedures?: boolean;
+};
+
+export function buildTestStatusEmail(data: DataStore, project: Project, now = new Date(), options: TestStatusReportOptions = {}): EmailContent {
+  const includeProcedures = options.includeProcedures === true;
   const scoped = scopeProjectData(data, project);
   const tests = [...scoped.test_cases].sort((a, b) => REF_COLLATOR.compare(a.test_ref, b.test_ref));
   const verification = computeTestVerification(scoped);
   const stateSummary = summarizeVerificationStates(verification);
-  const trace = buildTestTraceIndex(scoped.requirements, verification);
-  const acTitles = acTitleLookup(scoped.acceptance_criteria ?? []);
+  const grouped = groupTestsByRequirement(scoped.requirements, tests, verification);
+  const acTitles = new Map((scoped.acceptance_criteria ?? []).map((ac) => [ac.ac_ref, ac.criterion] as const));
+  const reqTitles = new Map(scoped.requirements.map((r) => [r.requirement_ref, r.title] as const));
+  const parsed = new Map(tests.map((t) => [t.id, parseTestScenario(t.scenario)] as const));
+  const titleOf = (t: TestCase) => parsed.get(t.id)?.title ?? "—";
+  const phaseName = currentPhaseName(scoped.timeline_items ?? []);
 
   const total = tests.length;
   const passed = tests.filter((t) => isTestPassed(t.status)).length;
@@ -465,91 +501,184 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
   const executed = tests.filter((t) => isTestClosed(t.status)).length;
   const executionPct = total > 0 ? Math.round((executed / total) * 100) : 0;
 
-  function traceFor(test: TestCase): { reqText: string; acText: string; reqRefsOnly: string; acRefsOnly: string } {
-    const entries = trace.get(test.id) ?? [];
-    if (!entries.length) return { reqText: "—", acText: "—", reqRefsOnly: "—", acRefsOnly: "—" };
-    const reqRefs = [...new Set(entries.map((e) => e.requirementRef))];
-    const acRefs = [...new Set(entries.flatMap((e) => e.acRefs))];
-    const reqText = entries.map((e) => `${e.requirementRef}: ${e.requirementTitle}`).join("; ");
-    const acText = acRefs.length ? acRefs.map((ref) => `${ref}: ${acTitles.get(ref) ?? ref}`).join("; ") : "—";
-    return { reqText, acText, reqRefsOnly: reqRefs.join(", ") || "—", acRefsOnly: acRefs.join(", ") || "—" };
-  }
+  const requirementCount = scoped.requirements.length;
+  const exceptions = tests.filter((t) => t.status === "Failed" || t.status === "Blocked");
+  const reqRefsFor = (t: TestCase) => grouped.requirementRefsByTest.get(t.id) ?? [];
+  const acRefsFor = (t: TestCase) => [...new Set(grouped.groups.flatMap((g) => g.rows.filter((r) => r.test.id === t.id).flatMap((r) => r.acRefs)))].sort((a, b) => REF_COLLATOR.compare(a, b));
 
-  const failuresAndBlockers = tests.filter((t) => t.status === "Failed" || t.status === "Blocked");
+  // Open (Pending / In Progress) tests per requirement — shown as neutral
+  // context, never as defects.
+  const openByRequirement = grouped.groups
+    .map((g) => ({ ref: g.requirementRef, open: g.rows.filter((r) => r.test.status === "Pending" || r.test.status === "In Progress").length }))
+    .filter((x) => x.open > 0);
+  const unlinkedOpen = grouped.unlinkedTests.filter((t) => t.status === "Pending" || t.status === "In Progress").length;
+  const openTotal = pending + inProgress;
+  const openAreas = [...openByRequirement.map((x) => `${x.ref} (${x.open})`), ...(unlinkedOpen ? [`Unlinked (${unlinkedOpen})`] : [])];
 
   // ── HTML ───────────────────────────────────────────────────────────────
-  const customerLine = project.customer ? `<p style="margin:2px 0 0;color:#cbd5e1;font-size:13px">${escapeHtml(project.customer)}</p>` : "";
-  const header = `<header style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0"><p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Project Manager / Control Centre</p><h1 style="margin:0;font-size:22px">${escapeHtml(project.project_ref ?? project.name)} — Test Status</h1><p style="margin:6px 0 0;color:#e2e8f0;font-size:14px">${escapeHtml(project.name)}</p>${customerLine}<p style="margin:6px 0 0;color:#94a3b8;font-size:12px">Generated ${escapeHtml(subjectDateTime(now))}</p></header>`;
+  const generated = subjectDateTime(now);
+  const metaParts = [project.customer?.trim() || null, reportLongDate(now)].filter(Boolean) as string[];
+  const header = `<header class="keep" style="padding-bottom:14px;border-bottom:2px solid #0f172a"><table role="presentation" width="100%"><tr>
+    <td style="vertical-align:bottom">
+      ${project.project_ref ? `<div class="nw" style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:#2563eb;white-space:nowrap">${escapeHtml(project.project_ref)}</div>` : ""}
+      <div style="margin-top:2px;font-size:20px;line-height:26px;font-weight:700;color:#0f172a">${escapeHtml(project.name)}</div>
+      <div style="margin-top:8px;font-size:15px;font-weight:600;color:#334155">Test Status Report${phaseName ? ` <span style="font-weight:400;color:#64748b">· ${escapeHtml(phaseName)}</span>` : ""}</div>
+      <div style="margin-top:2px;font-size:12px;color:#64748b">${metaParts.map(escapeHtml).join(" · ")}</div>
+    </td>
+    <td class="nw" style="vertical-align:bottom;text-align:right;white-space:nowrap;font-size:11px;color:#64748b">Generated<br><span style="color:#334155">${escapeHtml(generated)}</span></td>
+  </tr></table></header>`;
 
-  const summaryHtml = `<table style="border-collapse:collapse"><tr>
-    ${kpiCell("Total", String(total))}
-    ${kpiCell("Executed", String(executed), `${executionPct}%`)}
-    ${kpiCell("Passed", String(passed))}
-    ${kpiCell("Failed", String(failed))}
-    ${kpiCell("Blocked", String(blocked))}
-    ${kpiCell("In Progress", String(inProgress))}
-    ${kpiCell("Pending", String(pending))}
-  </tr></table>`;
+  const summaryHtml = `<table role="presentation" class="kpi" width="100%" style="table-layout:fixed"><tr>
+    ${kpiTile("Total", String(total), "#cbd5e1")}
+    ${kpiTile("Executed", String(executed), "#cbd5e1", `of ${total}`)}
+    ${kpiTile("Passed", String(passed), passed ? TEST_STATUS_STYLE.Passed.color : "#cbd5e1")}
+    ${kpiTile("Failed", String(failed), failed ? TEST_STATUS_STYLE.Failed.color : "#cbd5e1")}
+    ${kpiTile("Blocked", String(blocked), blocked ? TEST_STATUS_STYLE.Blocked.color : "#cbd5e1")}
+    ${kpiTile("In Progress", String(inProgress), inProgress ? TEST_STATUS_STYLE["In Progress"].color : "#cbd5e1")}
+    ${kpiTile("Pending", String(pending), "#cbd5e1")}
+    ${kpiTile("Execution", `${executionPct}%`, "#cbd5e1")}
+  </tr></table><div style="margin-top:6px;font-size:11px;color:#64748b">Executed = Passed + Failed. Blocked, In Progress and Pending tests are not yet executed.</div>`;
 
-  const verificationRows = (Object.entries(stateSummary) as [string, number][])
-    .map(([state, count]) => `<tr><td style="padding:3px 20px 3px 0;color:${VERIFICATION_COLOR[state] ?? "#64748b"};font-weight:700">${escapeHtml(state)}</td><td style="padding:3px 0;font-weight:700">${count}</td></tr>`)
+  const verificationStates = VERIFICATION_DISPLAY_ORDER.filter((state) => state in stateSummary);
+  const barCells = verificationStates
+    .filter((state) => stateSummary[state] > 0)
+    .map((state) => `<td title="${escapeHtml(state)}" style="width:${(stateSummary[state] / Math.max(requirementCount, 1)) * 100}%;height:8px;padding:0;background:${VERIFICATION_STYLE[state]};border-right:2px solid #fff"></td>`)
     .join("");
-  const verificationHtml = scoped.requirements.length > 0
-    ? `<table style="border-collapse:collapse;font-size:13px">${verificationRows}</table>`
-    : `<p style="margin:0;color:#94a3b8;font-size:13px">No requirements recorded for this project.</p>`;
+  const verificationHtml = requirementCount > 0
+    ? `<div class="keep"><div style="font-size:13px;color:#334155;margin-bottom:6px"><strong style="color:#0f172a">${stateSummary.Verified} of ${requirementCount}</strong> requirements verified by linked tests</div>
+      <table role="presentation" class="bar" width="100%" style="table-layout:fixed;margin-bottom:12px"><tr>${barCells}</tr></table>
+      <table role="presentation" class="vs" width="100%" style="table-layout:fixed"><tr>${verificationStates.map((state) => {
+        const count = stateSummary[state];
+        const color = count > 0 ? VERIFICATION_STYLE[state] : "#94a3b8";
+        return `<td style="vertical-align:top;padding-right:8px"><div style="border-top:1px solid #e2e8f0;padding-top:6px"><span style="font-size:20px;font-weight:700;color:${count > 0 ? "#0f172a" : "#94a3b8"}">${count}</span><div class="nw" style="font-size:11px;font-weight:700;color:${color};white-space:nowrap"><span style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${color};margin-right:5px;-webkit-print-color-adjust:exact;print-color-adjust:exact"></span>${escapeHtml(state)}</div></div></td>`;
+      }).join("")}</tr></table></div>`
+    : `<p style="margin:0;color:#64748b;font-size:13px">No requirements recorded for this project.</p>`;
 
-  function testRowsHtml(rows: TestCase[]): string {
-    return rows.map((t) => {
-      const { reqRefsOnly, acRefsOnly } = traceFor(t);
-      return `<tr>
-        <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;font-weight:600">${escapeHtml(t.test_ref)}</td>
-        <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${escapeHtml(t.scenario)}</td>
-        <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${escapeHtml(reqRefsOnly)}</td>
-        <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${escapeHtml(acRefsOnly)}</td>
-        <td style="padding:6px 0;border-bottom:1px solid #f1f5f9">${testStatusBadge(t.status)}</td>
-      </tr>`;
-    }).join("");
+  const exceptionRows = exceptions.map((t) => {
+    const reqs = reqRefsFor(t);
+    const reason = t.actual_result?.trim() || "No result or reason recorded.";
+    return `<tr><td style="padding:8px 10px 8px 0;border-top:1px solid #fecaca;vertical-align:top">${refHtml(t.test_ref, 700)}</td>
+      <td class="wrap" style="padding:8px 10px 8px 0;border-top:1px solid #fecaca;vertical-align:top;font-size:13px;color:#0f172a">${escapeHtml(titleOf(t))}<div style="margin-top:2px;font-size:11px;color:#64748b">Requirement: ${reqs.length ? reqs.map((r) => `${refHtml(r, 400)} ${escapeHtml(reqTitles.get(r) ?? "")}`).join("; ") : "—"}${acRefsFor(t).length ? ` · AC: ${refListHtml(acRefsFor(t))}` : ""}</div><div style="margin-top:4px;font-size:12px;color:#7f1d1d">${escapeHtml(reason)}</div></td>
+      <td style="padding:8px 0;border-top:1px solid #fecaca;vertical-align:top;text-align:right">${statusBadge(t.status)}</td></tr>`;
+  }).join("");
+  const exceptionsCore = exceptions.length > 0
+    ? `<div class="exc" style="border:1px solid #fecaca;border-left:4px solid #b91c1c;background:#fef2f2;border-radius:4px;padding:12px 14px"><div style="font-size:14px;font-weight:700;color:#991b1b;margin-bottom:6px">${failed} failed · ${blocked} blocked — ${exceptions.length === 1 ? "1 test needs" : `${exceptions.length} tests need`} attention</div><table role="presentation" width="100%">${exceptionRows}</table></div>`
+    : `<p style="margin:0;font-size:14px;color:#15803d"><strong>✓</strong> No failed or blocked tests.</p>`;
+  const openNote = openTotal > 0
+    ? `<p style="margin:10px 0 0;font-size:12px;color:#475569"><strong style="color:#334155">Awaiting execution:</strong> ${openTotal} ${openTotal === 1 ? "test is" : "tests are"} pending or in progress${openAreas.length ? ` — ${openAreas.map(escapeHtml).join(", ")}` : ""}. These are open, not defects.</p>`
+    : "";
+  const exceptionsHtml = exceptionsCore + openNote;
+
+  function testRowHtml(row: { test: TestCase; acRefs: string[]; alsoUnder: string[] }): string {
+    const t = row.test;
+    const acInline = row.acRefs.length ? `<div class="ac-m" style="display:none;margin-top:2px;font-size:11px;color:#64748b">AC: ${refListHtml(row.acRefs)}</div>` : "";
+    const also = row.alsoUnder.length ? `<div style="margin-top:2px;font-size:11px;color:#94a3b8">Also under ${row.alsoUnder.map((r) => refHtml(r, 400)).join(", ")}</div>` : "";
+    return `<tr>
+      <td class="c-ref" style="width:72px;padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:13px">${refHtml(t.test_ref)}</td>
+      <td class="wrap" style="padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:13px;color:#1e293b">${escapeHtml(titleOf(t))}${acInline}${also}</td>
+      <td class="c-ac" style="width:92px;padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:12px;color:#475569">${refListHtml(row.acRefs)}</td>
+      <td class="c-st" style="width:98px;padding:6px 0;border-top:1px solid #f1f5f9;vertical-align:top;text-align:right">${statusBadge(t.status)}</td>
+    </tr>`;
   }
 
-  const failuresHtml = failuresAndBlockers.length > 0
-    ? `<table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="text-align:left;color:#64748b;font-size:11px;text-transform:uppercase"><th style="padding:0 12px 6px 0">Ref</th><th style="padding:0 12px 6px 0">Title</th><th style="padding:0 12px 6px 0">Requirement</th><th style="padding:0 12px 6px 0">AC</th><th style="padding:0 0 6px">Status</th></tr></thead><tbody>${testRowsHtml(failuresAndBlockers)}</tbody></table>`
-    : `<p style="margin:0;color:#16a34a;font-size:14px">No failed or blocked tests — all executed tests are passing.</p>`;
+  function groupHtml(ref: string | null, title: string, tally: string, stateLabel: string, stateColor: string, rows: string, rowCount: number): string {
+    return `<div class="grp${rowCount <= 12 ? " keep" : ""}" style="margin-top:18px">
+      <table role="presentation" class="gh" width="100%"><tr>
+        <td style="vertical-align:bottom;padding-bottom:4px">${ref ? `<span class="nw" style="white-space:nowrap;font-size:12px;font-weight:700;color:#2563eb;margin-right:8px">${escapeHtml(ref)}</span>` : ""}<span style="font-size:14px;font-weight:700;color:#0f172a">${escapeHtml(title)}</span></td>
+        <td class="nw" style="vertical-align:bottom;padding-bottom:4px;text-align:right;white-space:nowrap;font-size:12px;color:#475569">${escapeHtml(tally)}${stateLabel ? ` · <span style="font-weight:700;color:${stateColor}">${escapeHtml(stateLabel)}</span>` : ""}</td>
+      </tr></table>
+      <table role="presentation" width="100%" style="table-layout:fixed">${rows}</table>
+    </div>`;
+  }
 
-  const fullTableHtml = total > 0
-    ? `<table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr style="text-align:left;color:#64748b;font-size:11px;text-transform:uppercase"><th style="padding:0 12px 6px 0">Ref</th><th style="padding:0 12px 6px 0">Title</th><th style="padding:0 12px 6px 0">Requirement</th><th style="padding:0 12px 6px 0">AC</th><th style="padding:0 0 6px">Status</th></tr></thead><tbody>${testRowsHtml(tests)}</tbody></table>`
-    : `<p style="margin:0;color:#94a3b8;font-size:14px">No test cases recorded for this project.</p>`;
+  const groupsHtml = grouped.groups.map((g) => groupHtml(
+    g.requirementRef, g.requirementTitle, `${g.passed} / ${g.testCount} passed`,
+    g.state, VERIFICATION_STYLE[g.state],
+    g.rows.map(testRowHtml).join(""), g.rows.length,
+  )).join("");
+  const unlinkedHtml = grouped.unlinkedTests.length
+    ? groupHtml(null, "Not linked to a requirement", `${grouped.unlinkedTests.filter((t) => isTestPassed(t.status)).length} / ${grouped.unlinkedTests.length} passed`, "", "",
+      grouped.unlinkedTests.map((t) => testRowHtml({ test: t, acRefs: [], alsoUnder: [] })).join(""), grouped.unlinkedTests.length)
+    : "";
+  const untestedHtml = grouped.untestedRequirements.length && total > 0
+    ? `<p style="margin:16px 0 0;font-size:12px;color:#64748b"><strong style="color:#475569">No tests linked:</strong> ${grouped.untestedRequirements.map((r) => `${refHtml(r.requirementRef, 600)} ${escapeHtml(r.requirementTitle)}`).join("; ")}</p>`
+    : "";
+  const fullStatusHtml = total > 0
+    ? `<div style="font-size:12px;color:#64748b">Grouped by requirement. A test linked to several requirements is listed under each.</div>${groupsHtml}${unlinkedHtml}${untestedHtml}`
+    : `<p style="margin:0;color:#64748b;font-size:14px">No test cases recorded for this project.</p>`;
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Test Status</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:800px;margin:0 auto;padding:24px">${header}${briefSection("Executive Test Summary", summaryHtml)}${briefSection("Requirement Verification Summary", verificationHtml)}${briefSection("Failures & Blockers", failuresHtml)}${briefSection("Full Test Status", fullTableHtml)}<p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px">Prepared by Project Manager / Control Centre — manual report</p></div></body></html>`;
+  const proceduresHtml = !includeProcedures ? "" : tests.map((t) => {
+    const p = parsed.get(t.id)!;
+    const steps = splitSteps(p.steps);
+    const reqs = reqRefsFor(t);
+    const acs = acRefsFor(t);
+    const result = t.actual_result?.trim();
+    return `<div class="proc" style="padding:10px 0;border-top:1px solid #e2e8f0">
+      <table role="presentation" width="100%"><tr><td style="vertical-align:top;font-size:13px">${refHtml(t.test_ref, 700)} <span style="color:#334155">${escapeHtml(p.title)}</span></td><td style="width:98px;vertical-align:top;text-align:right">${statusBadge(t.status)}</td></tr></table>
+      <div style="margin-top:3px;font-size:11px;color:#64748b">Requirement: ${refListHtml(reqs)} · AC: ${refListHtml(acs)}</div>
+      <div class="wrap" style="margin-top:6px;font-size:12px;color:#334155"><span style="color:#64748b">Objective:</span> ${escapeHtml(p.objective)}</div>
+      ${steps.length ? `<div style="margin-top:4px;font-size:12px;color:#64748b">Steps:</div><ol class="wrap" style="margin:2px 0 0;padding-left:20px;font-size:12px;color:#334155">${steps.map((s) => `<li style="margin:0 0 2px">${escapeHtml(s)}</li>`).join("")}</ol>` : ""}
+      ${result ? `<div class="wrap" style="margin-top:4px;font-size:12px;color:#334155"><span style="color:#64748b">Recorded result:</span> ${escapeHtml(result)}</div>` : ""}
+    </div>`;
+  }).join("");
+  const appendixHtml = includeProcedures && total > 0
+    ? reportSection("Appendix — Detailed Test Procedures", `<div style="font-size:12px;color:#64748b;margin-bottom:4px">Full objective, steps and recorded result for each test, in reference order.</div>${proceduresHtml}`, "appendix")
+    : "";
+
+  const footer = `<footer style="margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">Project Manager · Test Status Report · Generated ${escapeHtml(generated)}</footer>`;
+
+  const docTitle = `${project.project_ref ?? project.name} Test Status Report`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(docTitle)}</title><style>${REPORT_CSS}</style></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,Helvetica,sans-serif"><div class="page" style="max-width:780px;margin:0 auto;padding:24px 12px"><div class="sheet" style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:28px 32px">${header}${reportSection("Executive Test Summary", summaryHtml, "keep")}${reportSection("Requirement Verification Summary", verificationHtml)}${reportSection("Exceptions & Attention", exceptionsHtml)}${reportSection("Full Test Status", fullStatusHtml)}${appendixHtml}${footer}</div></div></body></html>`;
 
   // ── Plain text ─────────────────────────────────────────────────────────
-  function testLineText(t: TestCase): string {
-    const { reqText, acText } = traceFor(t);
-    return `${t.test_ref} — ${t.scenario} — ${t.status} — Requirement: ${reqText} — AC: ${acText}`;
-  }
+  const acText = (refs: string[]) => refs.length ? refs.map((ref) => `${ref}: ${acTitles.get(ref) ?? ref}`).join("; ") : "—";
+  const reqText = (refs: string[]) => refs.length ? refs.map((ref) => `${ref}: ${reqTitles.get(ref) ?? ref}`).join("; ") : "—";
 
-  const verificationText = scoped.requirements.length > 0
-    ? Object.entries(stateSummary).map(([state, count]) => `${state}: ${count}`).join("\n")
+  const verificationText = requirementCount > 0
+    ? `${verificationStates.map((state) => `${state}: ${stateSummary[state]}`).join("\n")}\n(${stateSummary.Verified} of ${requirementCount} requirements verified)`
     : "No requirements recorded for this project.";
 
-  const failuresText = failuresAndBlockers.length > 0
-    ? failuresAndBlockers.map(testLineText).join("\n")
-    : "No failed or blocked tests — all executed tests are passing.";
+  const exceptionsText = [
+    exceptions.length > 0
+      ? exceptions.map((t) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — Requirement: ${reqText(reqRefsFor(t))} — AC: ${acText(acRefsFor(t))} — Reason: ${t.actual_result?.trim() || "No result or reason recorded."}`).join("\n")
+      : "No failed or blocked tests.",
+    openTotal > 0 ? `Awaiting execution: ${openTotal} ${openTotal === 1 ? "test is" : "tests are"} pending or in progress${openAreas.length ? ` — ${openAreas.join(", ")}` : ""}. These are open, not defects.` : "",
+  ].filter(Boolean).join("\n");
 
-  const fullTableText = total > 0
-    ? tests.map(testLineText).join("\n")
+  const rowText = (t: TestCase, acRefs: string[]) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — AC: ${acRefs.length ? acRefs.join(", ") : "—"}`;
+  const fullStatusText = total > 0
+    ? [
+      ...grouped.groups.map((g) => `${g.requirementRef} — ${g.requirementTitle} — ${g.passed}/${g.testCount} passed — ${g.state}\n${g.rows.map((r) => rowText(r.test, r.acRefs)).join("\n")}`),
+      grouped.unlinkedTests.length ? `Not linked to a requirement\n${grouped.unlinkedTests.map((t) => rowText(t, [])).join("\n")}` : "",
+      grouped.untestedRequirements.length ? `No tests linked: ${grouped.untestedRequirements.map((r) => `${r.requirementRef} ${r.requirementTitle}`).join("; ")}` : "",
+    ].filter(Boolean).join("\n\n")
     : "No test cases recorded for this project.";
 
+  const proceduresText = !includeProcedures ? "" : tests.map((t) => {
+    const p = parsed.get(t.id)!;
+    const steps = splitSteps(p.steps);
+    return [
+      `[${t.test_ref}] ${p.title} (${t.status})`,
+      `Requirement: ${reqRefsFor(t).join(", ") || "—"} | AC: ${acRefsFor(t).join(", ") || "—"}`,
+      `Objective: ${p.objective}`,
+      steps.length ? `Steps:\n${steps.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}` : "",
+      t.actual_result?.trim() ? `Recorded result: ${t.actual_result.trim()}` : "",
+    ].filter(Boolean).join("\n");
+  }).join("\n\n");
+
   const text = [
-    `${project.project_ref ?? project.name} — TEST STATUS`,
-    project.name,
-    project.customer || "",
-    `Generated ${subjectDateTime(now)}`,
+    `${project.project_ref ?? project.name} — TEST STATUS REPORT`,
+    project.project_ref ? project.name : "",
+    [...metaParts, phaseName ? `Current phase: ${phaseName}` : ""].filter(Boolean).join(" · "),
+    `Generated ${generated}`,
     `${"=".repeat(60)}`,
     `EXECUTIVE TEST SUMMARY`,
     `Total: ${total}\nExecuted: ${executed} (${executionPct}%)\nPassed: ${passed}\nFailed: ${failed}\nBlocked: ${blocked}\nIn Progress: ${inProgress}\nPending: ${pending}`,
     `REQUIREMENT VERIFICATION SUMMARY\n${verificationText}`,
-    `FAILURES & BLOCKERS\n${failuresText}`,
-    `FULL TEST STATUS (Ref ascending)\n${fullTableText}`,
+    `EXCEPTIONS & ATTENTION\n${exceptionsText}`,
+    `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
+    includeProcedures && total > 0 ? `APPENDIX — DETAILED TEST PROCEDURES\n${proceduresText}` : "",
+    `Project Manager · Test Status Report · Generated ${generated}`,
   ].filter(Boolean).join("\n\n");
 
   return {
@@ -558,6 +687,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     text,
   };
 }
+
 
 // ── Manager Exception Email ───────────────────────────────────────────────────
 

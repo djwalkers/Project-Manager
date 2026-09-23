@@ -302,7 +302,7 @@ run("a project with zero test cases produces a graceful empty report, not a cras
 
 // ── 8. No Failed/Blocked tests -> concise positive statement ────────────────
 
-run("with no Failed or Blocked tests, the Failures & Blockers section shows a concise positive statement, not an empty section", () => {
+run("with no Failed or Blocked tests, the Exceptions & Attention section shows a concise positive statement, not an empty section", () => {
   const pl10 = project("pl10");
   const data = baseDataStore();
   data.projects = [pl10];
@@ -310,26 +310,28 @@ run("with no Failed or Blocked tests, the Failures & Blockers section shows a co
 
   const content = buildTestStatusEmail(data, pl10, now);
   assert.match(content.text, /no failed or blocked tests/i);
+  assert.doesNotMatch(content.html + content.text, /all (executed )?tests are passing/i, "must not claim everything is passing while Pending tests exist");
 });
 
 // ── 9. Failed/Blocked prominence ────────────────────────────────────────────
 
-run("Failures & Blockers section appears before the Full Test Status section (both html and text)", () => {
+run("Exceptions & Attention section appears before the Full Test Status section (both html and text)", () => {
   const pl10 = project("pl10");
   const data = baseDataStore();
   data.projects = [pl10];
   data.test_cases = [testCase(pl10.id, "TST-1", "Passed"), testCase(pl10.id, "TST-2", "Failed")];
 
   const content = buildTestStatusEmail(data, pl10, now);
-  const textFailIdx = content.text.search(/Failures/i);
+  const textExcIdx = content.text.search(/Exceptions & Attention/i);
   const textFullIdx = content.text.search(/Full Test Status/i);
-  assert.ok(textFailIdx >= 0 && textFullIdx >= 0 && textFailIdx < textFullIdx, "Failures & Blockers must appear before Full Test Status in the text version");
+  assert.ok(textExcIdx >= 0 && textFullIdx >= 0 && textExcIdx < textFullIdx, "Exceptions & Attention must appear before Full Test Status in the text version");
 
-  // Note: the HTML section title is HTML-escaped ("Failures &amp; Blockers"),
-  // so match on "Failures" alone rather than the literal "&".
-  const htmlFailIdx = content.html.search(/Failures/i);
+  // The HTML section title is HTML-escaped ("Exceptions &amp; Attention"),
+  // so match on "Exceptions" alone rather than the literal "&".
+  const htmlExcIdx = content.html.search(/Exceptions/i);
   const htmlFullIdx = content.html.search(/Full Test Status/i);
-  assert.ok(htmlFailIdx >= 0 && htmlFullIdx >= 0 && htmlFailIdx < htmlFullIdx, "Failures & Blockers must appear before Full Test Status in the html version");
+  assert.ok(htmlExcIdx >= 0 && htmlFullIdx >= 0 && htmlExcIdx < htmlFullIdx, "Exceptions & Attention must appear before Full Test Status in the html version");
+  assert.doesNotMatch(content.html + content.text, /Failures &(amp;)? Blockers/, "the old section name must be gone");
 });
 
 // ── Subject / header ─────────────────────────────────────────────────────────
@@ -363,14 +365,20 @@ run("header shows customer only when present, and never crashes when absent", ()
 
 // ── Full Test Status excludes large content ─────────────────────────────────
 
-run("Full Test Status does not include expected_result/actual_result content (kept concise)", () => {
+run("Full Test Status does not include expected_result/actual_result content (kept concise); the recorded result lives only in the print appendix", () => {
   const pl10 = project("pl10");
   const data = baseDataStore();
   data.projects = [pl10];
   data.test_cases = [testCase(pl10.id, "TST-1", "Passed", { expected_result: "SHOULD_NOT_APPEAR_IN_EMAIL", actual_result: "ALSO_SHOULD_NOT_APPEAR" })];
   const content = buildTestStatusEmail(data, pl10, now);
-  assert.doesNotMatch(content.html, /SHOULD_NOT_APPEAR_IN_EMAIL/);
-  assert.doesNotMatch(content.html, /ALSO_SHOULD_NOT_APPEAR/);
+  assert.doesNotMatch(content.html + content.text, /SHOULD_NOT_APPEAR_IN_EMAIL/);
+  assert.doesNotMatch(content.html + content.text, /ALSO_SHOULD_NOT_APPEAR/, "the emailed report never carries recorded results");
+  const print = buildTestStatusEmail(data, pl10, now, { includeProcedures: true });
+  const mainHtml = print.html.slice(0, print.html.indexOf("Detailed Test Procedures"));
+  assert.doesNotMatch(mainHtml, /ALSO_SHOULD_NOT_APPEAR/);
+  assert.doesNotMatch(print.html, /SHOULD_NOT_APPEAR_IN_EMAIL/, "expected_result is never printed anywhere in the report");
+  const appendixHtml = print.html.slice(print.html.indexOf("Detailed Test Procedures"));
+  assert.match(appendixHtml, /ALSO_SHOULD_NOT_APPEAR/, "the print appendix shows the recorded result for evidence/history");
 });
 
 console.log("\nAll Test Status email tests passed.\n");
