@@ -540,7 +540,7 @@ run("email: headline, three secondary metrics, area table and remaining-by-area 
   const f = fixture();
   const c = buildTestStatusEmail(f.data, f.p, now);
   assert.match(c.html, /<span style="color:#15803d">1<\/span> of 6 tests passed/);
-  assert.match(c.html, /33% executed/, "executed = Passed 1 + Failed 1 of 6");
+  assert.match(c.html, /33% complete/, "complete = (Passed 1 + Failed 1) of 6");
   const metrics = [...c.html.matchAll(/font-size:20px;line-height:24px;font-weight:700;color:(#[0-9a-f]+)">(\d+)<\/div><div[^>]*>(\w+)<\/div>/g)].map((m) => [m[3], Number(m[2]), m[1]]);
   assert.deepEqual(metrics, [["Remaining", 3, "#0f172a"], ["Failed", 1, "#b91c1c"], ["Blocked", 1, "#b91c1c"]]);
   assert.match(c.text, /REQ-001 First requirement — 0\/3 passed — Failed/);

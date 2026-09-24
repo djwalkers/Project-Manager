@@ -174,6 +174,7 @@ export type TestCounts = {
   remaining: number;
   /** Passed + Failed (lib/lifecycle/test-case.ts RESOLVED_TEST_STATUSES). */
   executed: number;
+  /** executed / total, shown to users as "Complete"; 0 when total is 0 (callers render a blank state instead). */
   executionPct: number;
 };
 

@@ -160,11 +160,11 @@ function buildProjectBriefSection(state: ProjectState, todayStr: string, in7Days
   upcomingMilestones.forEach((m) => { const d = daysUntil(m.target_date as string, now); priorities.push({ label: `Milestone ${relativeDays(d)}: ${m.milestone_ref} ${m.title}`, score: 70 - d }); });
 
   // ── Phase-relevant position ──────────────────────────────────────────────
-  const testsLine = tests.total > 0 ? `${tests.passed} of ${tests.total} tests passed · ${tests.executionPct}% executed · ${tests.remaining} remaining · ${tests.failed} failed · ${tests.blocked} blocked` : "";
+  const testsLine = tests.total > 0 ? `${tests.passed} of ${tests.total} tests passed · ${tests.executionPct}% complete · ${tests.remaining} remaining · ${tests.failed} failed · ${tests.blocked} blocked` : "";
   const positionLines: string[] = [];
   let positionHeadline = "";
   if (focus === "testing") {
-    positionHeadline = tests.total > 0 ? `${tests.passed} of ${tests.total} tests passed · ${tests.executionPct}% executed` : "No test cases recorded.";
+    positionHeadline = tests.total > 0 ? `${tests.passed} of ${tests.total} tests passed · ${tests.executionPct}% complete` : "No test cases recorded.";
     if (tests.total > 0) {
       positionLines.push(`${tests.remaining} remaining${tests.inProgress > 0 ? ` (${tests.inProgress} in progress)` : ""} · ${tests.failed} failed · ${tests.blocked} blocked`);
       positionLines.push(testPositionMessage(tests));
@@ -522,8 +522,8 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     ${kpiTile("Blocked", String(blocked), blocked ? TEST_STATUS_STYLE.Blocked.color : "#cbd5e1")}
     ${kpiTile("In Progress", String(inProgress), inProgress ? TEST_STATUS_STYLE["In Progress"].color : "#cbd5e1")}
     ${kpiTile("Pending", String(pending), "#cbd5e1")}
-    ${kpiTile("Execution", `${executionPct}%`, "#cbd5e1")}
-  </tr></table><div style="margin-top:6px;font-size:11px;color:#64748b">Executed = Passed + Failed. Blocked, In Progress and Pending tests are not yet executed.</div>`;
+    ${kpiTile("Complete", `${executionPct}%`, "#cbd5e1")}
+  </tr></table><div style="margin-top:6px;font-size:11px;color:#64748b">Complete = (Passed + Failed) ÷ Total. Blocked, In Progress and Pending tests are not yet executed.</div>`;
 
   const verificationStates = VERIFICATION_DISPLAY_ORDER.filter((state) => state in stateSummary);
   const barCells = verificationStates
@@ -633,7 +633,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     .map(([n, color, label]) => `<td title="${label}" style="width:${(n / Math.max(total, 1)) * 100}%;height:6px;padding:0;background:${color};border-right:2px solid #fff"></td>`).join("");
   const positionHtml = total > 0
     ? `<div class="keep"><table role="presentation" class="pos" width="100%"><tr>
-        <td style="vertical-align:bottom"><div style="font-size:24px;line-height:30px;font-weight:700;color:#0f172a"><span style="color:${passed ? TEST_STATUS_STYLE.Passed.color : "#0f172a"}">${passed}</span> of ${total} tests passed</div><div style="font-size:14px;color:#475569">${executionPct}% executed</div></td>
+        <td style="vertical-align:bottom"><div style="font-size:24px;line-height:30px;font-weight:700;color:#0f172a"><span style="color:${passed ? TEST_STATUS_STYLE.Passed.color : "#0f172a"}">${passed}</span> of ${total} tests passed</div><div style="font-size:14px;color:#475569">${executionPct}% complete</div></td>
         <td class="pos-m" style="vertical-align:bottom"><table role="presentation" align="right"><tr>${metric(counts.remaining, "Remaining", false)}${metric(failed, "Failed", true)}${metric(blocked, "Blocked", true)}</tr></table></td>
       </tr></table>
       <table role="presentation" class="bar" width="100%" style="table-layout:fixed;margin-top:10px"><tr>${barSegments}</tr></table>
@@ -706,7 +706,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
       `Generated ${generated}`,
       `${"=".repeat(60)}`,
       `EXECUTIVE TEST SUMMARY`,
-      `Total: ${total}\nExecuted: ${executed} (${executionPct}%)\nPassed: ${passed}\nFailed: ${failed}\nBlocked: ${blocked}\nIn Progress: ${inProgress}\nPending: ${pending}`,
+      `Total: ${total}\nExecuted: ${executed}\nComplete: ${executionPct}%\nPassed: ${passed}\nFailed: ${failed}\nBlocked: ${blocked}\nIn Progress: ${inProgress}\nPending: ${pending}`,
       `REQUIREMENT VERIFICATION SUMMARY\n${verificationText}`,
       `EXCEPTIONS & ATTENTION\n${exceptionsText}`,
       `FULL TEST STATUS (grouped by requirement)\n${fullStatusText}`,
@@ -721,7 +721,7 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
       `${"=".repeat(60)}`,
       `TEST POSITION`,
       total > 0
-        ? `${passed} of ${total} tests passed · ${executionPct}% executed\nRemaining: ${counts.remaining} (${inProgress} in progress, ${pending} pending) · Failed: ${failed} · Blocked: ${blocked}\n${testPositionMessage(counts)}`
+        ? `${passed} of ${total} tests passed · ${executionPct}% complete\nRemaining: ${counts.remaining} (${inProgress} in progress, ${pending} pending) · Failed: ${failed} · Blocked: ${blocked}\n${testPositionMessage(counts)}`
         : testPositionMessage(counts),
       `TESTING BY AREA\n${areas.length ? areas.map((a) => `${areaLabel(a)} — ${a.counts.passed}/${a.counts.total} passed — ${a.position}`).join("\n") : "No tests are linked to requirements."}${grouped.untestedRequirements.length ? `\n(${grouped.untestedRequirements.length} ${grouped.untestedRequirements.length === 1 ? "requirement has" : "requirements have"} no linked tests.)` : ""}`,
       `ATTENTION & REMAINING\n${[

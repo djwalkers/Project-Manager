@@ -163,7 +163,7 @@ run("testing phase: leads with the canonical test position, counting In Progress
   assert.equal(state.phase.phase, "SIT");
   const c = buildAutomatedDailyBrief(data, now);
   assert.match(c.html, /Testing Position/);
-  assert.match(c.text, /TESTING POSITION\n2 of 5 tests passed · 60% executed\n2 remaining \(1 in progress\) · 1 failed · 0 blocked/);
+  assert.match(c.text, /TESTING POSITION\n2 of 5 tests passed · 60% complete\n2 remaining \(1 in progress\) · 1 failed · 0 blocked/);
   assert.match(c.text, /Phase: SIT · System Integration Testing/);
   assert.doesNotMatch(c.html + c.text, /0\/0 deployed|0% deployed|No deliverables in progress|DEVELOPMENT\n/, "no deliverable-derived 0% and no empty Development section");
 });

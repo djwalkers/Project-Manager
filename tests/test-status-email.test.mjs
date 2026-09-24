@@ -146,7 +146,7 @@ run("executive summary counts Total/Executed/Passed/Failed/Blocked/Pending corre
 
   // The email presents the same counts as a single test position.
   const email = buildTestStatusEmail(data, pl10, now);
-  assert.match(email.text, /2 of 6 tests passed · 50% executed/);
+  assert.match(email.text, /2 of 6 tests passed · 50% complete/);
   assert.match(email.text, /Remaining: 2 \(1 in progress, 1 pending\) · Failed: 1 · Blocked: 1/, "remaining = Pending + In Progress; Blocked is shown separately");
   assert.match(email.text, /1 test failed and 1 is blocked\. 2 tests remain to be executed \(1 in progress\)\. See attention items below\./);
 });

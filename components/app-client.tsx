@@ -10,6 +10,7 @@ import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
 import { RequirementTestCoverage } from "@/components/requirement-test-coverage";
+import { TestPositionSummary } from "@/components/test-position-summary";
 import { TestStatusEmailAction } from "@/components/test-status-email-panel";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { DataTable } from "@/components/data-table";
@@ -308,13 +309,16 @@ export function ModulePageClient({ section }: { section: string }) {
 
   return (
     <AppShell>
-      <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-        <div>
+      <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:flex-wrap lg:items-end xl:flex-nowrap">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-primary">{activeProject.project_ref ?? activeProject.name}</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal">{config.title}</h2>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{config.description}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        {config.key === "test_cases" && (
+          <TestPositionSummary tests={pageData.test_cases} className="lg:order-last lg:w-full xl:order-none xl:mx-auto xl:w-auto xl:px-4" />
+        )}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {config.key === "test_cases" && data && (
             <TestStatusEmailAction data={data} project={activeProject} onReload={reload} />
           )}
