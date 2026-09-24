@@ -5,6 +5,7 @@ import { useCallback, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AcceptanceCriteriaPanel } from "@/components/acceptance-criteria-panel";
 import { ArtefactLinker } from "@/components/artefact-linker";
+import { withLinkAdded, withLinkRemoved } from "@/lib/artefact-links";
 import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementReadiness } from "@/components/requirement-readiness";
@@ -285,7 +286,17 @@ export function ModulePageClient({ section }: { section: string }) {
           </>
         )}
         {LINKABLE.has(config.key) && pid && recordId && (
-          <ArtefactLinker entity={config.key} recordId={recordId} projectId={pid} data={pageData} />
+          <ArtefactLinker
+            entity={config.key}
+            recordId={recordId}
+            projectId={pid}
+            data={pageData}
+            // Apply confirmed link writes to the canonical DataStore (same
+            // setData pattern as the AC / evidence / sign-off panels above),
+            // so verification and every derived view update immediately.
+            onLinkAdded={(link) => setData((current) => current ? withLinkAdded(current, link) : current)}
+            onLinkRemoved={(linkId) => setData((current) => current ? withLinkRemoved(current, linkId) : current)}
+          />
         )}
       </div>
     );

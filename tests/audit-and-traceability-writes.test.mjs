@@ -51,6 +51,7 @@ const audit = req("../lib/audit.ts");
 const { normaliseAuditEntries, MAX_AUDIT_ENTRIES_PER_REQUEST } = req("../lib/audit-entry.ts");
 const clientModule = req("../lib/supabase/client.ts");
 const links = req("../lib/artefact-links.ts");
+const { computeTestVerification } = req("../lib/lifecycle/test-verification.ts");
 function run(name, fn) { return Promise.resolve().then(fn).then(() => console.log(`✓ ${name}`), (error) => { console.error(`✗ ${name}`); throw error; }); }
 
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
@@ -184,11 +185,59 @@ await run("removeLink resolves only when a row was deleted; 0 rows or an error t
 
 await run("linker only drops a link from the list after a real delete, and shows the error otherwise", () => {
   const src = read("components/artefact-linker.tsx");
-  const fn = src.slice(src.indexOf("async function handleRemove"), src.indexOf("if (loading) return"));
-  assert.match(fn, /try \{\n\s+await removeLink\(linkId\);\n\s+setLinks/);
+  const fn = src.slice(src.indexOf("async function handleRemove"), src.indexOf("{removeError &&"));
+  assert.match(fn, /try \{\n\s+await removeLink\(linkId\);\n\s+onLinkRemoved\(linkId\);/);
   assert.match(fn, /catch \(e\) \{\n\s+setRemoveError/);
   assert.match(src, /\{removeError && <p[^>]*role="alert">\{removeError\}<\/p>\}/);
   assert.doesNotMatch(src, /LINKABLE_ENTITIES: string\[\] = \[[^\]]*documents/, "no Phase 1 entities added");
+});
+
+// ── Canonical in-memory state after a link write ────────────────────────────
+
+await run("withLinkAdded / withLinkRemoved update the canonical DataStore and verification recomputes immediately", () => {
+  const P = "11111111-1111-4111-8111-111111111111";
+  const r = { id: "req-1", project_id: P, requirement_ref: "REQ-1" };
+  const acRow = { id: "ac-1", project_id: P, requirement_id: r.id, ac_ref: "AC-1" };
+  const t = { id: "tst-1", project_id: P, test_ref: "TST-1", scenario: "s", status: "Passed" };
+  const link = (id, se, si, te, ti) => ({ id, project_id: P, source_entity: se, source_id: si, target_entity: te, target_id: ti });
+  let data = { requirements: [r], acceptance_criteria: [acRow], test_cases: [t], artefact_links: [] };
+  assert.equal(computeTestVerification(data).byRequirement[r.id].state, "No Tests Linked");
+
+  const reqLink = link("lnk-1", "requirements", r.id, "test_cases", t.id);
+  const before = data;
+  data = links.withLinkAdded(data, reqLink);
+  assert.notEqual(data, before, "a new DataStore object, so React re-renders");
+  assert.equal(before.artefact_links.length, 0, "the previous DataStore is not mutated");
+  assert.equal(computeTestVerification(data).byRequirement[r.id].state, "Verified", "requirement ↔ test link counts at once");
+
+  const acLink = link("lnk-2", "acceptance_criteria", acRow.id, "test_cases", t.id);
+  data = links.withLinkAdded(data, acLink);
+  assert.equal(computeTestVerification(data).byAcceptanceCriteria[acRow.id].state, "Verified", "AC ↔ test link counts at once");
+
+  data = links.withLinkAdded(data, reqLink);
+  assert.equal(data.artefact_links.filter((l) => l.id === reqLink.id).length, 1, "re-applying the same saved link never duplicates it");
+
+  data = links.withLinkRemoved(data, reqLink.id);
+  data = links.withLinkRemoved(data, acLink.id);
+  assert.equal(data.artefact_links.length, 0);
+  assert.equal(computeTestVerification(data).byRequirement[r.id].state, "No Tests Linked", "removal reflected at once");
+  assert.equal(computeTestVerification(data).byAcceptanceCriteria[acRow.id].state, "No Tests Linked");
+});
+
+await run("linker reads links from the canonical DataStore (no parallel link state or separate query)", () => {
+  const src = read("components/artefact-linker.tsx");
+  assert.match(src, /const links = useMemo\(\s*\(\) => \(data\.artefact_links \?\? \[\]\)\.filter/);
+  assert.doesNotMatch(src, /loadLinksForRecord|useState<ArtefactLink\[\]>|setLinks/);
+  assert.match(src, /await removeLink\(linkId\);\n\s+onLinkRemoved\(linkId\);/, "state updated only after a confirmed delete");
+  assert.match(src, /onAdd=\{onLinkAdded\}/);
+  assert.match(src, /if \(!saved\) \{ setError\(/, "a failed add never reaches onLinkAdded");
+});
+
+await run("the owner applies confirmed link writes to the canonical DataStore via setData", () => {
+  const app = read("components/app-client.tsx");
+  assert.match(app, /onLinkAdded=\{\(link\) => setData\(\(current\) => current \? withLinkAdded\(current, link\) : current\)\}/);
+  assert.match(app, /onLinkRemoved=\{\(linkId\) => setData\(\(current\) => current \? withLinkRemoved\(current, linkId\) : current\)\}/);
+  assert.match(app, /const verification = pageData \? computeTestVerification\(pageData\) : null;/, "verification still derives from the canonical pageData");
 });
 
 console.log("\nAll audit and traceability write-path tests passed.\n");

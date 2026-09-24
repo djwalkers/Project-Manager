@@ -44,6 +44,19 @@ export async function removeLink(id: string): Promise<void> {
   if (!data || data.length === 0) throw new Error("Failed to remove link: it was not deleted (it may already be gone, or you are not signed in).");
 }
 
+// ── Applying a confirmed link write to the canonical in-memory DataStore ────
+// Pure updaters used by the linker's owner via setData, so verification,
+// coverage and ProjectState recalculate from the same canonical array.
+type WithLinks = { artefact_links?: ArtefactLink[] };
+
+export function withLinkAdded<T extends WithLinks>(data: T, link: ArtefactLink): T {
+  return { ...data, artefact_links: [...(data.artefact_links ?? []).filter((l) => l.id !== link.id), link] };
+}
+
+export function withLinkRemoved<T extends WithLinks>(data: T, linkId: string): T {
+  return { ...data, artefact_links: (data.artefact_links ?? []).filter((l) => l.id !== linkId) };
+}
+
 /** Given a flat list of links for a record, group them by the partner entity. */
 export function groupLinksByEntity(
   links: ArtefactLink[],
