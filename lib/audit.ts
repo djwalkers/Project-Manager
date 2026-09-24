@@ -1,4 +1,8 @@
-import { supabaseAnon as supabase } from "@/lib/supabase/anon";
+import type { SupabaseClient } from "@supabase/supabase-js";
+// Reads use the session-aware browser client, so the Audit Trail is read as
+// the signed-in user (audit_admin_select / audit_manager_select), never with
+// the bare public anon key. Writes go through POST /api/audit (Phase 0A).
+import { supabase } from "@/lib/supabase/client";
 import type { AuditActionType, AuditFilter, AuditLog, EntityName } from "@/lib/types";
 
 // ── Current user ─────────────────────────────────────────────────────────────
@@ -244,13 +248,16 @@ export async function getRecentChanges(projectId: string, limit = 10): Promise<A
   return (data ?? []) as AuditLog[];
 }
 
+// Server-side (email delivery): the caller passes its own service-role
+// client — there is no browser session on the server.
 export async function getChangesSince(
+  client: SupabaseClient | null,
   hours: number,
   projectIds: string[],
 ): Promise<AuditLog[]> {
-  if (!supabase || !projectIds.length) return [];
+  if (!client || !projectIds.length) return [];
   const since = new Date(Date.now() - hours * 3_600_000).toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("audit_log")
     .select("*")
     .in("project_id", projectIds)

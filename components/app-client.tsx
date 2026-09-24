@@ -19,6 +19,7 @@ import { TimelineSchedule } from "@/components/timeline-schedule";
 import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
 import { useAuth } from "@/contexts/auth-context";
+import { canDeleteProject } from "@/lib/permissions";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { computeTestVerification, formatTestCountsLabel } from "@/lib/lifecycle/test-verification";
 import { scopeProjectData, selectTimelineItems } from "@/lib/project-scope";
@@ -194,8 +195,13 @@ export function ModulePageClient({ section }: { section: string }) {
     return saved as Row;
   }
 
+  // Only Admin may delete a project (Manager can create/edit). The database
+  // enforces the same once Phase 0B2 aligns the projects policies.
+  const mayDelete = config?.key !== "projects" || canDeleteProject(user?.role);
+
   async function removeRecord(record: Row) {
     if (!config || !record.id) throw new Error("Cannot delete a record without an ID");
+    if (!mayDelete) throw new Error("Only an Admin can delete a project.");
     await deleteRecord(config.key, String(record.id));
     setData((current) => current
       ? { ...current, [config.key]: current[config.key].filter((item) => item.id !== record.id) } as DataStore
@@ -359,7 +365,7 @@ export function ModulePageClient({ section }: { section: string }) {
         config={config}
         data={pageData}
         onSaveRecord={persistRecord}
-        onDeleteRecord={removeRecord}
+        onDeleteRecord={mayDelete ? removeRecord : undefined}
         defaultValues={user?.fullName ? { owner: user.fullName } : undefined}
         detailFooter={detailFooter}
       />

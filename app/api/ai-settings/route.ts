@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createServerClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { requireAuthenticatedUser } from "@/lib/api-auth";
 import {
   loadAISettingsMeta,
   saveAISettings,
@@ -25,14 +26,6 @@ function isLoopbackUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function serviceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  console.log(`[ai-settings] serviceSupabase — service role key configured: ${Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)}`);
-  if (!url || !key) return null;
-  return createServerClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 /**
@@ -60,10 +53,12 @@ async function requireAdmin(): Promise<NextResponse | null> {
   }
 
   // Query user_profiles by id (there is no email column in user_profiles).
-  const db = serviceSupabase();
+  // Fail closed: without the service-role key the role cannot be verified.
+  // (Previously this allowed the request through.)
+  const db = createServiceRoleClient();
   if (!db) {
-    console.log("[ai-settings] requireAdmin — no service client, allowing through");
-    return null;
+    console.error("[ai-settings] requireAdmin — SUPABASE_SERVICE_ROLE_KEY not set; refusing");
+    return NextResponse.json({ error: "Server misconfigured: SUPABASE_SERVICE_ROLE_KEY is not set" }, { status: 503 });
   }
 
   const { data: profile, error: profileError } = await db
@@ -88,8 +83,10 @@ async function requireAdmin(): Promise<NextResponse | null> {
   return null;
 }
 
-/** GET /api/ai-settings — returns safe metadata (no api_key). */
+/** GET /api/ai-settings — returns safe metadata (no api_key) to any signed-in user. */
 export async function GET() {
+  const authError = await requireAuthenticatedUser();
+  if (authError) return authError;
   try {
     const meta = await loadAISettingsMeta();
     return NextResponse.json(meta);

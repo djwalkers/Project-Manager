@@ -43,7 +43,7 @@ Module._extensions[".ts"] = function compileTypeScript(module, filename) {
   module._compile(result.outputText, filename);
 };
 
-// Env must be set before lib/supabase/{anon,client}.ts are loaded (they read it at import).
+// Env must be set before lib/supabase/client.ts is loaded (they read it at import).
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 const req = Module.createRequire(import.meta.url);
@@ -126,7 +126,7 @@ await run("logAudit keeps its call signature (existing callers unchanged)", () =
 
 await run("route: authenticated only, identity from the session, service-role insert, project FK guarded", () => {
   const route = read("app/api/audit/route.ts");
-  assert.match(route, /await requireAuthenticatedUser\(\)/);
+  assert.match(route, /await requireCanWriteDeliveryData\(\)/, "Phase 0B1: Manager/Admin only");
   assert.match(route, /changed_by: changedBy,/);
   assert.match(route, /changed_by_name: changedByName,/);
   assert.doesNotMatch(route, /body\.changed_by|entries\[.*\]\.changed_by/);

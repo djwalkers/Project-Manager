@@ -125,8 +125,8 @@ export function EvidencePanel({
     try {
       await deleteRecord("evidence", id);
       onUpdate(evidence.filter((e) => e.id !== id));
-    } catch {
-      setError("Failed to delete evidence.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete evidence.");
     }
   }
 

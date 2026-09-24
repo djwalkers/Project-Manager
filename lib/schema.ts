@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
 export const schemaVersion = "029_audit_log_server_insert_only";
-export const latestMigration = "029_audit_log_server_insert_only";
+export const latestMigration = "030_role_escalation_and_security_helpers";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",

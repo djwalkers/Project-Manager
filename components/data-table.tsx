@@ -72,7 +72,8 @@ export function DataTable({
   config: ModuleConfig;
   data: DataStore;
   onSaveRecord: (record: Row) => Promise<Row>;
-  onDeleteRecord: (record: Row) => Promise<void>;
+  /** Omitted when the signed-in role may not delete this kind of record — hides the Delete control. */
+  onDeleteRecord?: (record: Row) => Promise<void>;
   defaultValues?: Row;
   selectable?: boolean;
   onSelectionChange?: (rows: Row[]) => void;
@@ -188,6 +189,7 @@ export function DataTable({
 
   async function deleteRecord(row: Row) {
     const label = String(row[config.columns[0].key] ?? config.singular);
+    if (!onDeleteRecord) return;
     if (!window.confirm(`Delete ${label}?`)) return;
     setOperationError(null);
     try {
@@ -350,9 +352,9 @@ export function DataTable({
                         >
                           <Edit2 className="h-4 w-4" aria-hidden="true" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => deleteRecord(row)} aria-label="Delete record">
+                        {onDeleteRecord && <Button variant="ghost" size="icon" onClick={() => deleteRecord(row)} aria-label="Delete record">
                           <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
-                        </Button>
+                        </Button>}
                       </div>
                     </td>
                   </tr>

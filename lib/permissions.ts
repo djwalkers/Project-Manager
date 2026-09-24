@@ -23,3 +23,41 @@ export function canAssessManualChecks(role: UserRole | null | undefined): boolea
 export function canCreateProject(role: UserRole | null | undefined): boolean {
   return role === "Admin" || role === "Manager";
 }
+
+// ── Phase 0B role model (agreed) ────────────────────────────────────────────
+//
+// Viewer  — read-only: no data writes, no traceability changes, no
+//           sign-offs, no readiness/go-live decisions, no email sending.
+// Manager — full delivery CRUD, create/edit projects (but NOT delete),
+//           links, sign-offs, manual readiness, Go/No-Go, manual emails.
+// Admin   — everything a Manager can do, plus project deletion and
+//           AI/email/system configuration and user/role administration.
+//
+// Each rule is its own named function (same convention as above) so one
+// can change without silently changing another. The database mirrors the
+// same split with app_role()/can_write()/is_admin() (migration 030).
+
+/** Ordinary delivery writes (and the audit entries that describe them). */
+export function canWriteDeliveryData(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}
+
+/** Editing an existing project's details. */
+export function canEditProject(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}
+
+/** Permanently deleting a project (and, via FK cascade, its records) — Admin only. */
+export function canDeleteProject(role: UserRole | null | undefined): boolean {
+  return role === "Admin";
+}
+
+/** Manually sending a project email/report (scheduled cron sends use CRON_SECRET). */
+export function canSendProjectEmail(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}
+
+/** AI / email / system configuration changes. */
+export function canConfigureSystem(role: UserRole | null | undefined): boolean {
+  return role === "Admin";
+}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, requireAuthenticatedUser } from "@/lib/api-auth";
+import { getAuthenticatedUser, requireCanWriteDeliveryData } from "@/lib/api-auth";
 import { AUDITABLE_TABLES } from "@/lib/audit";
 import { isUuid, normaliseAuditEntries } from "@/lib/audit-entry";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
@@ -13,7 +13,9 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 // client-side INSERT policy so this route is the only writer.
 
 export async function POST(req: NextRequest) {
-  const authError = await requireAuthenticatedUser();
+  // Audit entries describe delivery writes, which only Manager/Admin may
+  // make — a Viewer cannot post (and so cannot fabricate) audit content.
+  const authError = await requireCanWriteDeliveryData();
   if (authError) return authError;
 
   let body: unknown;

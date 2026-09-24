@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DataStore } from "@/lib/data-store";
 import { buildAutomatedDailyBrief, buildAutomatedWeeklySummary, buildManagerSummaryEmail, buildTestEmail, buildTestStatusEmail, type EmailContent } from "@/lib/email-content";
 import { isValidEmailAddress, validateRecipients } from "@/lib/email-recipients";
@@ -27,15 +28,17 @@ const defaultRecipient = "Andrew.Walker@bluestonex.com";
 const settingsId = "99999999-9999-4999-8999-999999999999";
 const projectTables = schemaTables.map((table) => table.name).filter((name) => !["email_settings", "email_activity_log"].includes(name));
 
+export const EMAIL_SERVICE_KEY_MISSING = "SUPABASE_SERVICE_ROLE_KEY is not configured — server-side email cannot read project data (it never falls back to the public anon key).";
+
+// Server-side email always reads with the service-role key. No database
+// configured at all (local mode) → null → seed data, as before. A database
+// configured WITHOUT the service-role key fails closed: previously this
+// silently fell back to the public anon key and the anon-read RLS policies.
 function serverSupabase(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Prefer service role key — bypasses RLS so server-side reads always succeed.
-  // Falls back to anon key + anon-read RLS policies (migration 014).
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  const usingServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
-  console.log(`[email] serverSupabase — using ${usingServiceRole ? "service role key" : "anon key"}`);
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null;
+  const client = createServiceRoleClient();
+  if (!client) throw new Error(EMAIL_SERVICE_KEY_MISSING);
+  return client;
 }
 
 // Delegates to the one canonical email-format check (lib/email-recipients.ts)
@@ -100,8 +103,8 @@ async function loadSettings(client: SupabaseClient | null): Promise<EmailSetting
       console.log(`[email] loadSettings — raw row: daily_brief_enabled=${data.daily_brief_enabled} weekly_summary_enabled=${data.weekly_summary_enabled} manager_summary_enabled=${data.manager_summary_enabled} recipient="${data.recipient_email}"`);
       return data as EmailSettings;
     }
-    // data is null — RLS blocked the query or no row with this ID exists
-    console.warn(`[email] loadSettings — query returned null (no error). Likely cause: RLS policy blocked the anon client (run migration 014) or the settings row does not exist. Falling back to env/defaults.`);
+    // data is null — no settings row with this ID exists
+    console.warn(`[email] loadSettings — no settings row found. Falling back to env/defaults.`);
   }
   const fallback: EmailSettings = {
     id: settingsId,
@@ -167,7 +170,14 @@ async function sendWithResend(recipients: string[], content: EmailContent) {
 
 export async function executeEmail(kind: EmailKind, trigger: TriggerType, payload: EmailRequestPayload = {}, now = new Date()): Promise<EmailExecutionResult> {
   const started = Date.now();
-  const client = serverSupabase();
+  let client: SupabaseClient | null;
+  try {
+    client = serverSupabase();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : EMAIL_SERVICE_KEY_MISSING;
+    console.error(`[email] ${kind} — ${message}`);
+    return { ok: false, status: "config_error", message };
+  }
   let recipient = payload.recipient?.trim() || process.env.DAILY_BRIEF_RECIPIENT?.trim() || defaultRecipient;
 
   console.log(`[email] ${kind} invoked — trigger=${trigger}`);
@@ -268,11 +278,11 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
     console.log(`[email] ${kind} — projectIds=${JSON.stringify(projectIds)} names=${JSON.stringify(emailProjects.map((p) => p.name))}`);
 
     if (kind === "Daily Brief" && trigger === "Scheduled" && emailProjects.length === 0) {
-      return await skip("skipped_no_projects", "No active projects were found. Run migration 015 if project data is missing.");
+      return await skip("skipped_no_projects", "No active projects were found.");
     }
 
-    const recentAuditChanges = kind === "Daily Brief" ? await getChangesSince(24, projectIds).catch(() => []) : [];
-    const weeklyAuditChanges = kind === "Weekly Summary" ? await getChangesSince(168, projectIds).catch(() => []) : [];
+    const recentAuditChanges = kind === "Daily Brief" ? await getChangesSince(client, 24, projectIds).catch(() => []) : [];
+    const weeklyAuditChanges = kind === "Weekly Summary" ? await getChangesSince(client, 168, projectIds).catch(() => []) : [];
 
     const content =
       kind === "Test" ? buildTestEmail(now)
@@ -310,7 +320,13 @@ export async function executeEmail(kind: EmailKind, trigger: TriggerType, payloa
 }
 
 export async function getEmailDeliveryHealth() {
-  const client = serverSupabase();
+  let client: SupabaseClient | null = null;
+  let serviceRoleConfigured = true;
+  try {
+    client = serverSupabase();
+  } catch {
+    serviceRoleConfigured = false;
+  }
   let settings: EmailSettings | null = null;
   let activity: EmailActivity[] = [];
   try {
@@ -323,6 +339,7 @@ export async function getEmailDeliveryHealth() {
     settings = null;
   }
   return {
+    serviceRoleConfigured,
     resendConfigured: Boolean(process.env.RESEND_API_KEY),
     recipientConfigured: Boolean((settings?.recipient_email || process.env.DAILY_BRIEF_RECIPIENT)?.trim()),
     dailyBriefEnabled: settings?.daily_brief_enabled ?? false,

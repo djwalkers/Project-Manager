@@ -237,8 +237,14 @@ export async function deleteRecord<K extends EntityName>(table: K, id: string) {
     deletedRecord = found as RecordValue | null;
   }
 
-  const { error } = await supabase.from(table).delete().eq("id", id);
+  // RLS never errors on a refused DELETE — it simply matches zero rows. Ask
+  // for the deleted id back so a refusal (or an already-missing row) is
+  // detected: the caller then keeps the item and no Delete is audited.
+  const { data: deleted, error } = await supabase.from(table).delete().eq("id", id).select("id");
   if (error) throw errorMessage(`Failed to delete ${table}`, error);
+  if (!deleted || deleted.length === 0) {
+    throw new Error(`Failed to delete ${table}: the record was not deleted — you may not have permission to delete it, or it no longer exists.`);
+  }
 
   if (AUDITABLE_TABLES.has(table) && deletedRecord) {
     logAudit(

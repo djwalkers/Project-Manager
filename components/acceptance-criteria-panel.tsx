@@ -163,8 +163,8 @@ export function AcceptanceCriteriaPanel({
     try {
       await deleteRecord("acceptance_criteria", id);
       onUpdate(criteria.filter((ac) => ac.id !== id));
-    } catch {
-      setError("Failed to delete criterion.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete criterion.");
     }
   }
 
