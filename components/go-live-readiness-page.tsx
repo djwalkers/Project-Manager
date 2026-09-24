@@ -1,11 +1,12 @@
 "use client";
 
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, ClipboardList, Clock,
+  CheckCircle2, ChevronDown, ChevronRight, ClipboardList,
   GitBranch, ListChecks, Loader2, Plus, Trash2, XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { DeploymentStatusPanel } from "@/components/go-live-decision-panel";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,6 @@ import {
   GO_LIVE_OVERRIDE_STATUSES,
   resolveReadinessOverrideTarget,
   type GoLiveDashboard,
-  type GoLiveStatus,
   type ReadinessCheckResult,
   type ReadinessCheckStatus,
 } from "@/lib/go-live-readiness";
@@ -49,17 +49,12 @@ import { cn } from "@/lib/utils";
 
 // ── Status colours ────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<GoLiveStatus, { bg: string; border: string; badge: string }> = {
-  Green: { bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-300 dark:border-emerald-800", badge: "bg-emerald-600 text-white" },
-  Amber: { bg: "bg-amber-50 dark:bg-amber-950/30", border: "border-amber-300 dark:border-amber-800", badge: "bg-amber-500 text-white" },
-  Red: { bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-300 dark:border-red-800", badge: "bg-red-600 text-white" },
-  "Not Assessed": { bg: "bg-muted/40", border: "border-muted-foreground/20", badge: "bg-muted-foreground text-background" },
-};
-
 const CHECK_STATUS_COLORS: Record<ReadinessCheckStatus, string> = {
   Complete: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
   Waived: "bg-muted text-muted-foreground line-through",
-  Incomplete: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400",
+  // Outstanding (not a failure) — amber; an explicit Rejected is the red hard stop.
+  Incomplete: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  Rejected: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400",
   "Not Yet Assessed": "bg-muted text-muted-foreground",
   "Not Yet Required": "bg-muted text-muted-foreground",
 };
@@ -71,33 +66,6 @@ const CHECKLIST_STATUS_COLORS: Record<GoLiveChecklistStatus, string> = {
   "Blocked": "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
   "Waived": "bg-muted text-muted-foreground line-through",
 };
-
-// ── Readiness Gauge ────────────────────────────────────────────────────────────
-
-function ReadinessGauge({ percent, status }: { percent: number; status: GoLiveStatus }) {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative flex h-28 w-28 items-center justify-center">
-        <svg className="h-28 w-28 -rotate-90" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" strokeWidth="10" className="text-muted/30" />
-          <circle
-            cx="60" cy="60" r="50" fill="none" stroke="currentColor" strokeWidth="10"
-            strokeLinecap="round"
-            strokeDasharray={`${2 * Math.PI * 50}`}
-            strokeDashoffset={`${2 * Math.PI * 50 * (1 - percent / 100)}`}
-            className={status === "Green" ? "text-emerald-500" : status === "Amber" ? "text-amber-500" : status === "Red" ? "text-red-600" : "text-muted-foreground"}
-          />
-        </svg>
-        <div className="absolute text-center">
-          <span className="text-2xl font-bold tabular-nums">{percent}%</span>
-        </div>
-      </div>
-      <span className={cn("rounded px-2.5 py-1 text-xs font-bold uppercase tracking-wide", STATUS_COLORS[status].badge)}>
-        {status === "Green" ? "Go" : status === "Amber" ? "Caution" : status === "Red" ? "No Go" : "Not Assessed"}
-      </span>
-    </div>
-  );
-}
 
 // ── Readiness Check (13-check model, Phase 6) ──────────────────────────────────
 
@@ -753,9 +721,6 @@ export function GoLiveReadinessPage() {
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;
   if (!data) return <AppShell><LoadingState /></AppShell>;
 
-  const cfg = dashboard ? STATUS_COLORS[dashboard.status] : null;
-  const StatusIcon = dashboard ? (dashboard.status === "Green" ? CheckCircle2 : dashboard.status === "Amber" ? AlertTriangle : dashboard.status === "Red" ? XCircle : ClipboardList) : CheckCircle2;
-  const blockingChecks = dashboard?.checks.filter((c) => c.effective === "Incomplete") ?? [];
 
   return (
     <AppShell>
@@ -777,55 +742,14 @@ export function GoLiveReadinessPage() {
         <div className="mt-8 text-center text-sm text-muted-foreground">No projects found. Create a project to track go-live readiness.</div>
       ) : dashboard ? (
         <>
-          {/* Dashboard summary */}
-          <div className={cn("mt-5 rounded-lg border p-5 shadow-operational", cfg?.bg, cfg?.border)}>
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-8">
-              <div className="shrink-0">
-                <ReadinessGauge percent={dashboard.readinessPercent} status={dashboard.status} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusIcon className={cn("h-5 w-5", dashboard.status === "Green" ? "text-emerald-600" : dashboard.status === "Amber" ? "text-amber-600" : dashboard.status === "Red" ? "text-red-600" : "text-muted-foreground")} aria-hidden="true" />
-                  <h3 className="text-lg font-semibold">{project.name}</h3>
-                  {dashboard.goLiveDate && (
-                    <span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" /> Go-live: {dashboard.goLiveDate}
-                      {dashboard.daysToGoLive !== null && (
-                        <span className={cn("ml-1 font-semibold", dashboard.daysToGoLive < 0 ? "text-red-600" : dashboard.daysToGoLive <= 7 ? "text-amber-600" : "text-emerald-600")}>
-                          ({dashboard.daysToGoLive < 0 ? `${Math.abs(dashboard.daysToGoLive)}d overdue` : `${dashboard.daysToGoLive}d`})
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {dashboard.completedItems} of {dashboard.totalItems} applicable checks complete or waived
-                  {dashboard.excludedCount > 0 && <> · {dashboard.excludedCount} not yet applicable/assessed</>}
-                  {dashboard.incompleteCount > 0 && <> · {dashboard.incompleteCount} incomplete</>}
-                </p>
-                {blockingChecks.length > 0 && (
-                  <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-                    Blocking items: {blockingChecks.map((c) => c.label).join(", ")}
-                  </p>
-                )}
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                  {[
-                    { label: "Blockers", value: dashboard.blockerCount, alert: dashboard.blockerCount > 0 },
-                    { label: "Open Risks", value: dashboard.openRisks, alert: dashboard.openCriticalRisks > 0 },
-                    { label: "Critical Risks", value: dashboard.openCriticalRisks, alert: dashboard.openCriticalRisks > 0 },
-                    { label: "Decisions", value: dashboard.outstandingDecisions, alert: dashboard.outstandingDecisions > 0 },
-                    { label: "Deliverables", value: dashboard.outstandingDeliverables, alert: false },
-                    { label: "Tests Outstanding", value: dashboard.outstandingTesting, alert: false },
-                  ].map(({ label, value, alert }) => (
-                    <div key={label} className="rounded-md border bg-card/70 p-2 text-center">
-                      <p className={cn("text-xl font-bold tabular-nums", alert && value > 0 ? "text-red-600 dark:text-red-400" : "")}>{value}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Current deployment status (decision + readiness) */}
+          <DeploymentStatusPanel
+            dashboard={dashboard}
+            project={project}
+            canRecord={canAssessManual}
+            recorder={user ? `${user.fullName}${user.email ? ` (${user.email})` : ""}` : "Unknown user"}
+            onRecorded={(saved) => setData((prev) => prev ? { ...prev, go_live_decisions: [saved, ...(prev.go_live_decisions ?? [])] } : prev)}
+          />
 
           {/* Go-Live Readiness Checks (13-check model) */}
           <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational">

@@ -367,6 +367,7 @@ export const email_activity_log: EmailActivity[] = [];
 export const go_live_checklists: import("@/lib/types").GoLiveChecklist[] = [];
 export const cutover_plan: import("@/lib/types").CutoverStep[] = [];
 export const go_live_readiness_overrides: import("@/lib/types").GoLiveReadinessOverride[] = [];
+export const go_live_decisions: import("@/lib/types").GoLiveDecision[] = [];
 
 export const seedData = {
   projects,
@@ -389,6 +390,7 @@ export const seedData = {
   go_live_checklists,
   cutover_plan,
   go_live_readiness_overrides,
+  go_live_decisions,
   acceptance_criteria: [] as AcceptanceCriteria[],
   evidence: [] as Evidence[],
   requirement_sign_offs: [] as RequirementSignOff[],

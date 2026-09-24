@@ -6,16 +6,19 @@ import {
   isDeliverableComplete,
   isRequirementSignedOff,
   isRiskClosed,
+  isRiskCritical,
   isRiskHighOrCritical,
   isRiskOpen,
   isTestPassed,
 } from "@/lib/lifecycle";
 import { deriveProjectPhase, isPhaseAtOrAfter, MANUAL_CHECK_APPLICABLE_FROM, type ManualCheckKey, type ProjectPhase } from "@/lib/project-phase";
 import { calendarDaysUntil } from "@/lib/calendar-days";
+import { deriveDeploymentStatus, sortDecisionHistory, type DeploymentStatus } from "@/lib/go-live-decision";
 import { resolveGoLiveDate } from "@/lib/project-dates";
 import { developmentMilestoneSignal, preDeploymentDecisionReached, sitMilestoneSignal } from "@/lib/readiness-evidence";
 import type {
   AcceptanceCriteria,
+  GoLiveDecision,
   Deliverable,
   GoLiveChecklist,
   GoLiveChecklistCategory,
@@ -41,7 +44,9 @@ import { scopeProjectData } from "@/lib/project-scope";
 // two states, the overall status is "Not Assessed" — never a 0%/Red result
 // forced by simply having no data yet (the defect this phase fixes).
 
-export type ReadinessCheckStatus = "Complete" | "Incomplete" | "Waived" | "Not Yet Assessed" | "Not Yet Required";
+// "Rejected" exists only for the 5 manual checks: an explicit negative
+// assessment and therefore a hard stop. "Incomplete" means outstanding.
+export type ReadinessCheckStatus = "Complete" | "Incomplete" | "Waived" | "Rejected" | "Not Yet Assessed" | "Not Yet Required";
 export type GoLiveStatus = "Green" | "Amber" | "Red" | "Not Assessed";
 
 export type AutoCheckKey =
@@ -82,7 +87,7 @@ export const GO_LIVE_OVERRIDE_STATUSES: readonly GoLiveReadinessOverrideStatus[]
 // Yet Required) or "nobody has looked at this yet" (Not Yet Assessed).
 // Validated server-side in app/api/go-live/overrides/route.ts.
 export const GO_LIVE_MANUAL_CHECK_STATUSES: readonly ReadinessCheckStatus[] = [
-  "Complete", "Incomplete", "Waived", "Not Yet Assessed", "Not Yet Required",
+  "Complete", "Incomplete", "Waived", "Rejected", "Not Yet Assessed", "Not Yet Required",
 ];
 
 export type ReadinessOverrideView = { status: ReadinessCheckStatus; reason: string; by: string; at: string };
@@ -107,11 +112,23 @@ export type GoLiveDashboard = {
   incompleteCount: number;
   blockerCount: number;
   openRisks: number;
+  /** Open risks with Critical impact only — the automatic Go/No-Go hard stop and the "Critical Risks" tile. */
   openCriticalRisks: number;
+  /** Open High + Critical risks — the existing combined count, kept for the checklist RAG and the Manager Summary alert. */
+  openHighOrCriticalRisks: number;
+  /** Open High-impact risks, surfaced as warnings (never an automatic NO GO). */
+  openHighRisks: { ref: string; description: string }[];
   outstandingDecisions: number;
   outstandingDeliverables: number;
   outstandingTesting: number;
   checks: ReadinessCheckResult[];
+  /** Applicable automatic (provider/technical) gates: Complete or Waived out of assessed. */
+  providerReadiness: { complete: number; total: number };
+  /** Current deployment status, derived from the latest recorded decision + live readiness. */
+  deployment: DeploymentStatus;
+  latestDecision: GoLiveDecision | null;
+  /** Recorded Go/No-Go decisions for this project, newest first (append-only). */
+  decisionHistory: GoLiveDecision[];
   hasGoLiveDate: boolean;
   goLiveDate: string | null;
   daysToGoLive: number | null;
@@ -345,22 +362,29 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   // longer counts as a blocker once a human has explicitly assessed the
   // check to something else — the assessment supersedes the stale flag.
   let blockerCount = 0;
+  const blockedChecklistLabels: string[] = [];
   const manualChecks: ReadinessCheckResult[] = MANUAL_CHECKS.map((def) => {
     const { status, match, blocked } = resolveManualCheck(def, checklists, phase, preDeploymentDecision);
     const { effective, override } = applyOverride(status, overrideByKey.get(def.key));
-    if (blocked && !override) blockerCount += 1;
+    if (blocked && !override) { blockerCount += 1; blockedChecklistLabels.push(def.label); }
+    // An explicit Rejected assessment on an applicable control is a hard stop.
+    if (effective === "Rejected" && status !== "Not Yet Required") blockerCount += 1;
     return { key: def.key, label: def.label, source: "Manual", derived: status, override, effective, checklistItem: match };
   });
 
   const checks = [...autoChecks, ...manualChecks];
   const assessed = checks.filter((c) => c.effective !== "Not Yet Assessed" && c.effective !== "Not Yet Required");
-  const passed = assessed.filter((c) => c.effective === "Complete" || c.effective === "Waived");
+  const passed = assessed.filter((c) => c.effective === "Complete" || c.effective === "Waived"); // Rejected counts as assessed, never passed
   const readinessPercent = assessed.length === 0 ? 0 : Math.round((passed.length / assessed.length) * 100);
   const excludedCount = checks.length - assessed.length;
   const incompleteCount = assessed.length - passed.length;
 
   const openRisks = scoped.risks.filter((r) => isRiskOpen(r.status)).length;
-  const openCriticalRisks = scoped.risks.filter((r) => isRiskOpen(r.status) && isRiskHighOrCritical(r.impact)).length;
+  const openCriticalRisks = scoped.risks.filter((r) => isRiskOpen(r.status) && isRiskCritical(r.impact)).length;
+  const openHighOrCriticalRisks = scoped.risks.filter((r) => isRiskOpen(r.status) && isRiskHighOrCritical(r.impact)).length;
+  const openHighRisks = scoped.risks
+    .filter((r) => isRiskOpen(r.status) && String(r.impact) === "High")
+    .map((r) => ({ ref: r.risk_ref, description: r.description }));
   const outstandingDecisions = scoped.decisions.filter((d) => isDecisionOpen(d.status)).length;
   const outstandingDeliverables = scoped.deliverables.filter((d) => !isDeliverableComplete(d)).length;
   const outstandingTesting = scoped.test_cases.filter((t) => !["Passed", "Blocked"].includes(t.status)).length;
@@ -377,9 +401,19 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   // Required) — this is what replaces the old "empty checklist ⇒ 0% Red".
   let status: GoLiveStatus;
   if (assessed.length === 0) status = "Not Assessed";
-  else if (blockerCount > 0 || openCriticalRisks > 0 || readinessPercent < 60) status = "Red";
+  // Checklist RAG behaviour is unchanged: any open High OR Critical risk is Red here.
+  else if (blockerCount > 0 || openHighOrCriticalRisks > 0 || readinessPercent < 60) status = "Red";
   else if (readinessPercent < 100) status = "Amber";
   else status = "Green";
+
+  const providerAssessed = autoChecks.filter((c) => c.effective !== "Not Yet Assessed" && c.effective !== "Not Yet Required");
+  const providerReadiness = {
+    complete: providerAssessed.filter((c) => c.effective === "Complete" || c.effective === "Waived").length,
+    total: providerAssessed.length,
+  };
+  const decisionHistory = sortDecisionHistory((data.go_live_decisions ?? []).filter((d) => d.project_id === project.id));
+  const latestDecision = decisionHistory[0] ?? null;
+  const deployment = deriveDeploymentStatus({ checks, blockedChecklistLabels, openCriticalRisks, openHighRisks: openHighRisks.map((r) => r.ref), latestDecision });
 
   return {
     project,
@@ -392,10 +426,16 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
     blockerCount,
     openRisks,
     openCriticalRisks,
+    openHighOrCriticalRisks,
+    openHighRisks,
     outstandingDecisions,
     outstandingDeliverables,
     outstandingTesting,
     checks,
+    providerReadiness,
+    deployment,
+    latestDecision,
+    decisionHistory,
     hasGoLiveDate: Boolean(goLiveDate),
     goLiveDate,
     daysToGoLive,

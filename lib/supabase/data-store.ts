@@ -28,6 +28,9 @@ const AUTH_ROUTED_TABLE_PATHS: Partial<Record<EntityName, string>> = {
   go_live_checklists: "/api/go-live/checklists",
   cutover_plan: "/api/go-live/cutover",
   go_live_readiness_overrides: "/api/go-live/overrides",
+  // Append-only; written only via lib/go-live-decision-client.ts
+  // (POST /api/go-live/decisions), never createRecord/updateRecord.
+  go_live_decisions: "/api/go-live/decisions",
 };
 
 async function fetchAuthRoutedTable(path: string, init?: RequestInit) {

@@ -179,7 +179,7 @@ run("every manual check key accepts a persisted assessment that becomes the effe
 });
 
 run("all supported readiness statuses are assignable to a manual check via assessment", () => {
-  assert.deepEqual([...GO_LIVE_MANUAL_CHECK_STATUSES].sort(), ["Complete", "Incomplete", "Not Yet Assessed", "Not Yet Required", "Waived"].sort());
+  assert.deepEqual([...GO_LIVE_MANUAL_CHECK_STATUSES].sort(), ["Complete", "Incomplete", "Not Yet Assessed", "Not Yet Required", "Rejected", "Waived"].sort());
   for (const status of GO_LIVE_MANUAL_CHECK_STATUSES) {
     const data = buildData({
       go_live_readiness_overrides: [assessmentRow({ override_status: status })],

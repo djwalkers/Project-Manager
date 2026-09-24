@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "027_project_creation_fields";
-export const latestMigration = "027_project_creation_fields";
+export const schemaVersion = "028_go_live_decisions";
+export const latestMigration = "028_go_live_decisions";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -30,6 +30,7 @@ export const allMigrations = [
   "025_go_live_readiness_overrides",
   "026_ai_settings_local_gateway",
   "027_project_creation_fields",
+  "028_go_live_decisions",
 ] as const;
 
 export type SchemaColumn = {
@@ -375,6 +376,19 @@ export const schemaTables: SchemaTable[] = [
       { name: "overridden_at", type: "timestamptz", required: true },
       createdAt,
       updatedAt,
+    ],
+  },
+  {
+    name: "go_live_decisions",
+    seedKey: ["project_id", "decided_at"],
+    columns: [
+      id, projectId,
+      { name: "decision", type: "text", required: true },
+      { name: "reason", type: "text", required: true },
+      { name: "decided_by", type: "text", required: true },
+      { name: "decided_by_user_id", type: "uuid", required: false },
+      { name: "decided_at", type: "timestamptz", required: true },
+      createdAt,
     ],
   },
   {

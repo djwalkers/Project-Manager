@@ -17,6 +17,11 @@ export function isRiskHighOrCritical(impact: Impact | string | null | undefined)
   return ["High", "Critical"].includes(String(impact ?? ""));
 }
 
+/** Critical impact only — the automatic Go/No-Go hard stop. High is a warning, not a stop. */
+export function isRiskCritical(impact: Impact | string | null | undefined): boolean {
+  return String(impact ?? "") === "Critical";
+}
+
 export function isRiskUnmitigated(risk: Pick<Risk, "mitigation">): boolean {
   return !risk.mitigation?.trim();
 }

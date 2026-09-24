@@ -151,6 +151,7 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
     go_live_checklists: belongsToProject(data.go_live_checklists ?? []),
     cutover_plan: belongsToProject(data.cutover_plan ?? []),
     go_live_readiness_overrides: belongsToProject(data.go_live_readiness_overrides ?? []),
+    go_live_decisions: belongsToProject(data.go_live_decisions ?? []),
     acceptance_criteria: belongsToProject(data.acceptance_criteria ?? []),
     evidence: belongsToProject(data.evidence ?? []),
     requirement_sign_offs: belongsToProject(data.requirement_sign_offs ?? []),

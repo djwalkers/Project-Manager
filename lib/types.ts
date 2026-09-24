@@ -134,7 +134,24 @@ export type GoLiveChecklist = {
 // human decision for an auto-derived check. Manual checks use the full
 // vocabulary (see GO_LIVE_MANUAL_CHECK_STATUSES), since a manual check's
 // source of truth is the human assessment itself, not a derivation.
-export type GoLiveReadinessOverrideStatus = "Complete" | "Incomplete" | "Waived" | "Not Yet Assessed" | "Not Yet Required";
+// "Rejected" is valid only for the 5 manual checks: an explicit negative
+// assessment (a hard stop), distinct from "Incomplete" (outstanding).
+export type GoLiveReadinessOverrideStatus = "Complete" | "Incomplete" | "Waived" | "Rejected" | "Not Yet Assessed" | "Not Yet Required";
+
+// Append-only Go/No-Go decision history (supabase/migrations/028). The
+// latest row per project is the current recorded decision.
+export type GoLiveDecisionValue = "GO" | "NO_GO";
+
+export type GoLiveDecision = {
+  id: string;
+  project_id: string;
+  decision: GoLiveDecisionValue;
+  reason: string;
+  decided_by: string;
+  decided_by_user_id: string | null;
+  decided_at: string;
+  created_at: string;
+};
 
 export type GoLiveReadinessOverride = {
   id: string;
@@ -498,6 +515,7 @@ export type EntityMap = {
   go_live_checklists: GoLiveChecklist;
   cutover_plan: CutoverStep;
   go_live_readiness_overrides: GoLiveReadinessOverride;
+  go_live_decisions: GoLiveDecision;
   acceptance_criteria: AcceptanceCriteria;
   evidence: Evidence;
   requirement_sign_offs: RequirementSignOff;
