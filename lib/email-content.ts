@@ -3,12 +3,14 @@ import {
   computeTestVerification,
   isAcceptanceCriteriaFailed,
   isAcceptanceCriteriaMet,
+  isActionOpen,
   isActionOverdue,
   isDecisionOpen,
   isDeliverableBlocked,
   isDeliverableComplete,
   isDependencyOpen,
   isRiskHighOrCritical,
+  isRequirementSignedOff,
   isRiskOpen,
   isTestPassed,
   summarizeVerificationStates,
@@ -20,6 +22,7 @@ import { buildManagerExceptionReport, type ManagerProjectSummary } from "@/lib/m
 import { buildProjectIntelligence } from "@/lib/project-intelligence";
 import { buildProjectState, type ProjectState } from "@/lib/project-state";
 import { scopeProjectData, selectCanonicalProjects, selectEmailProjects } from "@/lib/project-scope";
+import { activeHypercare, BRIEF_FOCUS_TITLE, briefFocus, capList, daysUntil, nextMilestone, percentOrNull, relativeDays, truncate } from "@/lib/daily-brief-format";
 import { buildSinceYesterday, buildTrendAnalysis, buildWeeklyExecutiveSummary } from "@/lib/project-trends";
 import { countTests, groupTestsByRequirement, parseTestScenario, splitSteps, summariseAreas, testPositionMessage, type AreaPosition, type AreaSummary } from "@/lib/test-report-format";
 import { BRAND, brandLockupPrintHtml } from "@/lib/brand";
@@ -59,9 +62,6 @@ function toDateStr(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-function daysFromNow(dateStr: string, now: Date): number {
-  return Math.round((new Date(`${dateStr}T12:00:00Z`).getTime() - now.getTime()) / 86_400_000);
-}
 
 function healthBadge(health: string) {
   const colors: Record<string, string> = { Green: "#16a34a", Amber: "#d97706", Red: "#dc2626" };
@@ -72,208 +72,183 @@ function healthBadge(health: string) {
 }
 
 function briefSection(title: string, body: string) {
-  return `<div style="background:#fff;padding:20px 24px;border:1px solid #e2e8f0;border-top:0"><h2 style="margin:0 0 12px;font-size:16px;color:#0f172a;border-bottom:1px solid #f1f5f9;padding-bottom:8px">${escapeHtml(title)}</h2>${body}</div>`;
+  return `<div style="background:#fff;padding:14px 20px;border:1px solid #e2e8f0;border-top:0"><h2 style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#334155">${escapeHtml(title)}</h2>${body}</div>`;
 }
 
-function attentionRow(label: string, count: number, urgent: boolean) {
-  const color = urgent ? "#dc2626" : "#d97706";
-  if (count === 0) return "";
-  return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f8fafc"><span style="min-width:80px;font-size:22px;font-weight:700;color:${color}">${count}</span><span style="font-size:14px;color:#334155">${escapeHtml(label)}</span></div>`;
-}
 
 function briefList(items: string[], empty: string) {
   if (!items.length) return `<p style="margin:0;color:#94a3b8;font-size:13px">${escapeHtml(empty)}</p>`;
   return `<ul style="margin:0;padding-left:18px">${items.map((i) => `<li style="font-size:13px;color:#1e293b;margin-bottom:5px">${escapeHtml(i)}</li>`).join("")}</ul>`;
 }
 
-function kpiCell(label: string, value: string, sub?: string) {
-  return `<td style="padding:0 16px 0 0;vertical-align:top"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">${escapeHtml(label)}</div><div style="font-size:22px;font-weight:700;color:#0f172a">${escapeHtml(value)}</div>${sub ? `<div style="font-size:11px;color:#64748b">${escapeHtml(sub)}</div>` : ""}</td>`;
+
+function briefKpi(label: string, value: string, sub?: string) {
+  return `<td style="padding:0 14px 0 0;vertical-align:top"><div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em">${escapeHtml(label)}</div><div style="font-size:15px;font-weight:700;color:#0f172a">${escapeHtml(value)}</div>${sub ? `<div style="font-size:11px;color:#64748b">${escapeHtml(sub)}</div>` : ""}</td>`;
 }
 
+type AttentionItem = { tone: "critical" | "warning" | "info"; text: string };
+
+function attentionGroupHtml(title: string, items: AttentionItem[]): string {
+  if (!items.length) return "";
+  const color = items.some((i) => i.tone === "critical") ? "#b91c1c" : items.some((i) => i.tone === "warning") ? "#b45309" : "#475569";
+  return `<div style="margin:0 0 8px"><div style="font-size:12px;font-weight:700;color:${color}">${escapeHtml(title)}</div><ul style="margin:2px 0 0;padding-left:18px">${items.map((i) => `<li style="font-size:13px;color:#1e293b;margin:0 0 2px">${escapeHtml(i.text)}</li>`).join("")}</ul></div>`;
+}
+
+// One project block of the automated Daily Brief. Every figure comes from
+// the canonical ProjectState (phase, health, progress, go-live/hypercare
+// dates, rollups, verification) — the brief only chooses what to lead with
+// for the project's current phase and what to list under attention.
 function buildProjectBriefSection(state: ProjectState, todayStr: string, in7DaysStr: string): { html: string; text: string; priorities: Array<{ label: string; score: number }> } {
   const { project, scoped, generatedAt: now } = state;
   const { deliverables, actions, risks, milestones, decisions, dependencies, discovery_questions, test_cases } = scoped;
   const allAC = scoped.acceptance_criteria ?? [];
+  const focus = briefFocus(state.phase.phase);
+  const timelinePhase = currentPhaseName(scoped.timeline_items ?? []);
+  const phaseLabel = `${state.phase.phase}${timelinePhase && timelinePhase !== state.phase.phase ? ` · ${timelinePhase}` : ""}`;
 
-  // Project Summary — deliverable-completion %, a distinct metric from
-  // Control Tower's weighted overall progress; only the input counts are
-  // shared via state.rollups, not the percentage itself.
-  const totalDel = state.rollups.deliverables.total;
-  const doneDel = state.rollups.deliverables.complete;
-  const progressPct = totalDel > 0 ? Math.round((doneDel / totalDel) * 100) : 0;
+  // Canonical dates
   const goLive = state.goLiveDate;
-  const days = goLive.date ? daysFromNow(goLive.date, now) : null;
-  const daysLabel = days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
+  const goLiveDays = goLive.date ? daysUntil(goLive.date, now) : null;
+  const next = nextMilestone(milestones, todayStr, now);
+  const hypercare = activeHypercare(state.hypercare, todayStr, now);
 
-  // Today's Attention
+  // Canonical counts
+  const tests = countTests(test_cases);
+  const verificationSummary = summarizeVerificationStates(state.verification);
+  const requirementCount = scoped.requirements.length;
+  const del = state.rollups.deliverables;
+  const delPct = percentOrNull(del.complete, del.total);
+
+  // Attention inputs (existing lifecycle helpers)
+  const failedOrBlockedTests = [...test_cases].filter((t) => t.status === "Failed" || t.status === "Blocked").sort((a, b) => REF_COLLATOR.compare(a.test_ref, b.test_ref));
   const overdueActions = actions.filter((a) => isActionOverdue(a.due_date, a.status));
   const highRisks = risks.filter((r) => isRiskHighOrCritical(r.impact) && isRiskOpen(r.status));
   const openQueries = discovery_questions.filter((q) => q.status === "Awaiting Response" || q.status === "Open" || q.status === "Awaiting Business" || q.status === "Awaiting Development");
   const upcomingDeliverables = deliverables.filter((d) => d.planned_completion_date && d.planned_completion_date >= todayStr && d.planned_completion_date <= in7DaysStr && !isDeliverableComplete(d));
-  const upcomingMilestones = milestones.filter((m) => m.target_date && m.target_date >= todayStr && m.target_date <= in7DaysStr && m.status !== "Complete");
-
-  // Development
+  const upcomingMilestones = milestones
+    .filter((m) => m.target_date && m.target_date >= todayStr && m.target_date <= in7DaysStr && m.status !== "Complete")
+    .sort((a, b) => (a.target_date as string).localeCompare(b.target_date as string));
   const inProgressDel = deliverables.filter((d) => d.status !== "Not Started" && d.status !== "Deployed" && d.status !== "Blocked");
   const blockedDel = deliverables.filter((d) => isDeliverableBlocked(d));
-
-  // Testing
-  const totalTests = test_cases.length;
-  const passedTests = test_cases.filter((t) => isTestPassed(t.status)).length;
-  const failedTests = test_cases.filter((t) => t.status === "Failed").length;
-  const blockedTests = test_cases.filter((t) => t.status === "Blocked").length;
-  const pendingTests = test_cases.filter((t) => t.status === "Pending").length;
-
-  // Governance
   const openDecisions = decisions.filter((d) => isDecisionOpen(d.status));
   const openDependencies = dependencies.filter((d) => isDependencyOpen(d.status));
+  const openActions = actions.filter((a) => isActionOpen(a.status));
 
-  // Build priorities (returned for top-3 aggregation)
+  const parsedTitle = (t: TestCase) => parseTestScenario(t.scenario).title;
+  const shortDate = (d: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
+
+  // Failures and blockers first, then ordinary upcoming items.
+  const attentionGroups: Array<[string, AttentionItem[]]> = [
+    ["Failed / blocked tests", capList(failedOrBlockedTests.map((t) => `${t.test_ref} ${truncate(parsedTitle(t), 70)} — ${t.status}`)).map((text) => ({ tone: "critical" as const, text }))],
+    ["Blocked deliverables", capList(blockedDel.map((d) => `${d.deliverable_ref} ${truncate(d.title, 70)}`)).map((text) => ({ tone: "critical" as const, text }))],
+    ["Overdue actions", capList(overdueActions.map((a) => `${a.action_ref} ${truncate(a.description, 70)}${a.due_date ? ` (due ${shortDate(a.due_date)})` : ""}`)).map((text) => ({ tone: "critical" as const, text }))],
+    ["High / critical risks", capList(highRisks.map((r) => `${r.risk_ref} ${r.impact} — ${truncate(r.description, 70)}`)).map((text) => ({ tone: "warning" as const, text }))],
+    ["Milestones due in 7 days", capList(upcomingMilestones.map((m) => `${m.milestone_ref} ${m.title} — ${shortDate(m.target_date as string)} (${relativeDays(daysUntil(m.target_date as string, now))})`)).map((text) => ({ tone: "info" as const, text }))],
+    ["Deliverables due in 7 days", capList(upcomingDeliverables.map((d) => `${d.deliverable_ref} ${truncate(d.title, 60)} — ${shortDate(d.planned_completion_date as string)}`)).map((text) => ({ tone: "info" as const, text }))],
+    ["Open queries", capList(openQueries.map((q) => `${q.question_ref} ${truncate(q.question ?? "", 70)}`)).map((text) => ({ tone: "info" as const, text }))],
+  ];
+  const attentionHtml = attentionGroups.map(([title, items]) => attentionGroupHtml(title, items)).join("")
+    || `<p style="margin:0;color:#15803d;font-size:14px">Nothing requires immediate attention.</p>`;
+  const attentionText = attentionGroups.filter(([, items]) => items.length).map(([title, items]) => `${title}:\n${items.map((i) => `  - ${i.text}`).join("\n")}`).join("\n") || "- Nothing requires immediate attention.";
+
+  // Priorities for the cross-project Top 3 (failures and blockers rank first)
   const priorities: Array<{ label: string; score: number }> = [];
-  if (overdueActions.length > 0) priorities.push({ label: `${overdueActions.length} overdue action${overdueActions.length > 1 ? "s" : ""} — ${overdueActions[0].description.slice(0, 60)}`, score: 100 + overdueActions.length });
-  highRisks.forEach((r) => priorities.push({ label: `${r.impact} risk: ${r.description.slice(0, 70)}`, score: r.impact === "Critical" ? 90 : 80 }));
-  upcomingMilestones.forEach((m) => { const d = m.target_date ? daysFromNow(m.target_date, now) : 99; priorities.push({ label: `Milestone due in ${d}d: ${m.title}`, score: 70 - d }); });
+  failedOrBlockedTests.slice(0, 3).forEach((t) => priorities.push({ label: `${t.status} test: ${t.test_ref} ${truncate(parsedTitle(t), 60)}`, score: t.status === "Failed" ? 110 : 105 }));
+  if (blockedDel.length > 0) priorities.push({ label: `${blockedDel.length} blocked deliverable${blockedDel.length > 1 ? "s" : ""} — ${blockedDel[0].deliverable_ref} ${truncate(blockedDel[0].title, 50)}`, score: 102 });
+  if (overdueActions.length > 0) priorities.push({ label: `${overdueActions.length} overdue action${overdueActions.length > 1 ? "s" : ""} — ${truncate(overdueActions[0].description, 60)}`, score: 100 + overdueActions.length });
+  highRisks.forEach((r) => priorities.push({ label: `${r.impact} risk: ${r.risk_ref} ${truncate(r.description, 60)}`, score: r.impact === "Critical" ? 90 : 80 }));
+  upcomingMilestones.forEach((m) => { const d = daysUntil(m.target_date as string, now); priorities.push({ label: `Milestone ${relativeDays(d)}: ${m.milestone_ref} ${m.title}`, score: 70 - d }); });
 
-  // HTML
-  const projectHeader = `<div style="background:#1e293b;color:#fff;padding:16px 24px;border-top:3px solid #3b82f6;margin-top:16px"><strong style="font-size:15px">${escapeHtml(project.name)}</strong> &nbsp; ${healthBadge(project.health)}</div>`;
+  // ── Phase-relevant position ──────────────────────────────────────────────
+  const testsLine = tests.total > 0 ? `${tests.passed} of ${tests.total} tests passed · ${tests.executionPct}% executed · ${tests.remaining} remaining · ${tests.failed} failed · ${tests.blocked} blocked` : "";
+  const positionLines: string[] = [];
+  let positionHeadline = "";
+  if (focus === "testing") {
+    positionHeadline = tests.total > 0 ? `${tests.passed} of ${tests.total} tests passed · ${tests.executionPct}% executed` : "No test cases recorded.";
+    if (tests.total > 0) {
+      positionLines.push(`${tests.remaining} remaining${tests.inProgress > 0 ? ` (${tests.inProgress} in progress)` : ""} · ${tests.failed} failed · ${tests.blocked} blocked`);
+      positionLines.push(testPositionMessage(tests));
+    }
+    if (requirementCount > 0) positionLines.push(`Requirements verified by linked tests: ${verificationSummary.Verified} of ${requirementCount}`);
+  } else if (focus === "development") {
+    positionHeadline = delPct === null ? "No deliverables recorded." : `${del.complete} of ${del.total} deliverables deployed (${delPct}%)`;
+    if (inProgressDel.length) positionLines.push(`In progress: ${capList(inProgressDel.map((d) => `${d.deliverable_ref} ${truncate(d.title, 40)} (${d.status})`), 4).join("; ")}`);
+    if (testsLine) positionLines.push(testsLine);
+  } else if (focus === "discovery") {
+    const approved = scoped.requirements.filter((r) => isRequirementSignedOff(r.status)).length;
+    positionHeadline = requirementCount > 0 ? `${approved} of ${requirementCount} requirements approved` : "No requirements recorded.";
+    positionLines.push(`${openQueries.length} open quer${openQueries.length === 1 ? "y" : "ies"} · ${openDecisions.length} open decision${openDecisions.length === 1 ? "" : "s"}`);
+  } else if (focus === "go-live") {
+    positionHeadline = `Go-Live readiness ${state.goLive.status} · ${state.goLive.readinessPercent}%`;
+    positionLines.push(`${state.goLive.blockerCount} readiness blocker${state.goLive.blockerCount === 1 ? "" : "s"}`);
+    if (testsLine) positionLines.push(testsLine);
+  } else {
+    positionHeadline = hypercare ? `Hypercare until ${shortDate(hypercare.date)} (${relativeDays(hypercare.days)})` : `Project ${project.status.toLowerCase()}`;
+    positionLines.push(`${openActions.length} open action${openActions.length === 1 ? "" : "s"} · ${highRisks.length} high/critical risk${highRisks.length === 1 ? "" : "s"} open`);
+    if (tests.total > 0 && tests.passed < tests.total) positionLines.push(testsLine);
+  }
+  if (del.total > 0 && focus !== "development") positionLines.push(`Deliverables: ${del.complete}/${del.total} deployed`);
 
-  const summaryHtml = `<table style="border-collapse:collapse"><tr>
-    ${kpiCell("Progress", `${progressPct}%`, `${doneDel}/${totalDel} deployed`)}
-    ${kpiCell("Go-Live", daysLabel, goLive.date ?? undefined)}
-    ${kpiCell("Health", project.health)}
-    ${kpiCell("Status", project.status)}
-  </tr></table>`;
-
-  const attentionItems = [
-    attentionRow("Overdue Actions", overdueActions.length, true),
-    attentionRow("High / Critical Risks", highRisks.length, highRisks.length > 2),
-    attentionRow("Open Queries", openQueries.length, false),
-    attentionRow("Deliverables due ≤7 days", upcomingDeliverables.length, false),
-    attentionRow("Milestones due ≤7 days", upcomingMilestones.length, false),
+  // Key dates + canonical overall figures (subordinate to the phase position)
+  // Canonical overall progress (lib/control-tower.ts calculateProgress) is
+  // shown only when at least one of its inputs has records — otherwise it is
+  // a zero-denominator 0%, not a measurement.
+  const progressMeasured = [scoped.requirements, milestones, actions, test_cases, discovery_questions].some((c) => c.length > 0);
+  // Same rule as the Manager Summary (classifyProject): no delivery evidence
+  // means "Not Assessed", never a computed RAG.
+  const healthLabel = state.managerSummary.status === "Not Assessed" ? "Not Assessed" : state.projectHealth;
+  const kpis = [
+    next ? briefKpi("Next milestone", `${shortDate(next.date)} · ${relativeDays(next.days)}`, next.label) : "",
+    goLive.date ? briefKpi("Go-Live", goLiveDays === null ? "—" : goLiveDays < 0 ? `${Math.abs(goLiveDays)}d ago` : goLiveDays === 0 ? "Today" : `${goLiveDays}d`, goLive.date) : "",
+    hypercare && focus !== "hypercare" ? briefKpi("Hypercare ends", shortDate(hypercare.date), hypercare.date) : "",
+    progressMeasured ? briefKpi("Overall progress", `${state.progress.overall}%`) : "",
   ].filter(Boolean).join("");
-  const attentionHtml = attentionItems || `<p style="margin:0;color:#16a34a;font-size:14px">Nothing requires immediate attention.</p>`;
 
-  const devItems = [
-    ...inProgressDel.map((d) => `${d.deliverable_ref}: ${d.title} (${d.status})`),
-    ...blockedDel.map((d) => `BLOCKED — ${d.deliverable_ref}: ${d.title}`),
-  ];
+  const positionHtml = `<div style="font-size:18px;font-weight:700;color:#0f172a">${escapeHtml(positionHeadline)}</div>${positionLines.map((l) => `<div style="margin-top:3px;font-size:13px;color:#334155">${escapeHtml(l)}</div>`).join("")}${kpis ? `<table style="border-collapse:collapse;margin-top:12px"><tr>${kpis}</tr></table>` : ""}`;
 
-  const testHtml = totalTests > 0
-    ? `<table style="border-collapse:collapse;font-size:13px"><tr>
-        <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Total</span> <strong>${totalTests}</strong></td>
-        <td style="padding:4px 20px 4px 0"><span style="color:#16a34a">Passed</span> <strong>${passedTests}</strong></td>
-        <td style="padding:4px 20px 4px 0"><span style="color:#dc2626">Failed</span> <strong>${failedTests}</strong></td>
-        <td style="padding:4px 20px 4px 0"><span style="color:#d97706">Blocked</span> <strong>${blockedTests}</strong></td>
-        <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Pending</span> <strong>${pendingTests}</strong></td>
-      </tr></table>`
-    : `<p style="margin:0;color:#94a3b8;font-size:13px">No test cases recorded.</p>`;
-
-  const govItems = [
-    ...openDecisions.map((d) => `${d.decision_ref}: ${d.question.slice(0, 80)}`),
-    ...openDependencies.map((d) => `Dependency: ${d.name}${d.owner ? ` (${d.owner})` : ""}`),
-  ];
-
-  // Acceptance Criteria
-  const failedACReqs = scoped.requirements.filter((r) =>
-    allAC.some((ac) => ac.requirement_id === r.id && isAcceptanceCriteriaFailed(ac.status)),
-  ).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+  // ── Supporting sections — rendered only when they have something to say ──
+  const failedACReqs = scoped.requirements.filter((r) => allAC.some((ac) => ac.requirement_id === r.id && isAcceptanceCriteriaFailed(ac.status))).map((r) => r.requirement_ref);
   const signOffReadyReqs = scoped.requirements.filter((r) => {
     const acs = allAC.filter((ac) => ac.requirement_id === r.id);
     return acs.length > 0 && acs.every((ac) => isAcceptanceCriteriaMet(ac.status));
-  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
-  const acHtml = allAC.length === 0
-    ? `<p style="margin:0;color:#94a3b8;font-size:13px">No acceptance criteria recorded.</p>`
-    : [
-        `<table style="border-collapse:collapse;font-size:13px;margin-bottom:8px"><tr>
-          <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Total</span> <strong>${allAC.length}</strong></td>
-          <td style="padding:4px 20px 4px 0"><span style="color:#16a34a">Met</span> <strong>${allAC.filter((ac) => ac.status === "Met").length}</strong></td>
-          <td style="padding:4px 20px 4px 0"><span style="color:#dc2626">Failed</span> <strong>${allAC.filter((ac) => isAcceptanceCriteriaFailed(ac.status)).length}</strong></td>
-          <td style="padding:4px 20px 4px 0"><span style="color:#64748b">Outstanding</span> <strong>${allAC.filter((ac) => !["Met", "Waived", "Failed"].includes(ac.status)).length}</strong></td>
-        </tr></table>`,
-        failedACReqs.length ? `<p style="margin:4px 0;font-size:12px;font-weight:700;color:#dc2626">Requirements with failed criteria:</p>${briefList(failedACReqs, "")}` : "",
-        signOffReadyReqs.length ? `<p style="margin:8px 0 4px;font-size:12px;font-weight:700;color:#16a34a">Requirements ready for sign-off:</p>${briefList(signOffReadyReqs, "")}` : "",
-      ].join("");
-
+  }).map((r) => r.requirement_ref);
   if (failedACReqs.length > 0) priorities.push({ label: `${failedACReqs.length} requirement(s) with failed acceptance criteria`, score: 95 });
 
-  // Sign-off & Evidence (Part 5)
   const allSignOffs = scoped.requirement_sign_offs ?? [];
-  const allEvidence = scoped.evidence ?? [];
+  const awaitingSignOffReqs = scoped.requirements.filter((r) => allSignOffs.some((s) => s.requirement_id === r.id && s.status === "Pending")).map((r) => r.requirement_ref);
+  if (awaitingSignOffReqs.length > 0) priorities.push({ label: `${awaitingSignOffReqs.length} requirement(s) awaiting sign-off`, score: 88 });
 
-  const awaitingSignOffReqs = scoped.requirements.filter((r) =>
-    allSignOffs.some((s) => s.requirement_id === r.id && s.status === "Pending"),
-  ).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+  const pendingSuggestionCount = (scoped.meeting_suggestions ?? []).filter((s) => s.status === "Pending").length;
+  if (pendingSuggestionCount > 0) priorities.push({ label: `${pendingSuggestionCount} meeting suggestion(s) pending review`, score: 70 });
 
-  const missingEvidenceReqs = scoped.requirements.filter((r) => {
-    const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-    return acs.length > 0 && acs.every((ac) => !allEvidence.some((ev) => ev.ac_id === ac.id));
-  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
+  const readinessLines = [
+    failedACReqs.length ? `Failed acceptance criteria: ${capList(failedACReqs, 6).join(", ")}` : "",
+    awaitingSignOffReqs.length ? `Awaiting sign-off: ${capList(awaitingSignOffReqs, 6).join(", ")}` : "",
+    signOffReadyReqs.length ? `All criteria met, ready for sign-off: ${capList(signOffReadyReqs, 6).join(", ")}` : "",
+  ].filter(Boolean);
+  const governanceLines = [
+    ...capList(openDecisions.map((d) => `${d.decision_ref}: ${truncate(d.question, 80)}`)),
+    ...capList(openDependencies.map((d) => `Dependency: ${d.name}${d.owner ? ` (${d.owner})` : ""}`)),
+    pendingSuggestionCount ? `${pendingSuggestionCount} meeting suggestion${pendingSuggestionCount > 1 ? "s" : ""} awaiting review` : "",
+  ].filter(Boolean);
 
-  const failedGateReqs = scoped.requirements.filter((r) => {
-    const acs = allAC.filter((ac) => ac.requirement_id === r.id);
-    const hasFailedAC = acs.some((ac) => isAcceptanceCriteriaFailed(ac.status));
-    const noEvidence = acs.length > 0 && acs.every((ac) => !allEvidence.some((ev) => ev.ac_id === ac.id));
-    return hasFailedAC || noEvidence;
-  }).map((r) => `${r.requirement_ref}: ${r.title.slice(0, 70)}`);
-
-  const readinessHtmlParts: string[] = [];
-  if (awaitingSignOffReqs.length > 0) {
-    readinessHtmlParts.push(`<p style="margin:4px 0;font-size:12px;font-weight:700;color:#d97706">Awaiting sign-off (${awaitingSignOffReqs.length}):</p>${briefList(awaitingSignOffReqs, "")}`);
-    priorities.push({ label: `${awaitingSignOffReqs.length} requirement(s) awaiting sign-off`, score: 88 });
-  }
-  if (missingEvidenceReqs.length > 0) {
-    readinessHtmlParts.push(`<p style="margin:8px 0 4px;font-size:12px;font-weight:700;color:#7c3aed">Missing evidence (${missingEvidenceReqs.length}):</p>${briefList(missingEvidenceReqs, "")}`);
-    priorities.push({ label: `${missingEvidenceReqs.length} requirement(s) missing evidence`, score: 75 });
-  }
-  if (failedGateReqs.length > 0) {
-    readinessHtmlParts.push(`<p style="margin:8px 0 4px;font-size:12px;font-weight:700;color:#dc2626">Failed readiness gates (${failedGateReqs.length}):</p>${briefList(failedGateReqs, "")}`);
-  }
-  const readinessHtml = readinessHtmlParts.length > 0
-    ? readinessHtmlParts.join("")
-    : `<p style="margin:0;color:#16a34a;font-size:13px">No sign-off or evidence gaps.</p>`;
-
-  // Meeting Intelligence (Part 10)
-  const projectMeetings = (scoped.meeting_intelligence ?? [])
-    .sort((a, b) => (b.meeting_date ?? "").localeCompare(a.meeting_date ?? ""));
-  const yesterdayStr = toDateStr(new Date(now.getTime() - 86_400_000));
-  const meetingsYesterday = projectMeetings.filter((m) => m.meeting_date === yesterdayStr);
-  const pendingSuggestionCount = (scoped.meeting_suggestions ?? []).filter(
-    (s) => s.status === "Pending",
-  ).length;
-  const meetingHtmlParts: string[] = [];
-  if (meetingsYesterday.length > 0) {
-    meetingHtmlParts.push(
-      `<p style="margin:4px 0;font-size:13px">${meetingsYesterday.length} meeting${meetingsYesterday.length > 1 ? "s" : ""} analysed yesterday: ${meetingsYesterday.map((m) => m.title).join(", ")}</p>`,
-    );
-  }
-  if (pendingSuggestionCount > 0) {
-    meetingHtmlParts.push(
-      `<p style="margin:4px 0;font-size:13px;font-weight:700;color:#d97706">${pendingSuggestionCount} suggested update${pendingSuggestionCount > 1 ? "s" : ""} awaiting review</p>`,
-    );
-    priorities.push({ label: `${pendingSuggestionCount} meeting suggestion(s) pending review`, score: 70 });
-  }
-  const meetingHtml = meetingHtmlParts.length > 0
-    ? meetingHtmlParts.join("")
-    : `<p style="margin:0;color:#6b7280;font-size:13px">No meeting intelligence activity.</p>`;
+  const projectHeader = `<div style="background:#1e293b;color:#fff;padding:12px 20px;border-top:3px solid ${BRAND.colors.blue};margin-top:14px"><table role="presentation" width="100%" style="border-collapse:collapse"><tr><td style="vertical-align:middle">${project.project_ref ? `<span style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:#93c5fd;margin-right:8px">${escapeHtml(project.project_ref)}</span>` : ""}<strong style="font-size:15px">${escapeHtml(project.name)}</strong><div style="margin-top:2px;font-size:12px;color:#cbd5e1">Phase: ${escapeHtml(phaseLabel)}</div></td><td style="vertical-align:middle;text-align:right;white-space:nowrap">${healthBadge(healthLabel)}</td></tr></table></div>`;
 
   const html = [
     projectHeader,
-    briefSection("Project Summary", summaryHtml),
+    briefSection(BRIEF_FOCUS_TITLE[focus], positionHtml),
     briefSection("Today's Attention", attentionHtml),
-    briefSection("Development", briefList(devItems, "No deliverables in progress.")),
-    briefSection("Testing", testHtml),
-    briefSection("Acceptance Criteria", acHtml),
-    briefSection("Sign-off & Evidence", readinessHtml),
-    briefSection("Governance", briefList(govItems, "No open decisions or dependencies.")),
-    briefSection("Meeting Intelligence", meetingHtml),
+    readinessLines.length ? briefSection("Acceptance & Sign-off", briefList(readinessLines, "")) : "",
+    governanceLines.length ? briefSection("Governance", briefList(governanceLines, "")) : "",
   ].join("");
 
   const text = [
-    `\n${"=".repeat(60)}\n${project.name.toUpperCase()} — ${project.health} | ${progressPct}% | Go-live: ${daysLabel}\n${"=".repeat(60)}`,
-    `TODAY'S ATTENTION\n${[overdueActions.length ? `- ${overdueActions.length} overdue action(s)` : "", highRisks.length ? `- ${highRisks.length} high/critical risk(s)` : "", openQueries.length ? `- ${openQueries.length} open quer(ies)` : ""].filter(Boolean).join("\n") || "- Nothing requires immediate attention."}`,
-    `DEVELOPMENT\n${devItems.map((i) => `- ${i}`).join("\n") || "- No deliverables in progress."}`,
-    `TESTING\nTotal: ${totalTests}  Passed: ${passedTests}  Failed: ${failedTests}  Blocked: ${blockedTests}  Pending: ${pendingTests}`,
-    `GOVERNANCE\n${govItems.map((i) => `- ${i}`).join("\n") || "- No open decisions or dependencies."}`,
-  ].join("\n\n");
+    `\n${"=".repeat(60)}\n${project.project_ref ? `${project.project_ref} — ` : ""}${project.name.toUpperCase()}\nPhase: ${phaseLabel} | Health: ${healthLabel}${goLive.date ? ` | Go-live: ${goLive.date}${goLiveDays !== null && goLiveDays >= 0 ? ` (${goLiveDays}d)` : ""}` : ""}${next ? ` | Next: ${next.label} ${next.date}` : ""}${progressMeasured ? ` | Overall progress: ${state.progress.overall}%` : ""}\n${"=".repeat(60)}`,
+    `${BRIEF_FOCUS_TITLE[focus].toUpperCase()}\n${[positionHeadline, ...positionLines].join("\n")}`,
+    `TODAY'S ATTENTION\n${attentionText}`,
+    readinessLines.length ? `ACCEPTANCE & SIGN-OFF\n${readinessLines.map((l) => `- ${l}`).join("\n")}` : "",
+    governanceLines.length ? `GOVERNANCE\n${governanceLines.map((l) => `- ${l}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
 
   return { html, text, priorities };
 }
@@ -299,14 +274,17 @@ export function buildAutomatedDailyBrief(data: DataStore, now = new Date(), rece
   const activityItems = recentAuditChanges.slice(0, 10).map((e) => `[${e.entity_type}] ${e.entity_name} — ${e.action_type}${e.field_name ? ` (${e.field_name})` : ""}${e.old_value && e.new_value ? `: ${e.old_value} → ${e.new_value}` : ""}`);
 
   // Top 3 Priorities
-  const top3 = allPriorities.sort((a, b) => b.score - a.score).slice(0, 3).map((p, i) => `${i + 1}. ${p.label}`);
+  const top3Labels = allPriorities.sort((a, b) => b.score - a.score).slice(0, 3).map((p) => p.label);
+  const top3 = top3Labels.map((label, i) => `${i + 1}. ${label}`);
 
-  const recentHtml = briefSection("Recent Activity (Last 24 Hours)", briefList(activityItems, "No changes recorded in the last 24 hours."));
-  const top3Html = briefSection("Top 3 Priorities", briefList(top3, "No priorities identified."));
+  const recentHtml = activityItems.length ? briefSection("Recent Activity (Last 24 Hours)", briefList(activityItems, "")) : "";
+  const top3Html = briefSection("Top 3 Priorities", top3Labels.length
+    ? `<ol style="margin:0;padding-left:20px">${top3Labels.map((l) => `<li style="font-size:13px;color:#1e293b;margin-bottom:4px">${escapeHtml(l)}</li>`).join("")}</ol>`
+    : briefList([], "No priorities identified."));
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Brief</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:700px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0"><p style="margin:0 0 4px;color:#93c5fd;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">${BRAND.productName}</p><h1 style="margin:0;font-size:22px">Daily Brief</h1><p style="margin:6px 0 0;color:#cbd5e1;font-size:13px">${escapeHtml(subjectDate(now))}</p></header>${projectBlocks.join("")}${recentHtml}${top3Html}<p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px">Prepared by ${BRAND.productName}</p></div></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daily Brief</title></head><body style="margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,sans-serif"><div style="max-width:700px;margin:0 auto;padding:24px"><header style="background:#0f172a;color:#fff;padding:14px 20px;border-radius:8px 8px 0 0"><p style="margin:0 0 2px;color:#93c5fd;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">${BRAND.productName}</p><h1 style="margin:0;font-size:19px">Daily Brief <span style="font-weight:400;color:#cbd5e1;font-size:13px">· ${escapeHtml(subjectDate(now))}</span></h1></header>${projectBlocks.join("")}${top3Html}${recentHtml}<p style="text-align:center;color:#94a3b8;font-size:11px;margin-top:16px">Prepared by ${BRAND.productName}</p></div></body></html>`;
 
-  const text = `DAILY BRIEF — ${subjectDate(now).toUpperCase()}\n${projectTexts.join("\n")}\n\nRECENT ACTIVITY (LAST 24H)\n${activityItems.map((i) => `- ${i}`).join("\n") || "- No changes recorded."}\n\nTOP 3 PRIORITIES\n${top3.join("\n") || "- No priorities identified."}`;
+  const text = `DAILY BRIEF — ${subjectDate(now).toUpperCase()}\n${projectTexts.join("\n")}\n\nTOP 3 PRIORITIES\n${top3.join("\n") || "- No priorities identified."}${activityItems.length ? `\n\nRECENT ACTIVITY (LAST 24H)\n${activityItems.map((i) => `- ${i}`).join("\n")}` : ""}`;
 
   return {
     subject: `[${BRAND.productName}] Daily Brief — ${subjectDate(now)}`,
