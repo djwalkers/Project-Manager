@@ -2,22 +2,15 @@ import type { DataStore } from "@/lib/data-store";
 import { isDecisionOverdue, isDeliverableBlocked, isRiskOpen } from "@/lib/lifecycle";
 import { materialAcceptanceCriteriaFailures, materialTestFailures } from "@/lib/delivery-materiality";
 import { deriveProjectPhase, type ProjectPhase } from "@/lib/project-phase";
+import { calendarDaysUntil } from "@/lib/calendar-days";
 import { resolveGoLiveDate } from "@/lib/project-dates";
 import { hasDeliveryEvidence, scopeProjectData, selectCanonicalProjects } from "@/lib/project-scope";
 import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import { isOverdue } from "@/lib/utils";
 import type { AcceptanceCriteria, Deliverable, Project, TestCase } from "@/lib/types";
 
-const DAY_MS = 86_400_000;
 
-function daysUntil(dateStr: string | null, now: Date): number | null {
-  if (!dateStr) return null;
-  const date = new Date(`${dateStr.slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  return Math.ceil((date.getTime() - today.getTime()) / DAY_MS);
-}
+const daysUntil = (dateStr: string | null, now: Date): number | null => calendarDaysUntil(dateStr, now);
 
 export type ManagerRagStatus = "Green" | "Amber" | "Red" | "Not Assessed";
 export type DateConfidence = "On Track" | "At Risk" | "Delayed" | "Not Assessed";

@@ -1,3 +1,4 @@
+import { calendarDaysUntil } from "@/lib/calendar-days";
 import type { ProjectPhase } from "@/lib/project-phase";
 
 // ── Display helpers for the automated Daily Brief email ─────────────────────
@@ -35,9 +36,9 @@ export const BRIEF_FOCUS_TITLE: Record<BriefFocus, string> = {
   hypercare: "Hypercare Position",
 };
 
-/** Whole days from `now` to a YYYY-MM-DD date (noon UTC, as elsewhere in email-content). */
+/** Calendar days from today to a YYYY-MM-DD date (canonical lib/calendar-days helper). */
 export function daysUntil(dateStr: string, now: Date): number {
-  return Math.round((new Date(`${dateStr}T12:00:00Z`).getTime() - now.getTime()) / 86_400_000);
+  return calendarDaysUntil(dateStr, now) ?? 0;
 }
 
 export function relativeDays(days: number): string {

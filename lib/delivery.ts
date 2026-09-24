@@ -1,7 +1,6 @@
-import { parseScheduleDate } from "@/lib/schedule";
 import type { Deliverable, ProjectSnapshot } from "@/lib/types";
+import { calendarDaysUntil } from "@/lib/calendar-days";
 
-const DAY_MS = 86_400_000;
 
 export type DeliverableAttention = {
   id: string;
@@ -11,13 +10,9 @@ export type DeliverableAttention = {
   recommendation: string;
 };
 
-function todayUtc(now: Date) {
-  return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-}
 
 export function deliverableDaysUntil(value: string | null, now = new Date()) {
-  const date = parseScheduleDate(value);
-  return date ? Math.ceil((date.getTime() - todayUtc(now)) / DAY_MS) : null;
+  return calendarDaysUntil(value, now);
 }
 
 export function isDeliverableComplete(item: Deliverable) {

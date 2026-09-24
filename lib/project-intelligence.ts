@@ -13,9 +13,10 @@ import {
 import { resolveGoLiveDate } from "@/lib/project-dates";
 import { deriveProjectPhase, isPhaseAtOrAfter, MANUAL_CHECK_APPLICABLE_FROM } from "@/lib/project-phase";
 import { scopeProjectData } from "@/lib/project-scope";
-import { calculateSchedule, formatScheduleDate, parseScheduleDate } from "@/lib/schedule";
+import { calculateSchedule, formatScheduleDate } from "@/lib/schedule";
 import type { AuditLog, Project, ProjectSnapshot } from "@/lib/types";
 import { isOverdue } from "@/lib/utils";
+import { calendarDaysUntil } from "@/lib/calendar-days";
 
 export type IntelligenceCategory = "Schedule" | "Risk" | "Governance" | "Delivery" | "Testing" | "Stakeholder";
 export type IntelligenceSeverity = "Info" | "Warning" | "Critical";
@@ -111,8 +112,7 @@ function ageInDays(value: string | null | undefined, now: Date) {
 }
 
 function daysUntil(value: string | null | undefined, now: Date) {
-  const parsed = parseScheduleDate(value);
-  return parsed ? Math.ceil((parsed.getTime() - dateOnlyMs(now)) / DAY_MS) : null;
+  return calendarDaysUntil(value, now);
 }
 
 function pressure(snapshot: ProjectSnapshot) {

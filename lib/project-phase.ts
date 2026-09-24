@@ -51,7 +51,9 @@ export const MANUAL_CHECK_APPLICABLE_FROM: Record<ManualCheckKey, ProjectPhase> 
   support_rota_confirmed: "Deployment",
 };
 
-function phaseFromText(value: string | null | undefined): ProjectPhase | null {
+// Exported so readiness evidence (lib/readiness-evidence.ts) classifies
+// milestone titles with exactly the same vocabulary as phase detection.
+export function phaseFromText(value: string | null | undefined): ProjectPhase | null {
   const text = String(value ?? "").toLowerCase();
   if (!text.trim()) return null;
   if (/closed/.test(text)) return "Closed";
@@ -65,7 +67,10 @@ function phaseFromText(value: string | null | undefined): ProjectPhase | null {
   // caused live UAT-stage projects to be misclassified as "Deployment" and
   // all six manual Go-Live checks to read Incomplete instead of the
   // Deployment-gated four correctly reading Not Yet Required.
-  if (/uat|user acceptance|customer acceptance|customer sign.?off/.test(text)) return "UAT";
+  // "Customer testing" is the customer's own acceptance testing, so it is
+  // UAT — deliberately narrow: generic "testing" alone still falls through
+  // to SIT below.
+  if (/uat|user acceptance|customer acceptance|customer sign.?off|customer[\s-]+test(?:ing)?\b/.test(text)) return "UAT";
   if (/deploy|deployment|go.?live|release|cutover|cab/.test(text)) return "Deployment";
   if (/\bsit\b|system integration|integration test|test execution|testing/.test(text)) return "SIT";
   if (/develop|build|engineering|implementation|code/.test(text)) return "Development";

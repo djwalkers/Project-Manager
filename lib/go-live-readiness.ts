@@ -11,7 +11,9 @@ import {
   isTestPassed,
 } from "@/lib/lifecycle";
 import { deriveProjectPhase, isPhaseAtOrAfter, MANUAL_CHECK_APPLICABLE_FROM, type ManualCheckKey, type ProjectPhase } from "@/lib/project-phase";
+import { calendarDaysUntil } from "@/lib/calendar-days";
 import { resolveGoLiveDate } from "@/lib/project-dates";
+import { developmentMilestoneSignal, sitMilestoneSignal } from "@/lib/readiness-evidence";
 import type {
   AcceptanceCriteria,
   Deliverable,
@@ -153,12 +155,6 @@ export const GO_LIVE_CATEGORIES: GoLiveChecklistCategory[] = [
 export const GO_LIVE_CHECKLIST_STATUSES = ["Not Started", "In Progress", "Complete", "Blocked", "Waived"] as const;
 export const CUTOVER_STEP_STATUSES = ["Not Started", "In Progress", "Complete", "Blocked", "Skipped"] as const;
 
-function daysUntil(dateStr: string | null, now: Date): number | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return null;
-  return Math.round((d.getTime() - now.getTime()) / 86_400_000);
-}
 
 const SIT_OR_LATER_STATUSES = ["Ready for SIT", "SIT Complete", "Ready for UAT", "UAT Complete", "Ready for Deployment", "Deployed"];
 const UAT_OR_LATER_STATUSES = ["Ready for UAT", "UAT Complete", "Ready for Deployment", "Deployed"];
@@ -196,9 +192,17 @@ function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: Accept
     case "requirements_signed_off":
       if (scoped.requirements.length === 0) return "Not Yet Assessed";
       return scoped.requirements.every((r) => isRequirementSignedOff(r.status)) ? "Complete" : "Incomplete";
-    case "development_complete":
-      if (scoped.deliverables.length === 0) return "Not Yet Assessed";
+    case "development_complete": {
+      // 1. Explicit lifecycle evidence: a development sign-off / completion /
+      //    handover milestone (lib/readiness-evidence.ts). An incomplete one
+      //    is decisive. 2. Deliverables, when the project tracks them, must
+      //    agree — so a project is never forced to create deliverables, but
+      //    one that has them can't be completed by a milestone alone.
+      const signal = developmentMilestoneSignal(scoped.milestones);
+      if (signal === "Incomplete") return "Incomplete";
+      if (scoped.deliverables.length === 0) return signal ?? "Not Yet Assessed";
       return scoped.deliverables.every(isDevelopmentComplete) ? "Complete" : "Incomplete";
+    }
     case "sit_complete": {
       // Post-Phase-7 defect fix: the derived project phase already
       // synthesises timeline/milestone/deliverable/test evidence with a
@@ -208,8 +212,20 @@ function resolveAutoCheck(key: AutoCheckKey, scoped: DataStore, scopedAC: Accept
       // sit_status sub-field (which real projects don't always keep in
       // sync once the team has moved on) can no longer read this check as
       // Incomplete despite SIT having demonstrably finished.
+      //
+      // SIT Complete is formal completion of the SIT stage — deliberately
+      // NOT the same gate as Tests Passed. Evidence hierarchy:
+      //   1. an explicit SIT/testing sign-off (else completion) milestone
+      //      (lib/readiness-evidence.ts) — an incomplete one is decisive;
+      //   2. a later lifecycle phase (above);
+      //   3. deliverable SIT status, which must also agree with (1) when
+      //      the project tracks deliverables.
+      const signal = sitMilestoneSignal(scoped.milestones);
+      if (signal === "Incomplete") return "Incomplete";
       if (isPhaseAtOrAfter(phase, "UAT")) return "Complete";
-      if (scoped.deliverables.length === 0 || !scoped.deliverables.some(hasSitEvidence)) return "Not Yet Assessed";
+      const sitDeliverables = scoped.deliverables.length > 0 && scoped.deliverables.some(hasSitEvidence);
+      if (signal === "Complete") return sitDeliverables && !scoped.deliverables.every(isSitComplete) ? "Incomplete" : "Complete";
+      if (!sitDeliverables) return "Not Yet Assessed";
       return scoped.deliverables.every(isSitComplete) ? "Complete" : "Incomplete";
     }
     case "uat_signed_off": {
@@ -344,7 +360,7 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   const outstandingTesting = scoped.test_cases.filter((t) => !["Passed", "Blocked"].includes(t.status)).length;
 
   const goLiveDate = resolveGoLiveDate(data, project).date;
-  const daysToGoLive = daysUntil(goLiveDate, now);
+  const daysToGoLive = calendarDaysUntil(goLiveDate, now);
 
   // RAG thresholds (Phase 6, replacing the old fixed 80%/95% checklist-row
   // thresholds): Red requires a concrete blocker — a manual check marked

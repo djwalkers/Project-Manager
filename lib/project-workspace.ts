@@ -7,10 +7,10 @@ import type { DataStore } from "@/lib/data-store";
 import { isActionClosed, isDecisionOpen, isRiskHighOrCritical, isRiskOpen } from "@/lib/lifecycle";
 import { calculateDeliveryReadiness, deliverablesRequiringAttention, type DeliverableAttention } from "@/lib/delivery";
 import { buildProjectState } from "@/lib/project-state";
-import { formatScheduleDate, parseScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
+import { formatScheduleDate, type ScheduleMetrics } from "@/lib/schedule";
 import type { ActionItem, Milestone, Project } from "@/lib/types";
+import { calendarDaysUntil } from "@/lib/calendar-days";
 
-const DAY_MS = 86_400_000;
 
 export type WorkspaceActionColumn = "Open" | "In Progress" | "Complete";
 
@@ -37,13 +37,9 @@ export type WorkspaceModel = {
   narrative: string;
 };
 
-function todayUtc(now: Date) {
-  return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-}
 
 function daysUntil(value: string | null, now: Date) {
-  const date = parseScheduleDate(value);
-  return date ? Math.ceil((date.getTime() - todayUtc(now)) / DAY_MS) : null;
+  return calendarDaysUntil(value, now);
 }
 
 function nextMilestone(milestones: Milestone[], now: Date) {
