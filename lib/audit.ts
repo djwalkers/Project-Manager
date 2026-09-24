@@ -1,12 +1,12 @@
 import { supabaseAnon as supabase } from "@/lib/supabase/anon";
 import type { AuditActionType, AuditFilter, AuditLog, EntityName } from "@/lib/types";
 
-// ── Current user store ────────────────────────────────────────────────────────
-// Set by AuthProvider so audit never needs an async getUser() call.
-let _auditUser: { id: string; name: string } | null = null;
-
-export function setAuditUser(user: { id: string; name: string } | null) {
-  _auditUser = user;
+// ── Current user ─────────────────────────────────────────────────────────────
+// Kept for compatibility with AuthProvider. Audit identity is stamped
+// server-side by POST /api/audit from the authenticated session and is never
+// taken from the client, so this intentionally stores nothing.
+export function setAuditUser(user: { id: string; name: string } | null): void {
+  void user;
 }
 
 // ── Auditable tables ──────────────────────────────────────────────────────────
@@ -117,7 +117,75 @@ export function detectChanges(
   return changes;
 }
 
-// ── Core log function (fire-and-forget — never throws) ────────────────────────
+// ── Core log function (never blocks the save, never throws) ─────────────────
+//
+// Writes go through POST /api/audit, which stamps changed_by / changed_by_name
+// from the authenticated session and inserts with the service-role client
+// (the anon-key client used for reads below carries no user session, so a
+// direct client insert was always rejected by RLS). A failed audit write is
+// reported — console.error in every environment plus an
+// "test-manager:audit-failed" window event — instead of disappearing.
+
+export const AUDIT_FAILED_EVENT = "test-manager:audit-failed";
+
+export type AuditLogEntry = {
+  table: EntityName;
+  entityId: string;
+  entityName: string;
+  actionType: AuditActionType;
+  projectId: string | null;
+  fieldName?: string;
+  oldValue?: string;
+  newValue?: string;
+};
+
+function reportAuditFailure(message: string, entries: AuditLogEntry[]) {
+  console.error(`[audit] Failed to record ${entries.length} audit entr${entries.length === 1 ? "y" : "ies"}: ${message}`, entries.map((e) => `${e.table}:${e.entityId}:${e.actionType}`));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUDIT_FAILED_EVENT, { detail: { message, count: entries.length } }));
+  }
+}
+
+/** Records a batch of audit entries. Resolves true when persisted; never throws. */
+export async function logAuditEntries(entries: AuditLogEntry[]): Promise<boolean> {
+  const auditable = entries.filter((e) => AUDITABLE_TABLES.has(e.table));
+  // Local mode (no Supabase): there is no audit_log to write to.
+  if (!supabase || auditable.length === 0) return true;
+  if (typeof window === "undefined") {
+    reportAuditFailure("logAudit is a browser helper; server code must write audit_log with the service-role client", auditable);
+    return false;
+  }
+  try {
+    const res = await fetch("/api/audit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        entries: auditable.map((e) => ({
+          entity_type: e.table,
+          entity_id: e.entityId,
+          entity_name: e.entityName,
+          action_type: e.actionType,
+          project_id: e.projectId,
+          field_name: e.fieldName ?? null,
+          old_value: e.oldValue ?? null,
+          new_value: e.newValue ?? null,
+        })),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      reportAuditFailure(body?.error ?? `HTTP ${res.status}`, auditable);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    reportAuditFailure(error instanceof Error ? error.message : String(error), auditable);
+    return false;
+  }
+}
+
+/** Single-entry form (unchanged signature; callers may ignore the promise). */
 export function logAudit(
   table: EntityName,
   entityId: string,
@@ -127,28 +195,8 @@ export function logAudit(
   fieldName?: string,
   oldValue?: string,
   newValue?: string,
-): void {
-  if (!supabase || !AUDITABLE_TABLES.has(table)) return;
-
-  const entry: Omit<AuditLog, "id" | "changed_at"> = {
-    project_id: projectId,
-    entity_type: table,
-    entity_id: entityId,
-    entity_name: entityName,
-    action_type: actionType,
-    field_name: fieldName ?? null,
-    old_value: oldValue ?? null,
-    new_value: newValue ?? null,
-    changed_by: _auditUser?.id ?? null,
-    changed_by_name: _auditUser?.name ?? "System",
-  };
-
-  // Fire-and-forget — never await, never throw
-  supabase.from("audit_log").insert(entry).then(({ error }) => {
-    if (error && process.env.NODE_ENV === "development") {
-      console.warn("[audit] Failed to log:", error.message);
-    }
-  });
+): Promise<boolean> {
+  return logAuditEntries([{ table, entityId, entityName, actionType, projectId, fieldName, oldValue, newValue }]);
 }
 
 // ── Query helpers ─────────────────────────────────────────────────────────────

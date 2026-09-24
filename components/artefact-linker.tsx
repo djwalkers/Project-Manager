@@ -213,9 +213,18 @@ export function ArtefactLinker({
 
   const existingPartnerIds = useMemo(() => new Set(links.map((l) => l.source_id === recordId ? l.target_id : l.source_id)), [links, recordId]);
 
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  // Only drop the link from the list once the database delete really
+  // happened; otherwise show why, so a failed removal can't look successful.
   async function handleRemove(linkId: string) {
-    await removeLink(linkId);
-    setLinks((prev) => prev.filter((l) => l.id !== linkId));
+    setRemoveError(null);
+    try {
+      await removeLink(linkId);
+      setLinks((prev) => prev.filter((l) => l.id !== linkId));
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : "Failed to remove link.");
+    }
   }
 
   if (loading) return <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading links…</div>;
@@ -234,6 +243,7 @@ export function ArtefactLinker({
           Add
         </Button>
       </div>
+      {removeError && <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">{removeError}</p>}
 
       {hasLinks ? (
         <div className="mt-2 space-y-3">

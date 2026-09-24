@@ -426,7 +426,7 @@ run("migration 028: append-only table, GO/NO_GO constraint, non-blank reason, RL
   assert.match(sql, /NOT EXISTS \(SELECT 1 FROM public\.projects p WHERE p\.id = OLD\.project_id\)/);
   assert.match(sql, /SECURITY DEFINER\s+SET search_path = ''/);
   const schema = read("lib/schema.ts");
-  assert.match(schema, /latestMigration = "028_go_live_decisions"/);
+  assert.match(schema, /"028_go_live_decisions",/, "028 registered in allMigrations");
 });
 
 run("route: Admin/Manager-only insert, server-stamped author/time, audit entry, no edit/delete, tolerant GET", () => {

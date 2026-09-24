@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "028_go_live_decisions";
-export const latestMigration = "028_go_live_decisions";
+export const schemaVersion = "029_audit_log_server_insert_only";
+export const latestMigration = "029_audit_log_server_insert_only";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -31,6 +31,7 @@ export const allMigrations = [
   "026_ai_settings_local_gateway",
   "027_project_creation_fields",
   "028_go_live_decisions",
+  "029_audit_log_server_insert_only",
 ] as const;
 
 export type SchemaColumn = {

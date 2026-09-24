@@ -6,7 +6,7 @@ import {
   saveData as saveLocalData,
   type DataStore,
 } from "@/lib/data-store";
-import { AUDITABLE_TABLES, detectChanges, getEntityName, logAudit } from "@/lib/audit";
+import { AUDITABLE_TABLES, detectChanges, getEntityName, logAudit, logAuditEntries } from "@/lib/audit";
 import { projectId } from "@/lib/seed-data";
 import { schemaByTable, schemaTables, writableColumns } from "@/lib/schema";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
@@ -180,12 +180,11 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
     const projectId = String(saved.project_id ?? oldRecord.project_id ?? null);
     const changes = detectChanges(table, oldRecord, { ...oldRecord, ...record });
 
-    for (const change of changes) {
-      logAudit(
-        table, record.id, entityName, change.actionType, projectId,
-        change.fieldName, change.oldValue, change.newValue,
-      );
-    }
+    // One request for all of this update's field changes.
+    void logAuditEntries(changes.map((change) => ({
+      table, entityId: String(record.id), entityName, actionType: change.actionType, projectId,
+      fieldName: change.fieldName, oldValue: change.oldValue, newValue: change.newValue,
+    })));
   }
 
   return data as EntityMap[K];
