@@ -1,5 +1,5 @@
 import { phaseFromText } from "@/lib/project-phase";
-import type { Milestone } from "@/lib/types";
+import type { Milestone, TimelineItem } from "@/lib/types";
 
 // ── Lifecycle evidence for Go-Live readiness gates ──────────────────────────
 //
@@ -60,4 +60,23 @@ export function developmentMilestoneSignal(milestones: Pick<Milestone, "title" |
     (t) => isDevTitle(t) && SIGN_OFF.test(t),
     (t) => isDevTitle(t) && (COMPLETION.test(t) || HANDOVER.test(t)),
   ]);
+}
+
+// ── Pre-deployment decision point ──────────────────────────────────────────
+//
+// A go/no-go decision is the gate BEFORE deployment ("are we safe and
+// authorised to deploy?"). It is not itself a lifecycle phase, so it never
+// changes the derived phase — it only marks that the deployment-readiness
+// controls must now be answerable. "Reached" means the step is active or
+// complete; a future (Not Started) go/no-go step is not reached.
+
+const GO_NO_GO = /\bgo\s*[/-]?\s*no\s*[/-]?\s*go\b/i;
+const REACHED_STATUSES = new Set(["In Progress", "At Risk", "Blocked", "Complete"]);
+
+export function preDeploymentDecisionReached(
+  timeline: Pick<TimelineItem, "phase_name" | "phase_ref" | "status">[],
+  milestones: Pick<Milestone, "title" | "status">[],
+): boolean {
+  return timeline.some((t) => REACHED_STATUSES.has(t.status) && GO_NO_GO.test(`${t.phase_ref} ${t.phase_name}`))
+    || milestones.some((m) => REACHED_STATUSES.has(m.status) && GO_NO_GO.test(m.title ?? ""));
 }

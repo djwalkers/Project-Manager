@@ -45,7 +45,8 @@ Module._extensions[".ts"] = function compileTypeScript(module, filename) {
 const req = Module.createRequire(import.meta.url);
 const { businessDate, calendarDaysBetween, calendarDaysUntil } = req("../lib/calendar-days.ts");
 const { phaseFromText, deriveProjectPhase } = req("../lib/project-phase.ts");
-const { sitMilestoneSignal, developmentMilestoneSignal } = req("../lib/readiness-evidence.ts");
+const { sitMilestoneSignal, developmentMilestoneSignal, preDeploymentDecisionReached } = req("../lib/readiness-evidence.ts");
+const { PROJECT_PHASE_ORDER } = req("../lib/project-phase.ts");
 const { buildGoLiveDashboard } = req("../lib/go-live-readiness.ts");
 const { buildProjectState } = req("../lib/project-state.ts");
 const { daysUntil: briefDaysUntil } = req("../lib/daily-brief-format.ts");
@@ -301,6 +302,107 @@ run("Customer Approval applies during Customer Testing/UAT; deployment controls 
   data.timeline_items = [timeline(p.id, "Production Deployment", "In Progress")];
   dash = buildGoLiveDashboard(data, p, now);
   for (const k of ["customer_approval", "deployment_cutover_approval", "rollback_plan_approved", "hypercare_owner_assigned", "support_rota_confirmed"]) assert.equal(check(dash, k), "Incomplete", k);
+});
+
+// ── 7. Lifecycle phase never regresses through a neutral step ─────────────
+
+function lifecycle(statuses, extraMilestones = []) {
+  const p = project("lc");
+  const data = baseDataStore();
+  data.projects = [p];
+  const names = ["Build", "F20 Testing", "F28 Customer Testing", "Go/No GO", "PL10 Deployment", "Hypercare"];
+  data.timeline_items = names.map((n, i) => timeline(p.id, n, statuses[i] ?? "Not Started", `2026-09-${String(10 + i * 3).padStart(2, "0")}`, `2026-09-${String(12 + i * 3).padStart(2, "0")}`));
+  data.milestones = [milestone(p.id, "M-T", "Testing Complete", "In Progress", "2026-09-24"), ...extraMilestones.map((m) => milestone(p.id, m[0], m[1], m[2]))];
+  data.test_cases = [testCase(p.id, "T1", "Passed")];
+  return { p, data, phase: () => deriveProjectPhase(data, p, now).phase };
+}
+const C = "Complete", A = "In Progress", N = "Not Started";
+
+run("SIT active → SIT; Customer Testing active → UAT", () => {
+  assert.equal(lifecycle([C, A, N, N, N, N]).phase(), "SIT");
+  assert.equal(lifecycle([C, C, A, N, N, N]).phase(), "UAT");
+});
+
+run("Customer Testing completed + neutral Go/No-Go active → remains UAT (never SIT → UAT → SIT)", () => {
+  const lc = lifecycle([C, C, C, A, N, N]);
+  const ev = deriveProjectPhase(lc.data, lc.p, now);
+  assert.equal(ev.phase, "UAT");
+  assert.match(ev.detail, /F28 Customer Testing is Complete; current step Go\/No GO has no phase wording/);
+});
+
+run("future Deployment / Hypercare items (Not Started) never advance an earlier project", () => {
+  assert.equal(lifecycle([C, A, N, N, N, N]).phase(), "SIT", "future Deployment + Hypercare present");
+  assert.equal(lifecycle([C, C, C, A, N, N]).phase(), "UAT", "future Deployment not reached during Go/No-Go");
+});
+
+run("a future (Not Started) Deployment milestone does not advance a project whose timeline has only reached UAT", () => {
+  const lc = lifecycle([C, C, C, N, N, N], [["M-D", "Deployment", N]]);
+  lc.data.milestones.find((m) => m.title === "Testing Complete").status = C;
+  assert.equal(lc.phase(), "UAT", "nothing active, next milestone is Deployment");
+  lc.data.timeline_items[3].status = A;
+  assert.equal(lc.phase(), "UAT", "Go/No-Go active, next milestone is Deployment");
+});
+
+run("projects without a timeline keep the existing next-milestone signal", () => {
+  const p = project("nm");
+  const data = baseDataStore();
+  data.projects = [p];
+  data.milestones = [milestone(p.id, "M1", "UAT Complete", N)];
+  assert.equal(deriveProjectPhase(data, p, now).phase, "UAT");
+});
+
+run("Deployment active → Deployment; Hypercare active → Hypercare; completed Deployment + neutral step keeps Deployment", () => {
+  assert.equal(lifecycle([C, C, C, C, A, N]).phase(), "Deployment");
+  assert.equal(lifecycle([C, C, C, C, C, A]).phase(), "Hypercare");
+  const lc = lifecycle([C, C, C, C, C, N]);
+  lc.data.timeline_items.push(timeline(lc.p.id, "Business review", A, "2026-09-29", "2026-09-30"));
+  assert.equal(lc.phase(), "Deployment");
+});
+
+run("explicit active phase wording stays authoritative; stronger later evidence still wins over the floor", () => {
+  const lc = lifecycle([C, C, A, N, N, N]);
+  assert.equal(lc.phase(), "UAT");
+  // All deliverables deployed → Hypercare (existing rule) beats a UAT floor.
+  const lc2 = lifecycle([C, C, C, A, N, N]);
+  lc2.data.deliverables = [deliverable(lc2.p.id, { status: "Deployed", development_status: "Complete", sit_status: "Complete", uat_status: "Complete", deployment_status: "Deployed" })];
+  assert.equal(lc2.phase(), "Hypercare");
+});
+
+run("invariant: walking the whole lifecycle, the derived phase index never decreases", () => {
+  const stages = [[A, N, N, N, N, N], [C, A, N, N, N, N], [C, C, A, N, N, N], [C, C, C, N, N, N], [C, C, C, A, N, N], [C, C, C, C, A, N], [C, C, C, C, C, A]];
+  let last = -1;
+  for (const st of stages) {
+    const idx = PROJECT_PHASE_ORDER.indexOf(lifecycle(st).phase());
+    assert.ok(idx >= last, `regressed at ${st.join(",")} → ${PROJECT_PHASE_ORDER[idx]}`);
+    last = idx;
+  }
+});
+
+// ── 8. Deployment-readiness controls apply from the go/no-go decision ──────
+
+run("preDeploymentDecisionReached: active or complete go/no-go step (timeline or milestone); future one is not", () => {
+  assert.equal(preDeploymentDecisionReached([{ phase_ref: "P4", phase_name: "Go/No GO", status: "In Progress" }], []), true);
+  assert.equal(preDeploymentDecisionReached([{ phase_ref: "P4", phase_name: "Go/No GO", status: "Complete" }], []), true);
+  assert.equal(preDeploymentDecisionReached([{ phase_ref: "P4", phase_name: "Go/No GO", status: "Not Started" }], []), false);
+  assert.equal(preDeploymentDecisionReached([], [{ title: "Go-No-Go decision", status: "Complete" }]), true);
+  assert.equal(preDeploymentDecisionReached([], [{ title: "Go/No Go", status: "Not Started" }]), false);
+  assert.equal(preDeploymentDecisionReached([{ phase_ref: "P", phase_name: "Go-Live", status: "In Progress" }], []), false, "go-live is not a go/no-go decision");
+});
+
+const MANUAL = ["customer_approval", "deployment_cutover_approval", "rollback_plan_approved", "hypercare_owner_assigned", "support_rota_confirmed"];
+const applicability = (lc) => { const d = buildGoLiveDashboard(lc.data, lc.p, now); return MANUAL.map((k) => check(d, k) === "Not Yet Required" ? "-" : "A").join(""); };
+
+run("manual controls: none in SIT; Customer Approval from UAT; all five during Go/No-Go (before Deployment)", () => {
+  assert.equal(applicability(lifecycle([C, A, N, N, N, N])), "-----", "SIT");
+  assert.equal(applicability(lifecycle([C, C, A, N, N, N])), "A----", "Customer Testing (UAT)");
+  assert.equal(applicability(lifecycle([C, C, C, A, N, N])), "AAAAA", "Go/No-Go: safe and authorised to deploy?");
+  assert.equal(applicability(lifecycle([C, C, C, C, A, N])), "AAAAA", "Deployment");
+});
+
+run("the go/no-go signal never changes the derived phase", () => {
+  const lc = lifecycle([C, A, N, N, N, N], [["M-G", "Go/No Go", "Complete"]]);
+  assert.equal(lc.phase(), "SIT");
+  assert.equal(applicability(lc), "AAAAA", "a completed go/no-go milestone makes the controls answerable");
 });
 
 run("structural: no project-specific names or ids in the new evidence/date code", () => {

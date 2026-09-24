@@ -13,7 +13,7 @@ import {
 import { deriveProjectPhase, isPhaseAtOrAfter, MANUAL_CHECK_APPLICABLE_FROM, type ManualCheckKey, type ProjectPhase } from "@/lib/project-phase";
 import { calendarDaysUntil } from "@/lib/calendar-days";
 import { resolveGoLiveDate } from "@/lib/project-dates";
-import { developmentMilestoneSignal, sitMilestoneSignal } from "@/lib/readiness-evidence";
+import { developmentMilestoneSignal, preDeploymentDecisionReached, sitMilestoneSignal } from "@/lib/readiness-evidence";
 import type {
   AcceptanceCriteria,
   Deliverable,
@@ -264,8 +264,13 @@ function resolveManualCheck(
   def: { key: ManualCheckKey; category: GoLiveChecklistCategory; matchItem: string },
   checklists: GoLiveChecklist[],
   phase: ProjectPhase,
+  preDeploymentDecision: boolean,
 ): { status: ReadinessCheckStatus; match: GoLiveChecklist | null; blocked: boolean } {
-  const applicable = isPhaseAtOrAfter(phase, MANUAL_CHECK_APPLICABLE_FROM[def.key]);
+  // Applicable from the control's lifecycle phase, or as soon as the
+  // pre-deployment go/no-go decision is reached — every manual control is
+  // part of answering "are we safe and authorised to deploy?", so none may
+  // first appear only after deployment has already begun.
+  const applicable = isPhaseAtOrAfter(phase, MANUAL_CHECK_APPLICABLE_FROM[def.key]) || preDeploymentDecision;
   const match = findChecklistMatch(checklists, def);
   if (!applicable) return { status: "Not Yet Required", match, blocked: false };
   if (!match) return { status: "Incomplete", match: null, blocked: false };
@@ -321,6 +326,7 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   const checklists = (data.go_live_checklists ?? []).filter((c) => c.project_id === project.id);
   const overrideByKey = latestOverrideByKey((data.go_live_readiness_overrides ?? []).filter((o) => o.project_id === project.id));
   const phase = deriveProjectPhase(data, project, now).phase;
+  const preDeploymentDecision = preDeploymentDecisionReached(scoped.timeline_items, scoped.milestones);
 
   const autoChecks: ReadinessCheckResult[] = AUTO_CHECKS.map((def) => {
     const derived = resolveAutoCheck(def.key, scoped, scopedAC, phase);
@@ -340,7 +346,7 @@ export function buildGoLiveDashboard(data: DataStore, project: Project, now = ne
   // check to something else — the assessment supersedes the stale flag.
   let blockerCount = 0;
   const manualChecks: ReadinessCheckResult[] = MANUAL_CHECKS.map((def) => {
-    const { status, match, blocked } = resolveManualCheck(def, checklists, phase);
+    const { status, match, blocked } = resolveManualCheck(def, checklists, phase, preDeploymentDecision);
     const { effective, override } = applyOverride(status, overrideByKey.get(def.key));
     if (blocked && !override) blockerCount += 1;
     return { key: def.key, label: def.label, source: "Manual", derived: status, override, effective, checklistItem: match };

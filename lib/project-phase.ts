@@ -104,6 +104,19 @@ function timelineEvidence(items: TimelineItem[]): ProjectPhaseEvidence | null {
   return null;
 }
 
+// The furthest lifecycle phase the project's COMPLETED timeline items have
+// legitimately reached. Only Complete items count — Not Started (future)
+// items never advance a project; this is a floor, not a forecast.
+function completedTimelineFloor(items: TimelineItem[]): { phase: ProjectPhase; item: TimelineItem } | null {
+  let best: { phase: ProjectPhase; item: TimelineItem } | null = null;
+  for (const item of items) {
+    if (item.status !== "Complete") continue;
+    const phase = phaseFromText(`${item.phase_ref} ${item.phase_name} ${item.owner ?? ""}`);
+    if (phase && (!best || PROJECT_PHASE_ORDER.indexOf(phase) > PROJECT_PHASE_ORDER.indexOf(best.phase))) best = { phase, item };
+  }
+  return best;
+}
+
 export function deriveProjectPhase(data: DataStore, project: Project, now = new Date()): ProjectPhaseEvidence {
   if (["Complete", "Closed"].includes(project.status)) {
     return { phase: "Closed", confidence: 100, source: "project", detail: `Project status is ${project.status}` };
@@ -114,6 +127,38 @@ export function deriveProjectPhase(data: DataStore, project: Project, now = new 
   const fromTimeline = timelineEvidence([...schedule.blocked, ...schedule.atRisk, ...schedule.active]);
   if (fromTimeline) return fromTimeline;
 
+  // No active timeline item carries phase wording (e.g. a neutral decision
+  // step such as a go/no-go meeting). The weaker signals below must not
+  // move the project BACKWARDS past a phase its completed timeline has
+  // already reached (SIT → UAT → SIT): apply that phase as a floor. Explicit
+  // active timeline evidence above is still authoritative, and stronger
+  // later evidence below (e.g. all deliverables deployed) still wins.
+  //
+  // The "next milestone" signal is forward-looking (it names the stage the
+  // project is heading into, not one it has reached), so once the timeline
+  // provides reached evidence it may not ADVANCE the phase beyond that floor
+  // either — a Not Started deployment milestone must not make the project
+  // "Deployment" before deployment begins. Projects without a timeline keep
+  // the milestone signal unchanged.
+  const floor = completedTimelineFloor(scoped.timeline_items);
+  const derived = deriveWithoutActiveTimeline(scoped, project);
+  if (floor) {
+    const floorIdx = PROJECT_PHASE_ORDER.indexOf(floor.phase);
+    const derivedIdx = PROJECT_PHASE_ORDER.indexOf(derived.phase);
+    if (floorIdx > derivedIdx || (derived.source === "milestones" && derivedIdx > floorIdx)) {
+      const neutral = [...schedule.blocked, ...schedule.atRisk, ...schedule.active][0];
+      return {
+        phase: floor.phase,
+        confidence: 80,
+        source: "timeline",
+        detail: `${floor.item.phase_name} is Complete${neutral ? `; current step ${neutral.phase_name} has no phase wording` : ""}`,
+      };
+    }
+  }
+  return derived;
+}
+
+function deriveWithoutActiveTimeline(scoped: DataStore, project: Project): ProjectPhaseEvidence {
   const deliverables = scoped.deliverables;
   if (deliverables.some((item) => item.status === "Ready for Deployment" || item.deployment_status === "Ready" || item.deployment_status === "Scheduled")) {
     const uatStillActive = deliverables.some((item) => ["Ready", "In Progress"].includes(item.uat_status) || item.status === "Ready for UAT");
