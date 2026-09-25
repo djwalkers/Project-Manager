@@ -96,9 +96,9 @@ await run("034: the requirement-required constraint is validated and requirement
     "ALTER TABLE public.acceptance_criteria ALTER COLUMN requirement_id SET NOT NULL",
   ], "only the two finalisation statements: FKs, ON DELETE, evidence cascade and link triggers untouched");
   const schema = req("../lib/schema.ts");
-  assert.equal(schema.latestMigration, "034_acceptance_criteria_requirement_not_null");
-  assert.equal(schema.schemaVersion, "034_acceptance_criteria_requirement_not_null");
-  assert.deepEqual(schema.allMigrations.slice(-5), ["030_role_escalation_and_security_helpers", "031_role_based_delivery_policies", "032_remove_anon_data_access", "033_acceptance_criteria_integrity", "034_acceptance_criteria_requirement_not_null"]);
+  assert.ok(schema.latestMigration >= "034_acceptance_criteria_requirement_not_null");
+  assert.equal(schema.schemaVersion, schema.latestMigration);
+  assert.ok(schema.allMigrations.includes("034_acceptance_criteria_requirement_not_null"));
   const files = fs.readdirSync(path.join(root, "supabase/migrations")).filter((f) => f.endsWith(".sql")).map((f) => f.replace(/\.sql$/, "")).sort();
   assert.deepEqual([...schema.allMigrations], files, "System Health's migration list matches the migration files");
 });

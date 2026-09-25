@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { canAssessManualChecks, canCreateProject, canSendProjectEmail, canWriteDeliveryData } from "@/lib/permissions";
+import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canCreateProject, canManageSourceDocuments, canReadProjectData, canSendProjectEmail, canWriteDeliveryData } from "@/lib/permissions";
 import type { UserRole } from "@/lib/auth";
 
 /**
@@ -160,4 +160,36 @@ export async function requireCanSendProjectEmail(authHeader: string | null): Pro
   if (!denied) return null;
   const body = await denied.json() as { error: string };
   return NextResponse.json({ ok: false, message: denied.status === 401 ? "Unauthorized." : body.error }, { status: denied.status });
+}
+
+/** Reading project data server-side (e.g. signing a document download) — any valid role. */
+export function requireCanReadProjectData(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canReadProjectData, "A Viewer, Manager or Admin role is required");
+}
+
+/** Uploading source documents / versions and choosing the current version — Manager/Admin. */
+export function requireCanManageSourceDocuments(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canManageSourceDocuments, "Admin or Manager access required to manage source documents");
+}
+
+/** Archiving or permanently deleting a source document — Admin only. */
+export function requireCanArchiveOrDeleteSourceDocuments(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canArchiveOrDeleteSourceDocuments, "Admin access required to archive or delete source documents");
+}
+
+/**
+ * The signed-in user as recorded on server-written rows (uploaded_by,
+ * audit changed_by): id from the session, display name from user_profiles.
+ */
+export async function resolveActor(db: { from: (table: string) => any }): Promise<{ userId: string | null; displayName: string }> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const allowLocalFallback = process.env.NODE_ENV !== "production";
+  const user = await getAuthenticatedUser({ allowLocalFallback });
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const userId = user?.id && uuid.test(user.id) ? user.id : null;
+  let displayName = user?.email || user?.id || "unknown";
+  if (userId) {
+    const { data: profile } = await db.from("user_profiles").select("full_name").eq("id", userId).maybeSingle();
+    if (profile?.full_name) displayName = String(profile.full_name);
+  }
+  return { userId, displayName };
 }

@@ -144,6 +144,7 @@ export function scopeProjectData(data: DataStore, project: Project): DataStore {
     test_cases: belongsToProject(data.test_cases),
     meetings: belongsToProject(data.meetings),
     documents: belongsToProject(data.documents),
+    document_versions: belongsToProject(data.document_versions ?? []),
     activity_log: belongsToProject(data.activity_log),
     project_snapshots: belongsToProject(data.project_snapshots),
     email_settings: data.email_settings,

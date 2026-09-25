@@ -77,7 +77,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/meetings", label: "Meetings", icon: CalendarDays },
       { href: "/meeting-intelligence", label: "Meeting Intelligence", icon: Sparkles },
       { href: "/acceptance-criteria", label: "Acceptance Criteria", icon: CheckSquare },
-      { href: "/documents", label: "Documents", icon: FileText },
+      { href: "/documents", label: "Source Documents", icon: FileText },
       { href: "/audit-trail", label: "Audit Trail", icon: History },
     ],
   },

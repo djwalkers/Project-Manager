@@ -7,6 +7,7 @@ import { ProjectsPortfolioPage } from "@/components/projects-portfolio-page";
 import { ProjectTrendsPage } from "@/components/project-trends-page";
 import { ProjectIntelligencePage } from "@/components/project-intelligence-page";
 import { ProjectWorkspacePage } from "@/components/project-workspace-page";
+import { SourceDocumentsPage } from "@/components/source-documents-page";
 import { SystemHealthPage } from "@/components/system-health-page";
 import { EmailSettingsPage } from "@/components/email-settings-page";
 import { moduleBySlug } from "@/lib/modules";
@@ -48,6 +49,7 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
   if (section === "project-intelligence") return <ProjectIntelligencePage />;
   if (section === "decisions") return <DecisionsPage />;
   if (section === "discovery-questions") return <DiscoveryQuestionsPage />;
+  if (section === "documents") return <SourceDocumentsPage />;
   const moduleConfig = moduleBySlug.get(section);
   if (!moduleConfig) notFound();
   return <ModulePageClient section={section} />;
