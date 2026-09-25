@@ -133,7 +133,7 @@ function AddLinkModal({
     setError(null);
     const saved = await addLink({ project_id: projectId, source_entity: ownEntity, source_id: ownId, target_entity: targetEntity, target_id: targetId });
     setSaving(false);
-    if (!saved) { setError("Failed to save link — check Supabase connection."); return; }
+    if (!saved) { setError("Failed to save link — you may not have permission to change traceability links, or the connection failed."); return; }
     onAdd(saved);
     onClose();
   }

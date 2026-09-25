@@ -114,8 +114,8 @@ export function EvidencePanel({
         onUpdate(evidence.map((e) => e.id === editId ? saved : e));
       }
       cancel();
-    } catch {
-      setError("Failed to save — check Supabase connection.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save.");
     } finally {
       setSaving(false);
     }

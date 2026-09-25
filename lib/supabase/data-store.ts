@@ -70,7 +70,9 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
   };
 }
 
-function errorMessage(action: string, error: { message?: string } | null) {
+function errorMessage(action: string, error: { message?: string; code?: string } | null) {
+  // 42501 = refused by RLS / privileges — e.g. a Viewer (read-only) trying to write.
+  if (error?.code === "42501") return new Error(`${action}: you do not have permission to make this change.`);
   return new Error(`${action}: ${error?.message ?? "Unknown Supabase error"}`);
 }
 
@@ -165,13 +167,18 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
     oldRecord = old as RecordValue | null;
   }
 
-  const { data, error } = await supabase
+  // RLS never errors on a refused UPDATE — it matches zero rows. Detect that
+  // (same as deleteRecord) instead of surfacing a cryptic single-row error.
+  const { data: updatedRows, error } = await supabase
     .from(table)
     .update(cleanRecord(table, value))
     .eq("id", record.id)
-    .select()
-    .single();
+    .select();
   if (error) throw errorMessage(`Failed to update ${table}`, error);
+  const data = updatedRows?.[0];
+  if (!data) {
+    throw new Error(`Failed to update ${table}: the record was not updated — you may not have permission to change it, or it no longer exists.`);
+  }
 
   // Fire-and-forget audit for each changed field
   if (AUDITABLE_TABLES.has(table) && oldRecord) {

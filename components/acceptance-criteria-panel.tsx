@@ -152,8 +152,8 @@ export function AcceptanceCriteriaPanel({
         onUpdate(criteria.map((ac) => ac.id === editId ? saved : ac));
       }
       cancel();
-    } catch {
-      setError("Failed to save — check Supabase connection.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save.");
     } finally {
       setSaving(false);
     }
@@ -169,8 +169,13 @@ export function AcceptanceCriteriaPanel({
   }
 
   async function quickStatus(ac: AcceptanceCriteria, status: AcceptanceCriteriaStatus) {
-    const saved = await saveRecord("acceptance_criteria", { ...ac, status }) as AcceptanceCriteria;
-    onUpdate(criteria.map((c) => c.id === ac.id ? saved : c));
+    setError(null);
+    try {
+      const saved = await saveRecord("acceptance_criteria", { ...ac, status }) as AcceptanceCriteria;
+      onUpdate(criteria.map((c) => c.id === ac.id ? saved : c));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update status.");
+    }
   }
 
   return (

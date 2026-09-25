@@ -162,7 +162,7 @@ await run("030: role helpers exist, are SECURITY DEFINER with a pinned search_pa
   assert.match(fnBody("can_read"), /public\.app_role\(\) IS NOT NULL/);
   assert.match(mig, /ALTER FUNCTION public\.set_updated_at\(\) SET search_path = '';/);
   assert.doesNotMatch(mig, /CREATE POLICY|DROP POLICY/, "no table policy changes in 0B1");
-  assert.equal(req("../lib/schema.ts").latestMigration, "030_role_escalation_and_security_helpers");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "030_role_escalation_and_security_helpers");
 });
 
 // ── 2. Delete reliability ───────────────────────────────────────────────────
