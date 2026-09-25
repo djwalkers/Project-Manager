@@ -73,7 +73,21 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
 function errorMessage(action: string, error: { message?: string; code?: string } | null) {
   // 42501 = refused by RLS / privileges — e.g. a Viewer (read-only) trying to write.
   if (error?.code === "42501") return new Error(`${action}: you do not have permission to make this change.`);
-  return new Error(`${action}: ${error?.message ?? "Unknown Supabase error"}`);
+  const message = error?.message ?? "";
+  // Integrity rules (migration 033) — explain them instead of echoing SQL.
+  if (error?.code === "23503" && /on table "requirements"/.test(message) && /acceptance_criteria/.test(message)) {
+    return new Error(`${action}: this requirement still has acceptance criteria. Delete those acceptance criteria first — a requirement with acceptance criteria cannot be deleted.`);
+  }
+  if (error?.code === "23503" && /on table "requirements"/.test(message) && /requirement_sign_offs/.test(message)) {
+    return new Error(`${action}: this requirement has recorded sign-offs. Formal sign-off history is kept, so a signed-off requirement cannot be deleted.`);
+  }
+  if (error?.code === "23503" && /acceptance_criteria_requirement_same_project_fkey/.test(message)) {
+    return new Error(`${action}: the selected requirement does not exist in this project. Choose a requirement from the current project.`);
+  }
+  if (error?.code === "23514" && /acceptance_criteria_requirement_required/.test(message)) {
+    return new Error(`${action}: an acceptance criterion must belong to a requirement. Select its requirement and save again.`);
+  }
+  return new Error(`${action}: ${message || "Unknown Supabase error"}`);
 }
 
 export { hasSupabaseConfig };

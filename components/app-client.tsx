@@ -5,7 +5,7 @@ import { useCallback, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AcceptanceCriteriaPanel } from "@/components/acceptance-criteria-panel";
 import { ArtefactLinker } from "@/components/artefact-linker";
-import { withLinkAdded, withLinkRemoved } from "@/lib/artefact-links";
+import { withEntityLinksRemoved, withLinkAdded, withLinkRemoved } from "@/lib/artefact-links";
 import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementReadiness } from "@/components/requirement-readiness";
@@ -203,9 +203,15 @@ export function ModulePageClient({ section }: { section: string }) {
     if (!config || !record.id) throw new Error("Cannot delete a record without an ID");
     if (!mayDelete) throw new Error("Only an Admin can delete a project.");
     await deleteRecord(config.key, String(record.id));
-    setData((current) => current
-      ? { ...current, [config.key]: current[config.key].filter((item) => item.id !== record.id) } as DataStore
-      : current);
+    const id = String(record.id);
+    setData((current) => {
+      if (!current) return current;
+      let next = { ...current, [config.key]: current[config.key].filter((item) => item.id !== record.id) } as DataStore;
+      // Mirror the database (migration 033 trigger + evidence FK cascade).
+      if (config.key === "requirements" || config.key === "acceptance_criteria") next = withEntityLinksRemoved(next, config.key, [id]);
+      if (config.key === "acceptance_criteria") next = { ...next, evidence: next.evidence.filter((e) => e.ac_id !== id) };
+      return next;
+    });
   }
 
   const detailFooter = useCallback((row: Row) => {
@@ -260,7 +266,14 @@ export function ModulePageClient({ section }: { section: string }) {
                   const kept = existing.filter((ac) => ac.requirement_id !== recordId || existingIds.has(ac.id));
                   const newItems = updated.filter((ac) => !existing.some((e) => e.id === ac.id));
                   const merged = kept.map((ac) => updated.find((u) => u.id === ac.id) ?? ac);
-                  return { ...current, acceptance_criteria: [...merged, ...newItems] };
+                  // ACs the panel deleted (onUpdate runs only after a successful
+                  // delete): mirror the database — their links (migration 033
+                  // trigger) and their own evidence (FK cascade) are gone too.
+                  const removedIds = existing.filter((ac) => ac.requirement_id === recordId && !existingIds.has(ac.id)).map((ac) => ac.id);
+                  const next = { ...current, acceptance_criteria: [...merged, ...newItems] };
+                  if (removedIds.length === 0) return next;
+                  const removed = new Set(removedIds);
+                  return { ...withEntityLinksRemoved(next, "acceptance_criteria", removedIds), evidence: next.evidence.filter((e) => !e.ac_id || !removed.has(e.ac_id)) };
                 });
               }}
               onEvidenceUpdate={(updated) => {

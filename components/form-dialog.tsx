@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import type { ModuleConfig } from "@/lib/modules";
+import { isReferenceLocked, referenceFieldError, type ReferenceOption } from "@/lib/reference-fields";
 import { nextRef, toDateInputValue } from "@/lib/utils";
 
 type RecordValue = Record<string, unknown>;
@@ -16,6 +17,7 @@ export function FormDialog({
   onClose,
   onSave,
   existingRecords,
+  referenceOptions,
 }: {
   config: ModuleConfig;
   record: RecordValue | null;
@@ -23,6 +25,8 @@ export function FormDialog({
   onClose: () => void;
   onSave: (record: RecordValue) => Promise<void> | void;
   existingRecords?: RecordValue[];
+  /** Choices for each "reference" field, keyed by field key — already limited to the current project. */
+  referenceOptions?: Record<string, ReferenceOption[]>;
 }) {
   const [form, setForm] = useState<RecordValue>({});
   const [saving, setSaving] = useState(false);
@@ -72,6 +76,8 @@ export function FormDialog({
 
   const hasRefError = Object.keys(refErrors).length > 0;
 
+  const isLocked = (field: ModuleConfig["fields"][number]) => isReferenceLocked(field, record);
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35">
       <div className="h-full w-full overflow-y-auto border-l bg-background shadow-2xl sm:max-w-xl">
@@ -89,6 +95,8 @@ export function FormDialog({
           onSubmit={async (event) => {
             event.preventDefault();
             if (hasRefError) return;
+            const refProblem = referenceFieldError(config, form, record, referenceOptions);
+            if (refProblem) { setError(refProblem); return; }
             setSaving(true);
             setError(null);
             try {
@@ -108,7 +116,20 @@ export function FormDialog({
           {config.fields.map((field) => (
             <label key={field.key} className="block space-y-2 text-sm font-medium">
               <span>{field.label}{field.required ? <span className="text-destructive" aria-hidden="true"> *</span> : null}</span>
-              {field.type === "textarea" ? (
+              {field.type === "reference" ? (
+                isLocked(field) ? (
+                  <p className="rounded-md border bg-muted/60 px-3 py-2 font-normal">
+                    {referenceOptions?.[field.key]?.find((option) => option.value === String(form[field.key]))?.label ?? "Linked record"}
+                  </p>
+                ) : (
+                  <Select required={field.required} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)}>
+                    <option value="">{(referenceOptions?.[field.key] ?? []).length ? `Select ${field.label.toLowerCase()}` : `No ${field.label.toLowerCase()}s in this project yet`}</option>
+                    {(referenceOptions?.[field.key] ?? []).map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </Select>
+                )
+              ) : field.type === "textarea" ? (
                 <Textarea required={field.required} rows={field.rows} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)} />
               ) : field.type === "select" ? (
                 <Select required={field.required} value={String(form[field.key] ?? "")} onChange={(event) => update(field.key, event.target.value)}>

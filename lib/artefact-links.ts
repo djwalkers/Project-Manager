@@ -57,6 +57,22 @@ export function withLinkRemoved<T extends WithLinks>(data: T, linkId: string): T
   return { ...data, artefact_links: (data.artefact_links ?? []).filter((l) => l.id !== linkId) };
 }
 
+/**
+ * Mirrors migration 033's delete trigger in memory: after a Requirement or
+ * Acceptance Criterion has been successfully deleted, the database has also
+ * removed every artefact_links row pointing at it — drop the same links
+ * from the canonical DataStore. Call only after the delete succeeded.
+ */
+export function withEntityLinksRemoved<T extends WithLinks>(data: T, entity: string, ids: Iterable<string>): T {
+  const gone = new Set(ids);
+  if (gone.size === 0) return data;
+  return {
+    ...data,
+    artefact_links: (data.artefact_links ?? []).filter((l) =>
+      !(l.source_entity === entity && gone.has(l.source_id)) && !(l.target_entity === entity && gone.has(l.target_id))),
+  };
+}
+
 /** Given a flat list of links for a record, group them by the partner entity. */
 export function groupLinksByEntity(
   links: ArtefactLink[],
