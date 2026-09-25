@@ -85,7 +85,22 @@ await run("033: a delete trigger removes links pointing at a deleted Requirement
   assert.match(fn, /DELETE FROM public\.artefact_links l\s+WHERE \(l\.source_entity = TG_TABLE_NAME AND l\.source_id = OLD\.id\)\s+OR \(l\.target_entity = TG_TABLE_NAME AND l\.target_id = OLD\.id\);/);
   assert.match(m033, /CREATE TRIGGER requirements_delete_links\s+AFTER DELETE ON public\.requirements\s+FOR EACH ROW/);
   assert.match(m033, /CREATE TRIGGER acceptance_criteria_delete_links\s+AFTER DELETE ON public\.acceptance_criteria\s+FOR EACH ROW/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "033_acceptance_criteria_integrity");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "033_acceptance_criteria_integrity");
+});
+
+await run("034: the requirement-required constraint is validated and requirement_id is NOT NULL — nothing else changes", () => {
+  const m034 = code(read("supabase/migrations/034_acceptance_criteria_requirement_not_null.sql"));
+  const statements = m034.split(";").map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean);
+  assert.deepEqual(statements, [
+    "ALTER TABLE public.acceptance_criteria VALIDATE CONSTRAINT acceptance_criteria_requirement_required",
+    "ALTER TABLE public.acceptance_criteria ALTER COLUMN requirement_id SET NOT NULL",
+  ], "only the two finalisation statements: FKs, ON DELETE, evidence cascade and link triggers untouched");
+  const schema = req("../lib/schema.ts");
+  assert.equal(schema.latestMigration, "034_acceptance_criteria_requirement_not_null");
+  assert.equal(schema.schemaVersion, "034_acceptance_criteria_requirement_not_null");
+  assert.deepEqual(schema.allMigrations.slice(-5), ["030_role_escalation_and_security_helpers", "031_role_based_delivery_policies", "032_remove_anon_data_access", "033_acceptance_criteria_integrity", "034_acceptance_criteria_requirement_not_null"]);
+  const files = fs.readdirSync(path.join(root, "supabase/migrations")).filter((f) => f.endsWith(".sql")).map((f) => f.replace(/\.sql$/, "")).sort();
+  assert.deepEqual([...schema.allMigrations], files, "System Health's migration list matches the migration files");
 });
 
 // ── Requirement picker (existing generic AC form) ───────────────────────────
@@ -184,6 +199,9 @@ await run("deleting a Requirement with sign-offs fails with a clear message and 
 
 await run("database refusals on AC create read clearly (orphan / cross-project)", async () => {
   clientModule.supabase = failingClient({ code: "23514", message: 'new row for relation "acceptance_criteria" violates check constraint "acceptance_criteria_requirement_required"' }, "insert");
+  await assert.rejects(dataStore.createRecord("acceptance_criteria", { criterion: "x" }), /must belong to a requirement/);
+  // After 034 the NOT NULL fires first (23502) — same clear message.
+  clientModule.supabase = failingClient({ code: "23502", message: 'null value in column "requirement_id" of relation "acceptance_criteria" violates not-null constraint' }, "insert");
   await assert.rejects(dataStore.createRecord("acceptance_criteria", { criterion: "x" }), /must belong to a requirement/);
   clientModule.supabase = failingClient({ code: "23503", message: 'insert or update on table "acceptance_criteria" violates foreign key constraint "acceptance_criteria_requirement_same_project_fkey"' }, "insert");
   await assert.rejects(dataStore.createRecord("acceptance_criteria", { criterion: "x" }), /does not exist in this project/);

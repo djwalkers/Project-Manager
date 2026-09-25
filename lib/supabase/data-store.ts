@@ -84,7 +84,8 @@ function errorMessage(action: string, error: { message?: string; code?: string }
   if (error?.code === "23503" && /acceptance_criteria_requirement_same_project_fkey/.test(message)) {
     return new Error(`${action}: the selected requirement does not exist in this project. Choose a requirement from the current project.`);
   }
-  if (error?.code === "23514" && /acceptance_criteria_requirement_required/.test(message)) {
+  if ((error?.code === "23514" && /acceptance_criteria_requirement_required/.test(message))
+    || (error?.code === "23502" && /"requirement_id"/.test(message) && /"acceptance_criteria"/.test(message))) {
     return new Error(`${action}: an acceptance criterion must belong to a requirement. Select its requirement and save again.`);
   }
   return new Error(`${action}: ${message || "Unknown Supabase error"}`);
