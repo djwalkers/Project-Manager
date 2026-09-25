@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "029_audit_log_server_insert_only";
-export const latestMigration = "033_acceptance_criteria_integrity";
+export const schemaVersion = "034_acceptance_criteria_requirement_not_null";
+export const latestMigration = "034_acceptance_criteria_requirement_not_null";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -32,6 +32,11 @@ export const allMigrations = [
   "027_project_creation_fields",
   "028_go_live_decisions",
   "029_audit_log_server_insert_only",
+  "030_role_escalation_and_security_helpers",
+  "031_role_based_delivery_policies",
+  "032_remove_anon_data_access",
+  "033_acceptance_criteria_integrity",
+  "034_acceptance_criteria_requirement_not_null",
 ] as const;
 
 export type SchemaColumn = {
