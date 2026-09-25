@@ -104,7 +104,7 @@ export async function loadData(): Promise<DataStore> {
         const data = await fetchAuthRoutedTable(authRoutePath);
         return [table, data ?? []] as const;
       }
-      const orderColumn = table === "documents" ? "uploaded_at" : "created_at";
+      const orderColumn = table === "documents" || table === "document_versions" ? "uploaded_at" : "created_at";
       const { data, error } = await client.from(table).select("*").order(orderColumn, { ascending: true });
       if (error) throw errorMessage(`Failed to load ${table}`, error);
       return [table, data ?? []] as const;

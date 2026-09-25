@@ -61,3 +61,22 @@ export function canSendProjectEmail(role: UserRole | null | undefined): boolean 
 export function canConfigureSystem(role: UserRole | null | undefined): boolean {
   return role === "Admin";
 }
+
+// ── Source Documents (Phase 1A) ─────────────────────────────────────────────
+// Viewer may read/download authoritative source documents; Manager/Admin
+// upload documents and new versions and choose the current version; only
+// Admin archives or permanently deletes. The database mirrors this: reads
+// under RLS can_read(), all writes only through /api/source-documents.
+
+/** Any signed-in user with a valid role (Viewer, Manager, Admin). */
+export function canReadProjectData(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager" || role === "Viewer";
+}
+
+export function canManageSourceDocuments(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}
+
+export function canArchiveOrDeleteSourceDocuments(role: UserRole | null | undefined): boolean {
+  return role === "Admin";
+}

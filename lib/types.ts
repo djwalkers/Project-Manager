@@ -299,14 +299,47 @@ export type Meeting = {
   updated_at: string;
 };
 
+/** A logical source document (CR, specification, design) — migration 035. */
 export type DocumentRecord = {
   id: string;
   project_id: string;
+  /** The document's title. */
   document_name: string;
   document_type: string | null;
+  /** Legacy (pre-035) free-text path; unused — files live in document_versions. */
   storage_path: string | null;
+  /** Description / notes. */
   notes: string | null;
   uploaded_at: string;
+  current_version_id: string;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  archived_at: string | null;
+  archived_by_name: string | null;
+};
+
+export type DocumentProcessingStatus = "Not Started" | "Queued" | "In Progress" | "Complete" | "Failed";
+
+/** One immutable uploaded original of a source document — migration 035. */
+export type DocumentVersion = {
+  id: string;
+  document_id: string;
+  project_id: string;
+  version_number: number;
+  original_filename: string;
+  storage_bucket: string;
+  storage_path: string;
+  sha256: string;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by: string | null;
+  uploaded_by_name: string;
+  uploaded_at: string;
+  is_original: boolean;
+  extraction_status: DocumentProcessingStatus;
+  analysis_status: DocumentProcessingStatus;
+  status_updated_at: string | null;
 };
 
 export type ActivityLog = {
@@ -505,6 +538,7 @@ export type EntityMap = {
   test_cases: TestCase;
   meetings: Meeting;
   documents: DocumentRecord;
+  document_versions: DocumentVersion;
   activity_log: ActivityLog;
   discovery_questions: DiscoveryQuestion;
   milestones: Milestone;

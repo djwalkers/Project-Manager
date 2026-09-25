@@ -158,11 +158,6 @@ export function FormDialog({
               ) : null}
             </label>
           ))}
-          {config.key === "documents" ? (
-            <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
-              Document upload will be added in v2.
-            </div>
-          ) : null}
           <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               Cancel

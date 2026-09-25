@@ -473,9 +473,12 @@ export const modules: ModuleConfig[] = [
   {
     key: "documents",
     slug: "documents",
-    title: "Documents",
-    singular: "Document",
-    description: "Record document references. Document upload will be added in v2.",
+    title: "Source Documents",
+    singular: "Source Document",
+    // Rendered by components/source-documents-page.tsx (upload, versions,
+    // signed downloads) — not the generic table/form, and never written
+    // through createRecord/updateRecord (writes go via /api/source-documents).
+    description: "Original CR, specification and design documents, with immutable version history.",
     icon: FileText,
     searchFields: ["document_name", "document_type", "notes"],
     columns: [
@@ -485,10 +488,9 @@ export const modules: ModuleConfig[] = [
       { key: "notes", label: "Notes" },
     ],
     fields: [
-      { key: "document_name", label: "Document name" },
+      { key: "document_name", label: "Title" },
       { key: "document_type", label: "Type" },
-      { key: "storage_path", label: "Storage path" },
-      { key: "notes", label: "Notes", type: "textarea" },
+      { key: "notes", label: "Description / notes", type: "textarea" },
     ],
   },
 ];

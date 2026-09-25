@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "034_acceptance_criteria_requirement_not_null";
-export const latestMigration = "034_acceptance_criteria_requirement_not_null";
+export const schemaVersion = "035_source_documents";
+export const latestMigration = "035_source_documents";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -37,6 +37,7 @@ export const allMigrations = [
   "032_remove_anon_data_access",
   "033_acceptance_criteria_integrity",
   "034_acceptance_criteria_requirement_not_null",
+  "035_source_documents",
 ] as const;
 
 export type SchemaColumn = {
@@ -298,6 +299,36 @@ export const schemaTables: SchemaTable[] = [
       { name: "storage_path", type: "text", required: false },
       { name: "notes", type: "text", required: false },
       { name: "uploaded_at", type: "timestamptz", required: true, managed: true },
+      // Source Documents (035). Written only by /api/source-documents.
+      { name: "current_version_id", type: "uuid", required: true, managed: true, foreignKey: "document_versions.id" },
+      { name: "created_by", type: "uuid", required: false, managed: true },
+      { name: "created_by_name", type: "text", required: false, managed: true },
+      { name: "created_at", type: "timestamptz", required: true, managed: true },
+      { name: "archived_at", type: "timestamptz", required: false, managed: true },
+      { name: "archived_by_name", type: "text", required: false, managed: true },
+    ],
+  },
+  {
+    // Immutable uploaded originals (035). Read under RLS by every role;
+    // written only by the server (register_source_document_version).
+    name: "document_versions",
+    columns: [
+      id, projectId,
+      { name: "document_id", type: "uuid", required: true, foreignKey: "documents.id" },
+      { name: "version_number", type: "integer", required: true, managed: true },
+      { name: "original_filename", type: "text", required: true, managed: true },
+      { name: "storage_bucket", type: "text", required: true, managed: true },
+      { name: "storage_path", type: "text", required: true, managed: true },
+      { name: "sha256", type: "text", required: true, managed: true },
+      { name: "content_type", type: "text", required: true, managed: true },
+      { name: "size_bytes", type: "integer", required: true, managed: true },
+      { name: "uploaded_by", type: "uuid", required: false, managed: true },
+      { name: "uploaded_by_name", type: "text", required: true, managed: true },
+      { name: "uploaded_at", type: "timestamptz", required: true, managed: true },
+      { name: "is_original", type: "boolean", required: true, managed: true },
+      { name: "extraction_status", type: "text", required: true, managed: true },
+      { name: "analysis_status", type: "text", required: true, managed: true },
+      { name: "status_updated_at", type: "timestamptz", required: false, managed: true },
     ],
   },
   {

@@ -357,11 +357,6 @@ export function ModulePageClient({ section }: { section: string }) {
           </p>
         </div>
       </div>
-      {config.key === "documents" ? (
-        <div className="mb-5 rounded-lg border bg-secondary p-4 text-sm font-medium text-secondary-foreground">
-          Document upload will be added in v2.
-        </div>
-      ) : null}
       {config.key === "timeline_items" && timelineScope?.mode !== "exact" ? (
         <div className="mb-5 flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />

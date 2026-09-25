@@ -24,6 +24,8 @@ const ENTITY_LABELS: Record<string, string> = {
   timeline_items: "Timeline",
   test_cases: "Test Case",
   email_settings: "Email Settings",
+  documents: "Source Document",
+  document_versions: "Document Version",
 };
 
 const ACTION_TYPES: AuditActionType[] = [
