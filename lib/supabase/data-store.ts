@@ -6,7 +6,7 @@ import {
   saveData as saveLocalData,
   type DataStore,
 } from "@/lib/data-store";
-import { AUDITABLE_TABLES, detectChanges, getEntityName, logAudit } from "@/lib/audit";
+import { AUDITABLE_TABLES, detectChanges, getEntityName, logAudit, logAuditEntries } from "@/lib/audit";
 import { projectId } from "@/lib/seed-data";
 import { schemaByTable, schemaTables, writableColumns } from "@/lib/schema";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase/client";
@@ -70,7 +70,9 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
   };
 }
 
-function errorMessage(action: string, error: { message?: string } | null) {
+function errorMessage(action: string, error: { message?: string; code?: string } | null) {
+  // 42501 = refused by RLS / privileges — e.g. a Viewer (read-only) trying to write.
+  if (error?.code === "42501") return new Error(`${action}: you do not have permission to make this change.`);
   return new Error(`${action}: ${error?.message ?? "Unknown Supabase error"}`);
 }
 
@@ -165,13 +167,18 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
     oldRecord = old as RecordValue | null;
   }
 
-  const { data, error } = await supabase
+  // RLS never errors on a refused UPDATE — it matches zero rows. Detect that
+  // (same as deleteRecord) instead of surfacing a cryptic single-row error.
+  const { data: updatedRows, error } = await supabase
     .from(table)
     .update(cleanRecord(table, value))
     .eq("id", record.id)
-    .select()
-    .single();
+    .select();
   if (error) throw errorMessage(`Failed to update ${table}`, error);
+  const data = updatedRows?.[0];
+  if (!data) {
+    throw new Error(`Failed to update ${table}: the record was not updated — you may not have permission to change it, or it no longer exists.`);
+  }
 
   // Fire-and-forget audit for each changed field
   if (AUDITABLE_TABLES.has(table) && oldRecord) {
@@ -180,12 +187,11 @@ export async function updateRecord<K extends EntityName>(table: K, record: Recor
     const projectId = String(saved.project_id ?? oldRecord.project_id ?? null);
     const changes = detectChanges(table, oldRecord, { ...oldRecord, ...record });
 
-    for (const change of changes) {
-      logAudit(
-        table, record.id, entityName, change.actionType, projectId,
-        change.fieldName, change.oldValue, change.newValue,
-      );
-    }
+    // One request for all of this update's field changes.
+    void logAuditEntries(changes.map((change) => ({
+      table, entityId: String(record.id), entityName, actionType: change.actionType, projectId,
+      fieldName: change.fieldName, oldValue: change.oldValue, newValue: change.newValue,
+    })));
   }
 
   return data as EntityMap[K];
@@ -238,8 +244,14 @@ export async function deleteRecord<K extends EntityName>(table: K, id: string) {
     deletedRecord = found as RecordValue | null;
   }
 
-  const { error } = await supabase.from(table).delete().eq("id", id);
+  // RLS never errors on a refused DELETE — it simply matches zero rows. Ask
+  // for the deleted id back so a refusal (or an already-missing row) is
+  // detected: the caller then keeps the item and no Delete is audited.
+  const { data: deleted, error } = await supabase.from(table).delete().eq("id", id).select("id");
   if (error) throw errorMessage(`Failed to delete ${table}`, error);
+  if (!deleted || deleted.length === 0) {
+    throw new Error(`Failed to delete ${table}: the record was not deleted — you may not have permission to delete it, or it no longer exists.`);
+  }
 
   if (AUDITABLE_TABLES.has(table) && deletedRecord) {
     logAudit(

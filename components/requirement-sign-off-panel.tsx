@@ -93,8 +93,8 @@ export function RequirementSignOffPanel({
         onUpdate([...signOffs, saved]);
       }
       cancel();
-    } catch {
-      setError("Failed to save — check Supabase connection.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save.");
     } finally {
       setSaving(false);
     }

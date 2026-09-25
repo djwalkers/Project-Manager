@@ -3,7 +3,7 @@
 import { Link2, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { addLink, groupLinksByEntity, loadLinksForRecord, removeLink } from "@/lib/artefact-links";
+import { addLink, groupLinksByEntity, removeLink } from "@/lib/artefact-links";
 import { moduleByKey } from "@/lib/modules";
 import type { ArtefactLink } from "@/lib/types";
 import type { DataStore } from "@/lib/data-store";
@@ -133,7 +133,7 @@ function AddLinkModal({
     setError(null);
     const saved = await addLink({ project_id: projectId, source_entity: ownEntity, source_id: ownId, target_entity: targetEntity, target_id: targetId });
     setSaving(false);
-    if (!saved) { setError("Failed to save link — check Supabase connection."); return; }
+    if (!saved) { setError("Failed to save link — you may not have permission to change traceability links, or the connection failed."); return; }
     onAdd(saved);
     onClose();
   }
@@ -185,40 +185,52 @@ function AddLinkModal({
   );
 }
 
+// The linker reads its links from the canonical in-memory DataStore
+// (data.artefact_links) — the same array computeTestVerification /
+// ProjectState read — rather than keeping a separately-queried copy. After a
+// successful database write it reports the change up via onLinkAdded /
+// onLinkRemoved so the owner applies it to that DataStore (setData), and
+// every dependent view recalculates immediately without a reload.
 export function ArtefactLinker({
   entity,
   recordId,
   projectId,
   data,
+  onLinkAdded,
+  onLinkRemoved,
 }: {
   entity: string;
   recordId: string;
   projectId: string;
   data: DataStore;
+  onLinkAdded: (link: ArtefactLink) => void;
+  onLinkRemoved: (linkId: string) => void;
 }) {
-  const [links, setLinks] = useState<ArtefactLink[]>([]);
-  const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    loadLinksForRecord(entity, recordId).then((result) => {
-      if (!cancelled) { setLinks(result); setLoading(false); }
-    });
-    return () => { cancelled = true; };
-  }, [entity, recordId]);
+  const links = useMemo(
+    () => (data.artefact_links ?? []).filter((l) =>
+      (l.source_entity === entity && l.source_id === recordId) || (l.target_entity === entity && l.target_id === recordId)),
+    [data.artefact_links, entity, recordId],
+  );
 
   const groups = useMemo(() => groupLinksByEntity(links, entity, recordId), [links, entity, recordId]);
 
   const existingPartnerIds = useMemo(() => new Set(links.map((l) => l.source_id === recordId ? l.target_id : l.source_id)), [links, recordId]);
 
-  async function handleRemove(linkId: string) {
-    await removeLink(linkId);
-    setLinks((prev) => prev.filter((l) => l.id !== linkId));
-  }
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
-  if (loading) return <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading links…</div>;
+  // Only drop the link from the list once the database delete really
+  // happened; otherwise show why, so a failed removal can't look successful.
+  async function handleRemove(linkId: string) {
+    setRemoveError(null);
+    try {
+      await removeLink(linkId);
+      onLinkRemoved(linkId);
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : "Failed to remove link.");
+    }
+  }
 
   const hasLinks = Object.keys(groups).length > 0;
 
@@ -234,6 +246,7 @@ export function ArtefactLinker({
           Add
         </Button>
       </div>
+      {removeError && <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">{removeError}</p>}
 
       {hasLinks ? (
         <div className="mt-2 space-y-3">
@@ -266,7 +279,7 @@ export function ArtefactLinker({
           projectId={projectId}
           data={data}
           existingLinkIds={existingPartnerIds}
-          onAdd={(link) => setLinks((prev) => [...prev, link])}
+          onAdd={onLinkAdded}
           onClose={() => setAddOpen(false)}
         />
       )}

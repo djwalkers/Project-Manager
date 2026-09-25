@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticatedUser } from "@/lib/api-auth";
+import { requireAuthenticatedUser, requireCanWriteDeliveryData } from "@/lib/api-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const TABLE = "cutover_plan";
@@ -19,6 +19,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const authError = await requireAuthenticatedUser();
   if (authError) return authError;
+  const permissionError = await requireCanWriteDeliveryData(); // Manager/Admin only; GET stays open to every signed-in role
+  if (permissionError) return permissionError;
 
   const db = createServiceRoleClient();
   if (!db) return NextResponse.json({ error: "Database not configured" }, { status: 500 });
@@ -38,6 +40,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const authError = await requireAuthenticatedUser();
   if (authError) return authError;
+  const permissionError = await requireCanWriteDeliveryData(); // Manager/Admin only; GET stays open to every signed-in role
+  if (permissionError) return permissionError;
 
   const db = createServiceRoleClient();
   if (!db) return NextResponse.json({ error: "Database not configured" }, { status: 500 });
@@ -59,6 +63,8 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const authError = await requireAuthenticatedUser();
   if (authError) return authError;
+  const permissionError = await requireCanWriteDeliveryData(); // Manager/Admin only; GET stays open to every signed-in role
+  if (permissionError) return permissionError;
 
   const db = createServiceRoleClient();
   if (!db) return NextResponse.json({ error: "Database not configured" }, { status: 500 });

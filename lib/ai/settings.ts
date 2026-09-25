@@ -1,8 +1,8 @@
 // Server-side only — never import this from client components.
 // Reads AI provider settings from Supabase using the service role key.
-// Falls back to environment variables when no database is configured.
+// Falls back to environment variables only when no database is configured at all.
 
-import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export type AIProviderName = "none" | "openai" | "gemini" | "anthropic" | "ollama";
 
@@ -28,11 +28,18 @@ export type AISettingsMeta = {
   key_configured: boolean;
 };
 
+// ai_settings holds provider API keys and is service-role only (RLS has no
+// anon/authenticated policy). There is deliberately NO fallback to the
+// public anon key: when a database is configured but the service-role key
+// is missing, fail clearly instead of silently reading nothing.
+// No database configured at all (local mode) → null → env-var fallback.
+export const AI_SETTINGS_SERVICE_KEY_MISSING = "SUPABASE_SERVICE_ROLE_KEY is not configured — AI settings cannot be read or saved (the public anon key is never used for them).";
+
 function serviceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null;
+  const db = createServiceRoleClient();
+  if (!db) throw new Error(AI_SETTINGS_SERVICE_KEY_MISSING);
+  return db;
 }
 
 /** Load full settings including api_key — server use only. */

@@ -278,7 +278,7 @@ run("structural: app/api/email/test-status/route.ts is POST-only — no GET hand
   assert.match(source, /export async function POST/);
   assert.doesNotMatch(source, /export async function GET/, "a GET handler would give cron/scheduled callers a path to this manual-only report");
   assert.match(source, /executeEmail\("Test Status", "Manual"/, "the route must always invoke this kind with trigger \"Manual\"");
-  assert.match(source, /isAuthorizedRequest/, "must reuse the existing auth guard, not a new one");
+  assert.match(source, /await requireCanSendProjectEmail\(request\.headers\.get\("authorization"\)\)/, "must use the shared email-send guard (cron secret or Manager/Admin)");
 });
 
 run("structural: executeEmail re-validates Test Status recipients via the shared validateRecipients, not a re-implemented check", () => {

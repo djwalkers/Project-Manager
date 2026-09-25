@@ -1,14 +1,12 @@
+import { supabase } from "@/lib/supabase/client";
 import type { ArtefactLink } from "@/lib/types";
 
-let supabase: ReturnType<typeof import("@supabase/supabase-js").createClient> | null = null;
-
+// artefact_links is the canonical traceability table. Its RLS policy
+// (migration 017) lets the `authenticated` role write and `anon` only read,
+// so every call here must go through the session-aware browser client
+// (@supabase/ssr cookies). The previous standalone anon-key client carried no
+// session: inserts were rejected and deletes silently matched zero rows.
 async function getClient() {
-  if (supabase) return supabase;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  const { createClient } = await import("@supabase/supabase-js");
-  supabase = createClient(url, key);
   return supabase;
 }
 
@@ -29,14 +27,34 @@ export async function addLink(link: Omit<ArtefactLink, "id" | "created_at">): Pr
   const client = await getClient();
   if (!client) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (client.from("artefact_links") as any).insert(link).select().single();
+  const { data, error } = await (client.from("artefact_links") as any).insert(link).select().single();
+  if (error) {
+    console.error("[artefact-links] Failed to add link:", error.message);
+    return null;
+  }
   return data as ArtefactLink | null;
 }
 
+/** Deletes a link. Throws if the delete fails or matched no row (e.g. blocked by RLS). */
 export async function removeLink(id: string): Promise<void> {
   const client = await getClient();
-  if (!client) return;
-  await client.from("artefact_links").delete().eq("id", id);
+  if (!client) throw new Error("Traceability links are not available without a database connection.");
+  const { data, error } = await client.from("artefact_links").delete().eq("id", id).select("id");
+  if (error) throw new Error(`Failed to remove link: ${error.message}`);
+  if (!data || data.length === 0) throw new Error("Failed to remove link: it was not deleted (it may already be gone, or you are not signed in).");
+}
+
+// ── Applying a confirmed link write to the canonical in-memory DataStore ────
+// Pure updaters used by the linker's owner via setData, so verification,
+// coverage and ProjectState recalculate from the same canonical array.
+type WithLinks = { artefact_links?: ArtefactLink[] };
+
+export function withLinkAdded<T extends WithLinks>(data: T, link: ArtefactLink): T {
+  return { ...data, artefact_links: [...(data.artefact_links ?? []).filter((l) => l.id !== link.id), link] };
+}
+
+export function withLinkRemoved<T extends WithLinks>(data: T, linkId: string): T {
+  return { ...data, artefact_links: (data.artefact_links ?? []).filter((l) => l.id !== linkId) };
 }
 
 /** Given a flat list of links for a record, group them by the partner entity. */

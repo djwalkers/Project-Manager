@@ -6,7 +6,7 @@
 // against Supabase, local storage, or any file. It is safe to run at any
 // time. By default it reads the local lib/seed-data.ts fixture; it only
 // reads from Supabase if NEXT_PUBLIC_SUPABASE_URL and a key
-// (SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY) are present
+// (SUPABASE_SERVICE_ROLE_KEY — the anon key has no data access since migration 032) are present
 // in the environment — plain `node` does not load .env.local, so running
 // this without exporting those variables yourself always uses the local
 // fixture.
@@ -50,9 +50,12 @@ const { schemaTables } = req("../lib/schema.ts");
 
 async function loadDataStore() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url || !key) {
+  if (url && !key) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required to read live data (the public anon key has no data access since migration 032).");
+  }
+  if (!url) {
     console.log("[report-go-live-dates] No Supabase env vars found — reading lib/seed-data.ts (read-only, local fixture).\n");
     const { seedData } = req("../lib/seed-data.ts");
     return seedData;

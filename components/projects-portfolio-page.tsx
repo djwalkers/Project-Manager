@@ -13,7 +13,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { getEntityName, logAudit } from "@/lib/audit";
 import { moduleByKey, statusOptions, type ModuleConfig } from "@/lib/modules";
-import { canCreateProject } from "@/lib/permissions";
+import { canCreateProject, canEditProject } from "@/lib/permissions";
 import { hasDeliveryEvidence, selectCanonicalProjects } from "@/lib/project-scope";
 import { buildProjectWorkspace } from "@/lib/project-workspace";
 import { resolveGoLiveDate } from "@/lib/project-dates";
@@ -77,7 +77,8 @@ function ProjectCard({
   data: DataStore;
   isActive: boolean;
   onOpen: () => void;
-  onEdit: () => void;
+  /** Omitted when the signed-in role may not edit projects (Viewer). */
+  onEdit?: () => void;
 }) {
   const workspace = useMemo(() => buildProjectWorkspace(data, project), [data, project]);
   const assessed = hasDeliveryEvidence(workspace.scoped);
@@ -91,14 +92,14 @@ function ProjectCard({
           <h3 className="mt-0.5 truncate text-lg font-semibold">{project.name}</h3>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">{project.customer} &middot; {project.workstream}</p>
         </div>
-        <button
+        {onEdit && <button
           onClick={onEdit}
           aria-label={`Edit ${project.name}`}
           title="Edit project"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        </button>}
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -235,7 +236,7 @@ export function ProjectsPortfolioPage() {
               data={data}
               isActive={project.id === activeProject?.id}
               onOpen={() => openProject(project)}
-              onEdit={() => setEditingProject(project)}
+              onEdit={canEditProject(user?.role) ? () => setEditingProject(project) : undefined}
             />
           ))}
         </div>
