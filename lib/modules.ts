@@ -45,7 +45,13 @@ export type ModuleConfig = {
   // generic table is still used for browsing/editing existing projects.
   hideGenericAddButton?: boolean;
   columns: { key: string; label: string; type?: "status" | "priority" | "date" | "impact" | "exposure" | "readiness" }[];
-  fields: { key: string; label: string; type?: "textarea" | "date" | "number" | "select"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string; rows?: number; badge?: boolean }[];
+  fields: {
+    key: string; label: string; type?: "textarea" | "date" | "number" | "select" | "reference"; options?: string[]; required?: boolean; min?: number; max?: number; refPrefix?: string; rows?: number; badge?: boolean;
+    /** type "reference": the table whose records (in the current project only) can be chosen. */
+    references?: "requirements";
+    /** type "reference": once a saved record has a value, it is shown read-only (no reassignment). */
+    lockWhenSet?: boolean;
+  }[];
 };
 
 export const navItems = [
@@ -224,6 +230,10 @@ export const modules: ModuleConfig[] = [
       { key: "status", label: "Status", type: "status" },
     ],
     fields: [
+      // Every AC belongs to a Requirement in the same project (migration 033).
+      // Required on create; read-only once set — only an orphan AC (legacy,
+      // no requirement) shows the picker so it can be repaired.
+      { key: "requirement_id", label: "Requirement", type: "reference", references: "requirements", required: true, lockWhenSet: true },
       { key: "ac_ref", label: "Reference", refPrefix: "AC" },
       { key: "criterion", label: "Criterion", required: true },
       { key: "description", label: "Description", type: "textarea" },

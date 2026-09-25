@@ -127,7 +127,7 @@ await run("032 revokes anon table privileges, TRUNCATE, and future default grant
   assert.match(sql, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM authenticated;/);
   assert.doesNotMatch(sql, /REVOKE (ALL|SELECT|INSERT|UPDATE|DELETE)[^;]*FROM[^;]*authenticated/);
   assert.doesNotMatch(sql, /CREATE POLICY|GRANT /);
-  assert.equal(req("../lib/schema.ts").latestMigration, "032_remove_anon_data_access");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "032_remove_anon_data_access");
 });
 
 // ── Refused writes are visible, never silent ────────────────────────────────

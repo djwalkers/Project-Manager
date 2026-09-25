@@ -5,6 +5,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { FormDialog } from "@/components/form-dialog";
+import { buildReferenceOptions } from "@/lib/reference-fields";
 import { PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -162,6 +163,11 @@ export function DataTable({
       return next;
     });
   }
+
+  // "reference" field choices come from the page's DataStore, which is
+  // already scoped to the current project — so only that project's records
+  // are ever offered.
+  const referenceOptions = useMemo(() => buildReferenceOptions(config, data as unknown as Record<string, unknown>), [config, data]);
 
   function openNew() {
     setEditing(null);
@@ -396,7 +402,9 @@ export function DataTable({
                         {strVal}
                       </span>
                     ) : (
-                      <span className="whitespace-pre-wrap">{displayValue(raw, field.type)}</span>
+                      <span className="whitespace-pre-wrap">{field.type === "reference"
+                        ? (isEmpty ? "Not assigned" : referenceOptions[field.key]?.find((option) => option.value === strVal)?.label ?? "—")
+                        : displayValue(raw, field.type)}</span>
                     )}
                   </dd>
                 </div>
@@ -412,7 +420,7 @@ export function DataTable({
         )}
       </aside>
 
-      <FormDialog config={config} record={editing ?? (formOpen && !editing ? newDefaults : null)} open={formOpen} onClose={() => setFormOpen(false)} onSave={saveRecord} existingRecords={rows} />
+      <FormDialog config={config} record={editing ?? (formOpen && !editing ? newDefaults : null)} open={formOpen} onClose={() => setFormOpen(false)} onSave={saveRecord} existingRecords={rows} referenceOptions={referenceOptions} />
     </div>
   );
 }

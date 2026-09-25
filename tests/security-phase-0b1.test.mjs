@@ -207,7 +207,7 @@ await run("deleteRecord: a real delete still resolves and audits exactly one Del
 
 await run("callers remove a deleted item from UI state only after deleteRecord resolves", () => {
   const app = read("components/app-client.tsx");
-  assert.match(app, /await deleteRecord\(config\.key, String\(record\.id\)\);\n\s+setData\(/);
+  assert.match(app, /await deleteRecord\(config\.key, String\(record\.id\)\);\n\s+const id = String\(record\.id\);\n\s+setData\(/);
   const table = read("components/data-table.tsx");
   assert.match(table, /await onDeleteRecord\(row\);\n\s+const nextRows = rows\.filter/);
   assert.match(table, /catch \(error\) \{\n\s+setOperationError\(error instanceof Error \? error\.message/);
