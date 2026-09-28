@@ -15,7 +15,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { SOURCE_DOCUMENTS_BUCKET } from "@/lib/source-documents";
+import { SOURCE_DOCUMENTS_BUCKET, semverParts } from "@/lib/source-documents";
 import type { Actor, ServiceResult } from "@/lib/source-documents-server";
 
 export type WorkerIdentity = { id: string; name: string };
@@ -62,24 +62,44 @@ async function versionLabel(db: SupabaseClient, versionId: string): Promise<stri
 }
 
 /** Audit row for "extraction queued" — also used by the upload flow (automatic queueing). */
-export function extractionQueuedAudit(projectId: string, versionId: string, label: string, how: "automatic" | "manual" | "retry", previous: string | null): AuditRow {
+export function extractionQueuedAudit(projectId: string, versionId: string, label: string, how: "automatic" | "manual" | "retry" | "upgrade", previous: string | null, versions?: { from: string | null; to: string | null }): AuditRow {
   return {
     project_id: projectId, entity_type: "document_versions", entity_id: versionId, entity_name: label,
     action_type: "Status Change", field_name: "extraction", old_value: previous,
-    new_value: how === "retry" ? "Queued (manual retry)" : how === "manual" ? "Queued (manual)" : "Queued (automatic, on upload)",
+    new_value: how === "upgrade" ? `Queued (re-extraction: extractor ${versions?.from ?? "?"} → ${versions?.to ?? "?"})`
+      : how === "retry" ? "Queued (manual retry)" : how === "manual" ? "Queued (manual)" : "Queued (automatic, on upload)",
   };
+}
+
+/** The extractor version the active worker last reported (heartbeat / claim), if any. */
+export async function availableExtractorVersion(db: SupabaseClient): Promise<string | null> {
+  const { data } = await db.from("worker_credentials").select("last_seen_extractor_version").eq("scope", "extraction").is("revoked_at", null).maybeSingle();
+  return (data as { last_seen_extractor_version?: string | null } | null)?.last_seen_extractor_version ?? null;
 }
 
 // ── People: queue / retry ───────────────────────────────────────────────────
 
+/**
+ * Queue / retry, or (mode "upgrade") re-extract with a newer extractor. The
+ * newer version comes from what the worker actually reported — never from
+ * the request — and the database re-checks it (compare_semver).
+ */
 export async function queueExtraction(db: SupabaseClient, actor: Actor, body: Record<string, unknown>): Promise<ServiceResult> {
   const projectId = text(body.project_id), versionId = text(body.version_id);
   if (!UUID.test(projectId) || !UUID.test(versionId)) return fail(400, "project_id and version_id are required");
-  const { data, error } = await db.rpc("queue_extraction_job", { p_project_id: projectId, p_version_id: versionId, p_user_id: actor.userId, p_user_name: actor.displayName });
+  const mode = text(body.mode) || "manual";
+  if (mode !== "manual" && mode !== "upgrade") return fail(400, "mode must be manual or upgrade");
+  const available = mode === "upgrade" ? await availableExtractorVersion(db) : null;
+  if (mode === "upgrade" && !available) return fail(409, "The extraction worker has not reported an extractor version yet — start the worker and try again");
+  const { data, error } = await db.rpc("queue_extraction_job", {
+    p_project_id: projectId, p_version_id: versionId, p_user_id: actor.userId, p_user_name: actor.displayName,
+    p_mode: mode, p_available_extractor_version: available,
+  });
   if (error) return mapDbError(error);
-  const row = (Array.isArray(data) ? data[0] : data) as { job_id: string; trigger: "manual" | "retry"; previous_status: string };
+  const row = (Array.isArray(data) ? data[0] : data) as { job_id: string; trigger: "manual" | "retry" | "upgrade"; previous_status: string; previous_extractor_version: string | null };
   const auditWarning = await audit(db, actor.userId, actor.displayName, [
-    extractionQueuedAudit(projectId, versionId, await versionLabel(db, versionId), row.trigger, row.previous_status),
+    extractionQueuedAudit(projectId, versionId, await versionLabel(db, versionId), row.trigger, row.previous_status,
+      row.trigger === "upgrade" ? { from: row.previous_extractor_version, to: available } : undefined),
   ]);
   const { data: job } = await db.from("extraction_jobs").select("*").eq("id", row.job_id).maybeSingle();
   return { status: 200, body: { job, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
@@ -114,14 +134,14 @@ export async function issueWorkerToken(db: SupabaseClient, actor: Actor, body: R
 
 /** Manager/Admin: worker availability and queue summary for System Health. */
 export async function workerStatus(db: SupabaseClient): Promise<ServiceResult> {
-  const { data: cred } = await db.from("worker_credentials").select("name, created_at, last_seen_at, last_seen_version").eq("scope", "extraction").is("revoked_at", null).maybeSingle();
+  const { data: cred } = await db.from("worker_credentials").select("name, created_at, last_seen_at, last_seen_version, last_seen_extractor_version").eq("scope", "extraction").is("revoked_at", null).maybeSingle();
   const count = async (status: string, sinceHours?: number) => {
     let q = db.from("extraction_jobs").select("id", { count: "exact", head: true }).eq("status", status);
     if (sinceHours) q = q.gte("completed_at", new Date(Date.now() - sinceHours * 3_600_000).toISOString());
     const { count: n } = await q;
     return n ?? 0;
   };
-  const c = cred as { name: string; created_at: string; last_seen_at: string | null; last_seen_version: string | null } | null;
+  const c = cred as { name: string; created_at: string; last_seen_at: string | null; last_seen_version: string | null; last_seen_extractor_version: string | null } | null;
   const lastSeen = c?.last_seen_at ? new Date(c.last_seen_at).getTime() : null;
   return {
     status: 200,
@@ -130,27 +150,31 @@ export async function workerStatus(db: SupabaseClient): Promise<ServiceResult> {
       name: c?.name ?? null,
       last_seen_at: c?.last_seen_at ?? null,
       last_seen_version: c?.last_seen_version ?? null,
+      extractor_version: c?.last_seen_extractor_version ?? null,
       online: lastSeen !== null && Date.now() - lastSeen < 3 * 60_000,
       queue: { queued: await count("Queued"), running: await count("Running"), failed_24h: await count("Failed", 24), completed_24h: await count("Completed", 24) },
     },
   };
 }
 
-async function touch(db: SupabaseClient, worker: WorkerIdentity, version: string) {
-  await db.from("worker_credentials").update({ last_seen_at: new Date().toISOString(), last_seen_version: version.slice(0, 40) || null }).eq("id", worker.id);
+async function touch(db: SupabaseClient, worker: WorkerIdentity, version: string, extractorVersion: string) {
+  const update: Record<string, unknown> = { last_seen_at: new Date().toISOString(), last_seen_version: version.slice(0, 40) || null };
+  // Only a well-formed MAJOR[.MINOR[.PATCH]] is recorded (it drives re-extraction eligibility).
+  if (semverParts(extractorVersion) && /^\d{1,6}(\.\d{1,6}){0,2}$/.test(extractorVersion)) update.last_seen_extractor_version = extractorVersion;
+  await db.from("worker_credentials").update(update).eq("id", worker.id);
 }
 
 // ── Worker operations ──────────────────────────────────────────────────────
 
 export async function workerHeartbeat(db: SupabaseClient, worker: WorkerIdentity, body: Record<string, unknown>): Promise<ServiceResult> {
-  await touch(db, worker, text(body.worker_version));
+  await touch(db, worker, text(body.worker_version), text(body.extractor_version));
   return { status: 200, body: { ok: true, worker: worker.name } };
 }
 
 /** Claims the oldest queued job and returns a 5-minute signed URL for exactly that file. */
 export async function workerClaim(db: SupabaseClient, worker: WorkerIdentity, body: Record<string, unknown>): Promise<ServiceResult> {
   const workerVersion = text(body.worker_version).slice(0, 40);
-  await touch(db, worker, workerVersion);
+  await touch(db, worker, workerVersion, text(body.extractor_version));
   const { data, error } = await db.rpc("claim_extraction_job", { p_worker_id: worker.id, p_worker_name: worker.name, p_worker_version: workerVersion || null, p_lease_seconds: LEASE_SECONDS });
   if (error) return mapDbError(error);
   const job = (Array.isArray(data) ? data[0] : data) as {
@@ -225,7 +249,7 @@ export async function workerComplete(db: SupabaseClient, worker: WorkerIdentity,
   await audit(db, null, `Extraction worker (${worker.name})`, [{
     project_id: row.project_id, entity_type: "document_versions", entity_id: row.document_version_id,
     entity_name: await versionLabel(db, row.document_version_id), action_type: "Status Change", field_name: "extraction",
-    old_value: "Running", new_value: `${row.extraction_status} — ${fragmentCount} fragment${fragmentCount === 1 ? "" : "s"}`,
+    old_value: "Running", new_value: `${row.extraction_status} — ${fragmentCount} fragment${fragmentCount === 1 ? "" : "s"} (extractor ${extractorVersion})`,
   }]);
   return { status: 200, body: { ok: true, extraction_status: row.extraction_status } };
 }
@@ -243,10 +267,15 @@ export async function workerFail(db: SupabaseClient, worker: WorkerIdentity, bod
   });
   if (error) return mapDbError(error);
   const row = (Array.isArray(data) ? data[0] : data) as { document_version_id: string; project_id: string };
+  // After a failed newer run the version keeps its previous successful status (037).
+  const { data: version } = await db.from("document_versions").select("extraction_status").eq("id", row.document_version_id).maybeSingle();
+  const status = (version as { extraction_status?: string } | null)?.extraction_status ?? "Failed";
+  const extractorVersion = text(body.extractor_version).slice(0, 40);
   await audit(db, null, `Extraction worker (${worker.name})`, [{
     project_id: row.project_id, entity_type: "document_versions", entity_id: row.document_version_id,
     entity_name: await versionLabel(db, row.document_version_id), action_type: "Status Change", field_name: "extraction",
-    old_value: "Running", new_value: `Failed — ${category}`,
+    old_value: "Running",
+    new_value: `Failed — ${category}${extractorVersion ? ` (extractor ${extractorVersion})` : ""}${status !== "Failed" ? `; previous extraction kept (${status})` : ""}`,
   }]);
-  return { status: 200, body: { ok: true, extraction_status: "Failed" } };
+  return { status: 200, body: { ok: true, extraction_status: status } };
 }

@@ -2,7 +2,7 @@
 // tests/fixtures.mjs, parsed by the real libraries. No network, no AI.
 import assert from "node:assert/strict";
 import { EXTRACTOR_VERSION, ExtractionError, LIMITS, PDF_MIME, DOCX_MIME, buildFragments, extractSourceDocument, sha256Hex } from "../extract.js";
-import { makeDocx, makePdf, specPdf } from "./fixtures.mjs";
+import { CR_CONTENT, crDocx, crPdf, makeDocx, makePdf, specPdf } from "./fixtures.mjs";
 
 async function run(name, fn) {
   try { await fn(); console.log(`✓ ${name}`); } catch (error) { console.error(`✗ ${name}`); throw error; }
@@ -78,13 +78,14 @@ await run("DOCX: headings, paragraphs, list items and tables are preserved with 
   ]);
   const r = await extractSourceDocument(docx, DOCX_MIME);
   const types = r.fragments.map((f) => [f.fragment_type, f.section_number]);
-  assert.deepEqual(types, [["text", "4.2"], ["list", "4.2"], ["table", "4.2"], ["text", "4.3"]]);
+  assert.deepEqual(types, [["text", "4.2"], ["table", "4.2"], ["text", "4.3"]], "a section's paragraph and list items share one fragment");
   const table = r.fragments.find((f) => f.fragment_type === "table");
   assert.deepEqual(table.metadata.table.rows, [["Temperature", "Priority"], ["Frozen", "1"], ["Chilled", "2"]]);
   assert.equal(table.metadata.table.columns, 2);
   assert.equal(table.text, "Temperature | Priority\nFrozen | 1\nChilled | 2");
   assert.deepEqual(table.section_path, ["4 Replenishment", "4.2 Replenishment Processing"]);
-  assert.equal(r.fragments.find((f) => f.fragment_type === "list").text, "• Frozen before Chilled\n\n• Skip unavailable pick faces");
+  assert.equal(r.fragments[0].text, "The job runs every 15 minutes.\n\n• Frozen before Chilled\n• Skip unavailable pick faces");
+  assert.deepEqual(r.diagnostics.heading_sources, { style: 3, outline: 0, formatting: 0 });
   assert.equal(r.fragments[0].page_start, null, "DOCX has no fixed pages");
   assert.equal(r.diagnostics.table_count, 1);
   assert.equal(r.diagnostics.heading_count, 3);
@@ -109,6 +110,114 @@ await run("a fragment never spans two sections", async () => {
   const sections = r.fragments.map((f) => f.section_number);
   assert.ok(!r.fragments.some((f) => /4\.3 Exceptions/.test(f.text) && f.section_number === "4.2"));
   assert.deepEqual([...new Set(sections)], sections.filter((s, i) => sections.indexOf(s) === i));
+});
+
+// ── DOCX with visually formatted headings (the real PL10 CR shape) ─────────
+
+await run("DOCX without heading styles: outline-level and bold section headings become sections", async () => {
+  const r = await extractSourceDocument(await crDocx(), DOCX_MIME);
+  assert.equal(r.outcome, "completed", JSON.stringify(r.diagnostics.warnings));
+  const paths = r.fragments.map((f) => f.section_path.join(" › "));
+  assert.deepEqual(paths, [
+    "Requirements (consolidated) › Global / Master Data",
+    "Requirements (consolidated) › Plant Behaviour Rules",
+    "Requirements (consolidated) › Execution Apps (Mobile) › Pick Execution",
+    "Requirements (consolidated) › Execution Apps (Mobile) › Marshalling Execution",
+    "Requirements (consolidated) › Temperature Priorities",
+  ]);
+  assert.deepEqual(r.diagnostics.heading_sources, { style: 0, outline: 5, formatting: 2 }, "subsections come from the formatting fallback");
+  assert.equal(r.fragments.find((f) => f.section_heading === "Temperature Priorities").fragment_type, "table");
+  assert.match(r.fragments[1].text, /^\d+\. Dashboard apps: the plant field shall be selectable/, "a bold lead-in inside a list item is not a heading");
+  assert.ok(r.fragments.length <= 6, `section-aware chunking, not one fragment per paragraph (${r.fragments.length})`);
+});
+
+await run("list numbers follow Word's lists: a shared list keeps counting, a new list restarts", async () => {
+  const shared = await extractSourceDocument(await crDocx(), DOCX_MIME);
+  assert.match(shared.fragments[0].text, /^1\. Add temperature[\s\S]*\n2\. The temperature value/);
+  assert.match(shared.fragments[1].text, /^3\. Dashboard apps/, "same Word list (numId) continues across the heading");
+  const separate = await extractSourceDocument(await makeDocx([
+    { bold: "First Area" }, { numbered: "Alpha requirement text is here.", numId: 3 }, { numbered: "Beta requirement text is here.", numId: 3 },
+    { bold: "Second Area" }, { numbered: "Gamma requirement text is here and is long enough to count.", numId: 4 },
+    { p: "Closing paragraph with enough words to make the document meaningful for the extractor tests here." },
+  ]), DOCX_MIME);
+  assert.match(separate.fragments[1].text, /^1\. Gamma/, "a new Word list restarts at 1");
+});
+
+await run("formatting fallback is conservative: sentences, lead-ins, inline emphasis and long bold lines stay text", async () => {
+  const body = "This paragraph is ordinary body text that describes the change in enough detail to be meaningful.";
+  const r = await extractSourceDocument(await makeDocx([
+    { bold: "Real Section" },
+    { p: body },
+    { bold: "Note that this is an emphasised sentence." },
+    { bold: "Important:" },
+    { runs: [{ text: "Key point", bold: true }, { text: " followed by normal text in the same paragraph" }] },
+    { p: "Short plain line" },
+    { bold: "this starts lower-case" },
+    { bold: "A bold line that is far too long to be a plausible section heading in a specification document" },
+    { numbered: "Numbered item that is bold should never be a heading", boldLead: "Bold" },
+    { p: body },
+    { bold: "Dangling Bold Line At End" },
+  ]), DOCX_MIME);
+  assert.equal(r.diagnostics.heading_count, 1, JSON.stringify(r.fragments.map((f) => f.section_heading)));
+  assert.equal(r.fragments[0].section_heading, "Real Section");
+  const text = r.fragments.map((f) => f.text).join("\n");
+  for (const kept of ["Note that this is an emphasised sentence.", "Important:", "Key point followed by normal text", "Short plain line", "this starts lower-case", "far too long", "Dangling Bold Line At End"]) {
+    assert.ok(text.includes(kept), `kept as text: ${kept}`);
+  }
+});
+
+await run("a larger, non-bold standalone line is a heading; body-size plain text is not", async () => {
+  const r = await extractSourceDocument(await makeDocx([
+    { runs: [{ text: "Scope Of Change", size: 32 }] },
+    { p: "The change covers the PL10 plant and the associated mobile and dashboard applications in scope." },
+    { runs: [{ text: "Not A Heading", size: 24 }] },
+    { p: "More body text follows here so that the document has plenty of meaningful extractable characters." },
+  ]), DOCX_MIME);
+  assert.deepEqual(r.fragments.map((f) => f.section_heading), ["Scope Of Change"]);
+  assert.match(r.fragments[0].text, /Not A Heading/);
+});
+
+await run("formal Word heading styles still take precedence over the fallback", async () => {
+  const r = await extractSourceDocument(await makeDocx([
+    { heading: 1, text: "5 Interfaces" }, { bold: "Inbound" }, { p: "Inbound files arrive nightly from the host system and are validated before loading." },
+  ]), DOCX_MIME);
+  assert.deepEqual(r.fragments[0].section_path, ["5 Interfaces", "Inbound"]);
+  assert.deepEqual(r.diagnostics.heading_sources, { style: 1, outline: 0, formatting: 1 });
+});
+
+// ── Cross-format quality ────────────────────────────────────────────────────
+
+const norm = (s) => s.toLowerCase().replace(/^\d+(\.\d+)*\.?\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
+
+await run("equivalent PDF and DOCX preserve the same sections, order, requirement text and table content", async () => {
+  const pdf = await extractSourceDocument(crPdf(), PDF_MIME);
+  const docx = await extractSourceDocument(await crDocx(), DOCX_MIME);
+  const headings = (r) => [...new Set(r.fragments.flatMap((f) => f.section_path.map(norm)))];
+  // Same sections in the same order. Path depth may differ: Word's outline
+  // levels nest the sections under the document title, while in the PDF a
+  // numbered chapter replaces an equally ranked title — so the title is the
+  // only heading allowed to appear in just one format.
+  const title = norm(CR_CONTENT.title);
+  assert.deepEqual(headings(pdf).filter((h) => h !== title), headings(docx).filter((h) => h !== title), "same headings in the same order");
+  assert.ok(headings(pdf).length >= 6);
+  const sectionOf = (r, needle) => r.fragments.find((f) => norm(f.text).includes(norm(needle)))?.section_heading;
+  const items = CR_CONTENT.sections.flatMap((s) => [...(s.items ?? []), ...(s.subsections ?? []).flatMap((x) => x.items)]);
+  for (const item of items) {
+    const a = sectionOf(pdf, item), b = sectionOf(docx, item);
+    assert.ok(a && b, `requirement found in both: ${item}`);
+    assert.equal(norm(a), norm(b), `same section for: ${item}`);
+  }
+  for (const cell of CR_CONTENT.sections.find((s) => s.table).table.flat()) {
+    assert.ok(pdf.fragments.some((f) => f.text.includes(cell)) && docx.fragments.some((f) => f.text.includes(cell)), `table cell in both: ${cell}`);
+  }
+  assert.equal(docx.fragments.find((f) => f.fragment_type === "table")?.metadata.table.rows.length, 3, "DOCX keeps the table structure");
+  assert.equal(docx.fragments.every((f) => f.page_start === null), true, "DOCX has no page provenance");
+});
+
+await run("PDF extraction is unchanged by the DOCX work", async () => {
+  const r = await extractSourceDocument(specPdf(), PDF_MIME);
+  assert.deepEqual(r.fragments.map((f) => [f.section_number, f.page_start, f.page_end, f.fragment_type]), [["4.2", 1, 2, "text"], ["4.3", 2, 2, "text"]]);
+  assert.equal(r.diagnostics.heading_sources, null);
 });
 
 console.log("\nAll extraction tests passed.\n");

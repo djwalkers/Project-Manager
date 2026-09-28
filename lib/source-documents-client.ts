@@ -81,11 +81,19 @@ export function deleteSourceDocument(projectId: string, documentId: string) {
   return call<{ deleted: true; storage_warning?: string }>(`/api/source-documents?project_id=${encodeURIComponent(projectId)}&document_id=${encodeURIComponent(documentId)}`, { method: "DELETE" });
 }
 
-/** Manager/Admin: queue extraction of a version, or retry after a failure. */
-export function queueSourceDocumentExtraction(projectId: string, versionId: string) {
+/** Manager/Admin: queue extraction of a version, retry after a failure, or (mode "upgrade") re-extract with a newer extractor. */
+export function queueSourceDocumentExtraction(projectId: string, versionId: string, mode: "manual" | "upgrade" = "manual") {
   return call<{ job: ExtractionJob }>("/api/source-documents/extraction", {
-    method: "POST", body: JSON.stringify({ project_id: projectId, version_id: versionId }),
+    method: "POST", body: JSON.stringify({ project_id: projectId, version_id: versionId, mode }),
   });
+}
+
+/** Manager/Admin: the extractor version the local worker last reported (null if unknown). */
+export async function loadAvailableExtractorVersion(): Promise<string | null> {
+  const res = await fetch("/api/worker/status", { credentials: "same-origin" });
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => null) as { extractor_version?: string | null } | null;
+  return body?.extractor_version ?? null;
 }
 
 /** The fragments of one completed extraction, in order — read directly under RLS (any valid role). */

@@ -14,6 +14,11 @@ holds credentials.
    and SHA-256 against the values recorded at upload.
 3. Extracts text with **no AI** — `pdfjs-dist` for PDFs (page boundaries
    kept), `mammoth` for DOCX (headings, paragraphs, lists, tables kept).
+   DOCX headings are taken, in order of trust, from Word heading styles,
+   then Word outline levels, then a conservative formatting fallback
+   (a short, standalone, bold or noticeably larger line that is not a
+   sentence or list item and has content after it). List numbers follow
+   Word's own lists; DOCX has no page numbers.
 4. Builds section-aware fragments with provenance (section, pages) and a
    SHA-256 per fragment, and posts them back in batches.
 5. Marks the job **Completed**, **Completed with warnings**, or **Failed**

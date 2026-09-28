@@ -345,7 +345,7 @@ export type ExtractionJob = {
   project_id: string;
   document_version_id: string;
   status: "Queued" | "Running" | "Completed" | "Failed";
-  trigger: "upload" | "manual" | "retry";
+  trigger: "upload" | "manual" | "retry" | "upgrade";
   requested_by: string | null;
   requested_by_name: string | null;
   queued_at: string;
@@ -358,6 +358,8 @@ export type ExtractionJob = {
   worker_name: string | null;
   worker_version: string | null;
   extractor_version: string | null;
+  /** For a re-extraction ('upgrade'): the newer extractor version it was requested for (037). */
+  requested_extractor_version: string | null;
   outcome: "completed" | "completed_with_warnings" | null;
   warnings_count: number | null;
   fragment_count: number | null;

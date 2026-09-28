@@ -96,16 +96,25 @@ function rpc(name, a) {
   const version = (id) => db.document_versions.find((v) => v.id === id);
   switch (name) {
     case "queue_extraction_job": {
+      // Mirrors migration 037.
       const v = db.document_versions.find((x) => x.id === a.p_version_id && x.project_id === a.p_project_id);
       if (!v) return err("P0002", "Document version not found in this project");
-      const latest = db.extraction_jobs.filter((j) => j.document_version_id === v.id).at(-1);
+      const mine = db.extraction_jobs.filter((j) => j.document_version_id === v.id);
+      const latest = mine.at(-1);
       if (latest && ["Queued", "Running"].includes(latest.status)) return err("23505", `Extraction is already ${latest.status.toLowerCase()} for this version`);
-      if (latest?.status === "Completed") return err("55000", "This version has already been extracted; re-extraction is not supported yet");
-      const trigger = latest?.status === "Failed" ? "retry" : "manual";
-      const j = { id: uuid(), project_id: P, document_version_id: v.id, status: "Queued", trigger, queued_at: new Date().toISOString(), requested_by: a.p_user_id };
+      const success = mine.filter((j) => j.status === "Completed").at(-1);
+      let trigger;
+      if (a.p_mode === "upgrade") {
+        if (!success) return err("55000", "This version has no successful extraction to upgrade");
+        if ((shared.compareSemver(a.p_available_extractor_version, success.extractor_version) ?? 0) <= 0) return err("55000", `Already extracted with extractor ${success.extractor_version} — the worker reports ${a.p_available_extractor_version ?? "no version"}, which is not newer`);
+        trigger = "upgrade";
+      } else if (latest?.status === "Failed") trigger = "retry";
+      else if (success) return err("55000", "This version has already been extracted; re-extract only when a newer extractor is available");
+      else trigger = "manual";
+      const j = { id: uuid(), project_id: P, document_version_id: v.id, status: "Queued", trigger, queued_at: new Date(Date.now() + ++seq).toISOString(), requested_by: a.p_user_id, requested_extractor_version: trigger === "upgrade" ? a.p_available_extractor_version : null };
       db.extraction_jobs.push(j);
       const previous = v.extraction_status; v.extraction_status = "Queued";
-      return { data: [{ job_id: j.id, trigger, previous_status: previous }], error: null };
+      return { data: [{ job_id: j.id, trigger, previous_status: previous, previous_extractor_version: success?.extractor_version ?? null }], error: null };
     }
     case "claim_extraction_job": {
       const j = db.extraction_jobs.find((x) => x.status === "Queued");
@@ -127,7 +136,7 @@ function rpc(name, a) {
       const stored = db.source_fragments.filter((f) => f.extraction_job_id === j.id).length;
       if (stored !== a.p_fragment_count) return err("22023", `Expected ${a.p_fragment_count} fragments but ${stored} were stored`);
       const status = a.p_outcome === "completed" ? "Completed" : "Completed with warnings";
-      Object.assign(j, { status: "Completed", outcome: a.p_outcome, extractor_version: a.p_extractor_version, fragment_count: stored });
+      Object.assign(j, { status: "Completed", outcome: a.p_outcome, extractor_version: a.p_extractor_version, fragment_count: stored, completed_at: new Date(Date.now() + ++seq).toISOString() });
       version(j.document_version_id).extraction_status = status;
       return { data: [{ document_version_id: j.document_version_id, project_id: j.project_id, extraction_status: status }], error: null };
     }
@@ -135,8 +144,10 @@ function rpc(name, a) {
       const j = job(a.p_job_id);
       if (!j || j.status !== "Running" || j.worker_id !== a.p_worker_id) return err("55000", "This extraction job is not running for this worker");
       db.source_fragments = db.source_fragments.filter((f) => f.extraction_job_id !== j.id);
-      Object.assign(j, { status: "Failed", error_category: a.p_category, error_message: a.p_message });
-      version(j.document_version_id).extraction_status = "Failed";
+      Object.assign(j, { status: "Failed", error_category: a.p_category, error_message: a.p_message, extractor_version: a.p_extractor_version, completed_at: new Date(Date.now() + ++seq).toISOString() });
+      // 037: a failed run keeps the previous successful status.
+      const prior = db.extraction_jobs.filter((x) => x.document_version_id === j.document_version_id && x.status === "Completed").at(-1);
+      version(j.document_version_id).extraction_status = prior ? (prior.outcome === "completed" ? "Completed" : "Completed with warnings") : "Failed";
       return { data: [{ document_version_id: j.document_version_id, project_id: j.project_id }], error: null };
     }
   }
@@ -249,7 +260,7 @@ await run("complete marks the version Completed and audits it as the worker (wor
   assert.equal(res.body.extraction_status, "Completed");
   assert.equal(db.rpcCalls.findLast((c) => c.name === "complete_extraction_job").args.p_worker_id, db.worker_credentials[1].id);
   const a = db.audit_log.at(-1);
-  assert.deepEqual([a.changed_by, a.changed_by_name, a.new_value], [null, "Extraction worker (andrew-mac)", "Completed — 2 fragments"]);
+  assert.deepEqual([a.changed_by, a.changed_by_name, a.new_value], [null, "Extraction worker (andrew-mac)", "Completed — 2 fragments (extractor 1.0.0)"]);
   assert.equal((await worker("complete", { job_id: jobId, outcome: "completed", extractor_version: "1.0.0", fragment_count: 2 }, token)).status, 409, "a completed job cannot be completed again");
 });
 
@@ -257,7 +268,7 @@ await run("a completed extraction is never silently replaced (re-queue refused)"
   as("Manager");
   const res = await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1 } });
   assert.equal(res.status, 409);
-  assert.match(res.body.error, /already been extracted/);
+  assert.match(res.body.error, /already been extracted; re-extract only when a newer extractor is available/);
 });
 
 await run("a failure keeps a categorised, safe error; retry is then allowed and audited as a retry", async () => {
@@ -317,7 +328,7 @@ await run("036: reads for every role, writes for nobody but the service role, no
   assert.match(m036, /REVOKE ALL ON public\.worker_credentials, public\.extraction_jobs, public\.source_fragments FROM anon;/);
   assert.match(m036, /REVOKE ALL ON public\.worker_credentials FROM authenticated;/);
   assert.match(m036, /EXECUTE format\('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn\);\s+EXECUTE format\('GRANT EXECUTE ON FUNCTION %s TO service_role', fn\);/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "036_document_extraction");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "036_document_extraction");
 });
 
 // ── UI ──────────────────────────────────────────────────────────────────────
@@ -325,7 +336,7 @@ await run("036: reads for every role, writes for nobody but the service role, no
 await run("UI: everyone can view a completed extraction; only Manager/Admin see Extract / Retry; no editing of extracted text", () => {
   const page = read("components/source-documents-page.tsx");
   assert.match(page, /\{mayManage && !document\.archived_at && canQueueExtraction\(job\) \? \(/);
-  assert.match(page, /\{job && \(job\.status === "Completed" \|\| job\.status === "Failed"\) \? \(/, "View extraction is not role-gated");
+  assert.match(page, /\{job && \(success \|\| job\.status === "Failed"\) \? \(/, "View extraction is not role-gated");
   const viewer = read("components/extraction-viewer.tsx");
   assert.doesNotMatch(viewer, /saveRecord|createRecord|updateRecord|\.insert\(|\.update\(|contentEditable|<textarea/i, "read-only");
   assert.match(viewer, /Extracted content · read-only/);
@@ -348,8 +359,143 @@ await run("the local worker never talks to an AI provider and holds no Supabase 
   assert.doesNotMatch(worker, /openai|anthropic|gemini|generativelanguage|ollama|SUPABASE|service_role|supabase\.co/i);
   assert.match(read("local-worker/worker.js"), /\/api\/worker\/\$\{route\}/, "it only calls the /api/worker/* routes");
   const pkg = JSON.parse(read("local-worker/package.json"));
-  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["mammoth", "pdfjs-dist"]);
+  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["jszip", "mammoth", "pdfjs-dist"], "jszip reads DOCX outline levels / list ids (already a mammoth dependency)");
   assert.match(read("local-worker/.gitignore"), /^config\.json$/m);
+});
+
+// ── Re-extraction with a newer extractor (migration 037) ───────────────────
+
+await run("(setup) the V2 retry queued by the earlier test is processed first — the queue is oldest-first", async () => {
+  const claim = await worker("claim", {}, token);
+  assert.equal(claim.body.job.document_version_id, "33333333-3333-4333-8333-333333333333");
+  await worker("fragments", { job_id: claim.body.job.id, fragments: [frag(1, "V2 text")] }, token);
+  assert.equal((await worker("complete", { job_id: claim.body.job.id, outcome: "completed", extractor_version: "1.0.0", fragment_count: 1 }, token)).status, 200);
+  assert.equal((await worker("claim", {}, token)).body.job, null);
+});
+
+await run("semantic version comparison (not lexical): 1.10.0 > 1.9.0, missing parts are zero, junk is not a version", () => {
+  assert.equal(shared.compareSemver("1.10.0", "1.9.0"), 1);
+  assert.equal(shared.compareSemver("1.9.0", "1.10.0"), -1);
+  assert.equal(shared.compareSemver("1.1.0", "1.1.0"), 0);
+  assert.equal(shared.compareSemver("1.1", "1.1.0"), 0);
+  assert.equal(shared.compareSemver("2", "1.99.99"), 1);
+  assert.equal(shared.compareSemver("1.0.0-beta", "1.0.0"), 0, "pre-release suffix ignored");
+  assert.equal(shared.compareSemver("banana", "1.0.0"), null);
+  assert.equal(shared.compareSemver(null, "1.0.0"), null);
+  assert.ok("1.10.0" < "1.9.0", "…whereas a plain string comparison gets it wrong");
+});
+
+const run_ = (id, status, extractor, when, extra = {}) => ({ id, document_version_id: "v", status, extractor_version: extractor, outcome: status === "Completed" ? "completed" : null, queued_at: when, completed_at: status === "Completed" || status === "Failed" ? when : null, ...extra });
+await run("eligibility: older successful run + newer worker → eligible; same version, active job, no success, unknown worker → not", () => {
+  const done100 = [run_("a", "Completed", "1.0.0", "2026-09-28T10:00:00Z")];
+  assert.equal(shared.canReextract("v", done100, "1.1.0"), true);
+  assert.equal(shared.canReextract("v", [run_("a", "Completed", "1.1.0", "2026-09-28T10:00:00Z")], "1.1.0"), false, "same version");
+  assert.equal(shared.canReextract("v", [run_("a", "Completed", "1.1.0", "2026-09-28T10:00:00Z")], "1.0.9"), false, "older worker");
+  assert.equal(shared.canReextract("v", [...done100, run_("b", "Queued", null, "2026-09-28T11:00:00Z")], "1.1.0"), false, "active job");
+  assert.equal(shared.canReextract("v", [...done100, run_("b", "Running", null, "2026-09-28T11:00:00Z")], "1.1.0"), false, "running job");
+  assert.equal(shared.canReextract("v", [run_("a", "Failed", "1.0.0", "2026-09-28T10:00:00Z")], "1.1.0"), false, "no successful extraction (retry instead)");
+  assert.equal(shared.canReextract("v", done100, null), false, "worker has not reported a version");
+  assert.equal(shared.canReextract("v", [run_("a", "Completed", "1.9.0", "2026-09-28T10:00:00Z")], "1.10.0"), true, "1.10.0 is newer than 1.9.0");
+});
+
+await run("default extraction = newest SUCCESSFUL run; a newer failed run never replaces it", () => {
+  const jobs = [run_("old", "Completed", "1.0.0", "2026-09-28T10:00:00Z"), run_("new", "Completed", "1.1.0", "2026-09-28T11:00:00Z"), run_("fail", "Failed", "1.2.0", "2026-09-28T12:00:00Z")];
+  assert.equal(shared.latestSuccessfulJobFor("v", jobs).id, "new");
+  assert.equal(shared.latestJobFor("v", jobs).id, "fail");
+  assert.deepEqual(shared.jobsForVersion("v", jobs).map((j) => j.id), ["fail", "new", "old"], "full history, newest first");
+});
+
+await run("the worker's reported extractor version is recorded (heartbeat/claim) and shown in worker status", async () => {
+  await worker("heartbeat", { extractor_version: "1.1.0" }, token);
+  assert.equal(db.worker_credentials[1].last_seen_extractor_version, "1.1.0");
+  await worker("heartbeat", { extractor_version: "drop table; --" }, token);
+  assert.equal(db.worker_credentials[1].last_seen_extractor_version, "1.1.0", "malformed versions are ignored");
+  as("Manager");
+  assert.equal((await call(routes.status.GET, "/api/worker/status", { method: "GET" })).body.extractor_version, "1.1.0");
+});
+
+await run("Viewer is refused re-extraction; the available version comes from the worker, never the request", async () => {
+  as("Viewer");
+  assert.equal((await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "upgrade" } })).status, 403);
+  as("Manager");
+  const bad = await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "sideways" } });
+  assert.equal(bad.status, 400);
+});
+
+let upgradeJob;
+const v1FragmentsBefore = () => JSON.stringify(db.source_fragments.filter((f) => f.document_version_id === V1 && f.extraction_job_id === jobId));
+await run("Manager re-extracts V1 (1.0.0 → worker 1.1.0): a NEW job is created, old job and fragments untouched, audited", async () => {
+  const oldJob = JSON.stringify(db.extraction_jobs.find((j) => j.id === jobId));
+  const oldFragments = v1FragmentsBefore();
+  as("Manager");
+  const res = await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "upgrade", available_extractor_version: "99.0.0" } });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  upgradeJob = res.body.job;
+  assert.notEqual(upgradeJob.id, jobId);
+  assert.deepEqual([upgradeJob.trigger, upgradeJob.requested_extractor_version], ["upgrade", "1.1.0"], "the request body's version is ignored");
+  assert.equal(JSON.stringify(db.extraction_jobs.find((j) => j.id === jobId)), oldJob, "previous job unchanged");
+  assert.equal(v1FragmentsBefore(), oldFragments, "previous fragments unchanged");
+  assert.equal(db.audit_log.at(-1).new_value, "Queued (re-extraction: extractor 1.0.0 → 1.1.0)");
+  assert.equal((await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "upgrade" } })).status, 409, "only one active job");
+});
+
+await run("the new run completes and becomes the default; both runs stay readable; same-version repeat refused", async () => {
+  const claim = await worker("claim", { extractor_version: "1.1.0" }, token);
+  assert.equal(claim.body.job.id, upgradeJob.id);
+  await worker("fragments", { job_id: upgradeJob.id, fragments: [frag(1, "New A"), frag(2, "New B"), frag(3, "New C")] }, token);
+  await worker("complete", { job_id: upgradeJob.id, outcome: "completed", extractor_version: "1.1.0", fragment_count: 3 }, token);
+  assert.equal(db.audit_log.at(-1).new_value, "Completed — 3 fragments (extractor 1.1.0)");
+  assert.equal(shared.latestSuccessfulJobFor(V1, db.extraction_jobs).id, upgradeJob.id);
+  assert.equal(db.source_fragments.filter((f) => f.extraction_job_id === jobId).length, 2, "historical run still readable");
+  assert.equal(db.source_fragments.filter((f) => f.extraction_job_id === upgradeJob.id).length, 3);
+  as("Manager");
+  const again = await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "upgrade" } });
+  assert.equal(again.status, 409);
+  assert.match(again.body.error, /Already extracted with extractor 1\.1\.0/);
+});
+
+await run("a failed newer run keeps the previous successful extraction as default and as the version's status", async () => {
+  await worker("heartbeat", { extractor_version: "1.10.0" }, token);
+  as("Manager");
+  const res = await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "upgrade" } });
+  assert.equal(res.status, 200, "1.10.0 is newer than 1.1.0");
+  const claim = await worker("claim", { extractor_version: "1.10.0" }, token);
+  const failed = await worker("fail", { job_id: claim.body.job.id, error_category: "parse_error", error_message: "boom", extractor_version: "1.10.0" }, token);
+  assert.equal(failed.body.extraction_status, "Completed");
+  assert.equal(db.document_versions.find((v) => v.id === V1).extraction_status, "Completed");
+  assert.equal(shared.latestSuccessfulJobFor(V1, db.extraction_jobs).id, upgradeJob.id);
+  assert.match(db.audit_log.at(-1).new_value, /^Failed — parse_error \(extractor 1\.10\.0\); previous extraction kept \(Completed\)$/);
+});
+
+await run("re-extraction needs a reported worker version", async () => {
+  db.worker_credentials[1].last_seen_extractor_version = null;
+  as("Manager");
+  const res = await call(queueRoute.POST, "/api/source-documents/extraction", { body: { project_id: P, version_id: V1, mode: "upgrade" } });
+  assert.equal(res.status, 409);
+  assert.match(res.body.error, /has not reported an extractor version/);
+});
+
+await run("037: only a semantically newer extractor may re-extract; failures keep the last success; old signature kept for deployed code", () => {
+  const m037 = code(read("supabase/migrations/037_extractor_version_reextraction.sql"));
+  assert.match(m037, /IF coalesce\(public\.compare_semver\(p_available_extractor_version, v_success\.extractor_version\), 0\) <= 0 THEN/);
+  assert.match(m037, /\(string_to_array\(core, '\.'\)::integer\[\] \|\| ARRAY\[0, 0\]\)\[1:3\]/, "integer parts, not text");
+  assert.match(m037, /ELSIF v_has_success THEN\s+RAISE EXCEPTION 'This version has already been extracted/);
+  assert.match(m037, /SET extraction_status = public\.extraction_status_after_failure\(v_job\.document_version_id\)/);
+  assert.match(m037, /CASE WHEN u\.status = 'Failed' THEN public\.extraction_status_after_failure\(u\.document_version_id\) ELSE u\.status END/);
+  assert.match(m037, /CREATE OR REPLACE FUNCTION public\.queue_extraction_job\(p_project_id uuid, p_version_id uuid, p_user_id uuid, p_user_name text\)[\s\S]*?'manual', NULL\) q;/);
+  assert.doesNotMatch(m037, /DROP POLICY|CREATE POLICY|DROP TRIGGER|source_fragments_immutable|extraction_jobs_one_active_per_version/, "RLS, immutability and one-active-job untouched");
+  assert.equal(req("../lib/schema.ts").latestMigration, "037_extractor_version_reextraction");
+});
+
+await run("UI: re-extract only for Manager/Admin with an eligible version; the viewer defaults to the newest success and lists run history", () => {
+  const page = read("components/source-documents-page.tsx");
+  assert.match(page, /\{mayManage && !document\.archived_at && !canQueueExtraction\(job\) && canReextract\(version\.id, jobs, availableExtractor\) \? \(/);
+  assert.match(page, /Re-extract with newer extractor \(\{availableExtractor\}\)/);
+  assert.match(page, /if \(!mayManage\) return;\n\s+let active = true;\n\s+loadAvailableExtractorVersion\(\)/, "Viewers never request the worker version");
+  assert.doesNotMatch(page, /1\.1\.0/, "no hard-coded extractor version");
+  const viewer = read("components/extraction-viewer.tsx");
+  assert.match(viewer, /const defaultRun = latestSuccessfulJobFor\(version\.id, runs\) \?\? runs\[0\];/);
+  assert.match(viewer, /aria-label="Extraction run"/);
 });
 
 console.log("\nAll Phase 1B extraction tests passed.\n");

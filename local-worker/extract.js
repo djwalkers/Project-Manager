@@ -10,9 +10,12 @@
 // results stay attributable to the code that produced them.
 
 import { createHash } from "node:crypto";
+import JSZip from "jszip";
 import mammoth from "mammoth";
 
-export const EXTRACTOR_VERSION = "1.0.0";
+// 1.1.0 — DOCX: headings from Word outline levels and a conservative
+// formatting fallback; text and list items of one section chunked together.
+export const EXTRACTOR_VERSION = "1.1.0";
 
 export const LIMITS = {
   /** A text fragment is closed once it reaches this size at a block boundary. */
@@ -171,61 +174,202 @@ function pdfHeading(line, bodySize, standalone) {
 }
 
 // ── DOCX ────────────────────────────────────────────────────────────────────
+//
+// Walks mammoth's document model (not its HTML), because real specifications
+// often format headings visually instead of using Word heading styles.
+// Heading detection, in order of trust:
+//   1. a Word Heading/Title style;
+//   2. a Word outline level (w:outlineLvl) on the paragraph or its style —
+//      real structural metadata that drives Word's navigation pane;
+//   3. a conservative formatting fallback (see isFormattingHeading).
+// Anything else is text or a list item. DOCX has no fixed pages, so page
+// provenance is null.
 
-/**
- * Extracts headings, paragraphs, list items and tables from a DOCX via
- * mammoth's semantic HTML (Word heading styles → h1..h6; tables kept as
- * rows × cells). DOCX has no fixed pages, so page provenance is null.
- */
-export async function extractDocx(bytes) {
-  let result;
-  try {
-    result = await mammoth.convertToHtml({ buffer: Buffer.from(bytes) }, { includeDefaultStyleMap: true, ignoreEmptyParagraphs: true });
-  } catch (error) {
-    throw new ExtractionError("parse_error", `The DOCX could not be read: ${String(error?.message ?? error).slice(0, 200)}`);
-  }
-  const blocks = htmlBlocks(result.value);
-  const images = (result.value.match(/<img\b/gi) ?? []).length;
-  const warnings = images ? [`${images} image${images === 1 ? "" : "s"} not extracted (no OCR in this phase).`] : [];
-  return { kind: "docx", pageCount: null, pageChars: [], blocks, warnings };
-}
+export const DOCX_HEADING_RULES = {
+  maxChars: 100,
+  maxWords: 12,
+  /** A non-bold paragraph counts only if at least this much larger than body text. */
+  sizeRatio: 1.25,
+};
 
-const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: "\"", "#39": "'", apos: "'", nbsp: " " };
-const decode = (s) => s.replace(/&(#\d+|#x[0-9a-f]+|\w+);/gi, (m, e) => {
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'" };
+const decode = (value) => value.replace(/&(#\d+|#x[0-9a-f]+|\w+);/gi, (m, e) => {
   if (e[0] === "#") return String.fromCodePoint(e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
   return ENTITIES[e.toLowerCase()] ?? m;
 });
-const stripTags = (html) => normaliseText(decode(html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")));
+const xmlText = (xml) => decode([...xml.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join(""));
 
-/** Walks mammoth's (flat, well-formed) HTML into ordered blocks. */
-export function htmlBlocks(html) {
-  const blocks = [];
-  const pattern = /<(h[1-6]|p|table|ul|ol)\b[^>]*>([\s\S]*?)<\/\1>/gi;
-  let match;
-  while ((match = pattern.exec(html))) {
-    const tag = match[1].toLowerCase();
-    const inner = match[2];
-    if (tag === "table") {
-      const rows = [...inner.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((row) =>
-        [...row[1].matchAll(/<t([hd])\b[^>]*>([\s\S]*?)<\/t\1>/gi)].map((cell) => stripTags(cell[2])));
+/** Outline levels from the raw XML (mammoth does not expose them). */
+async function readOutlineLevels(bytes) {
+  const zip = await JSZip.loadAsync(bytes);
+  const documentXml = (await zip.file("word/document.xml")?.async("string")) ?? "";
+  const stylesXml = (await zip.file("word/styles.xml")?.async("string")) ?? "";
+  const byStyle = new Map();
+  for (const m of stylesXml.matchAll(/<w:style\b[^>]*w:type="paragraph"[^>]*w:styleId="([^"]+)"[^>]*>([\s\S]*?)<\/w:style>/g)) {
+    const level = /<w:outlineLvl w:val="(\d)"/.exec(m[2]);
+    if (level && Number(level[1]) < 9) byStyle.set(m[1], Number(level[1]) + 1);
+  }
+  const defaultSize = /<w:docDefaults>[\s\S]*?<w:sz w:val="(\d+)"/.exec(stylesXml);
+  // Paragraph-level outline levels and list membership, in document order,
+  // keyed by their text (matched to mammoth's paragraphs in order).
+  const direct = [];
+  const lists = [];
+  for (const p of documentXml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)) {
+    const pPr = /<w:pPr>([\s\S]*?)<\/w:pPr>/.exec(p[1])?.[1] ?? "";
+    const text = normaliseText(xmlText(p[1]));
+    const level = /<w:outlineLvl w:val="(\d)"/.exec(pPr);
+    if (level && Number(level[1]) < 9) direct.push({ text, level: Number(level[1]) + 1 });
+    const numId = /<w:numId w:val="(\d+)"/.exec(pPr)?.[1];
+    if (numId && numId !== "0") lists.push({ text, numId, ilvl: Number(/<w:ilvl w:val="(\d)"/.exec(pPr)?.[1] ?? 0) });
+  }
+  return { byStyle, direct, lists, defaultSize: defaultSize ? Number(defaultSize[1]) / 2 : 11 };
+}
+
+function paragraphInfo(paragraph, defaultSize) {
+  const runs = [];
+  const walk = (node, inherited) => {
+    for (const child of node.children ?? []) {
+      if (child.type === "run") walk(child, child);
+      else if (child.type === "text") runs.push({ text: child.value, bold: Boolean(inherited?.isBold), size: inherited?.fontSize ?? defaultSize });
+      else if (child.type === "tab") runs.push({ text: " ", bold: Boolean(inherited?.isBold), size: inherited?.fontSize ?? defaultSize });
+      else if (child.type === "break") runs.push({ text: "\n", bold: Boolean(inherited?.isBold), size: inherited?.fontSize ?? defaultSize });
+      else if (child.children) walk(child, inherited);
+    }
+  };
+  walk(paragraph, null);
+  const visible = runs.filter((r) => r.text.trim());
+  return {
+    text: normaliseText(runs.map((r) => r.text).join("")),
+    allBold: visible.length > 0 && visible.every((r) => r.bold),
+    size: visible.reduce((max, r) => Math.max(max, r.size), 0),
+    weightBySize: visible.map((r) => [r.size, r.text.length]),
+  };
+}
+
+function styleHeadingLevel(paragraph) {
+  const name = String(paragraph.styleName ?? "");
+  const byName = /^heading\s*([1-9])$/i.exec(name) ?? /^Heading([1-9])$/.exec(String(paragraph.styleId ?? ""));
+  if (byName) return Number(byName[1]);
+  if (/^title$/i.test(name)) return 1;
+  return null;
+}
+
+/**
+ * The conservative fallback: a standalone paragraph that looks like a title,
+ * not a sentence. Every condition must hold — a false heading would split a
+ * section and mislabel its content, which is worse than missing one.
+ */
+export function isFormattingHeading(info, bodySize, { isListItem, hasFollowingContent }) {
+  if (isListItem || !hasFollowingContent) return false;
+  const text = info.text;
+  if (!text || text.includes("\n") || text.length > DOCX_HEADING_RULES.maxChars) return false;
+  if (text.split(/\s+/).length > DOCX_HEADING_RULES.maxWords) return false;
+  if (/[.,;:!?]$/.test(text)) return false; // sentences / lead-ins end with punctuation
+  if (!/^[A-Z0-9]/.test(text)) return false;
+  const larger = bodySize > 0 && info.size >= bodySize * DOCX_HEADING_RULES.sizeRatio;
+  return info.allBold || larger;
+}
+
+/**
+ * Extracts headings, paragraphs, list items and tables from a DOCX.
+ */
+export async function extractDocx(bytes) {
+  let model;
+  let outline;
+  try {
+    await mammoth.convertToHtml({ buffer: Buffer.from(bytes) }, { transformDocument: (doc) => { model = doc; return doc; } });
+    outline = await readOutlineLevels(Buffer.from(bytes));
+  } catch (error) {
+    throw new ExtractionError("parse_error", `The DOCX could not be read: ${String(error?.message ?? error).slice(0, 200)}`);
+  }
+
+  let images = 0;
+  const countImages = (node) => { if (node.type === "image") images += 1; (node.children ?? []).forEach(countImages); };
+  countImages(model);
+
+  // Pass 1: flatten body into records.
+  const records = [];
+  const cellText = (cell) => normaliseText((cell.children ?? []).filter((c) => c.type === "paragraph").map((p) => paragraphInfo(p, outline.defaultSize).text).join("\n"));
+  for (const node of model.children ?? []) {
+    if (node.type === "paragraph") {
+      const info = paragraphInfo(node, outline.defaultSize);
+      if (!info.text) continue;
+      records.push({ kind: "paragraph", node, info });
+    } else if (node.type === "table") {
+      const rows = (node.children ?? []).filter((r) => r.type === "tableRow")
+        .map((row) => (row.children ?? []).filter((c) => c.type === "tableCell").map(cellText));
       const nonEmpty = rows.filter((r) => r.some((c) => c));
-      if (nonEmpty.length) blocks.push({ type: "table", rows: nonEmpty, page: null });
-    } else if (tag === "ul" || tag === "ol") {
-      for (const item of inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)) {
-        const text = stripTags(item[1]);
-        if (text) blocks.push({ type: "list_item", text, ordered: tag === "ol", page: null });
-      }
-    } else {
-      const text = stripTags(inner);
-      if (!text) continue;
-      if (tag === "p") blocks.push({ type: "paragraph", text, page: null });
-      else {
-        const numbered = NUMBERED_HEADING.exec(text);
-        blocks.push({ type: "heading", level: Number(tag[1]), number: numbered ? numbered[1] : null, text, page: null });
-      }
+      if (nonEmpty.length) records.push({ kind: "table", rows: nonEmpty });
     }
   }
-  return blocks;
+
+  // Body size = the (effective) font size carrying the most characters.
+  const weight = new Map();
+  for (const r of records) if (r.kind === "paragraph") for (const [size, n] of r.info.weightBySize) weight.set(size, (weight.get(size) ?? 0) + n);
+  const bodySize = [...weight.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? outline.defaultSize;
+
+  // Pass 2: classify. Outline levels are matched to paragraphs in order by exact text.
+  let outlineIndex = 0;
+  const blocks = [];
+  const headingStack = []; // [{ level, size }] — used to nest formatting-inferred headings
+  const sources = { style: 0, outline: 0, formatting: 0 };
+  // Ordered-list numbers follow Word's own lists (numId + level), so a list
+  // that continues across headings keeps counting; if an item cannot be
+  // matched to its XML it gets a bullet rather than an invented number.
+  let listIndex = 0;
+  const counters = new Map();
+  const markerFor = (text, ordered) => {
+    const entry = outline.lists[listIndex];
+    if (!entry || entry.text !== text) return "•";
+    listIndex += 1;
+    if (!ordered) return "•";
+    for (const key of [...counters.keys()]) if (key.startsWith(`${entry.numId}:`) && Number(key.split(":")[1]) > entry.ilvl) counters.delete(key);
+    const key = `${entry.numId}:${entry.ilvl}`;
+    counters.set(key, (counters.get(key) ?? 0) + 1);
+    return `${counters.get(key)}.`;
+  };
+  records.forEach((record, i) => {
+    if (record.kind === "table") { blocks.push({ type: "table", rows: record.rows, page: null }); return; }
+    const { node, info } = record;
+    const isListItem = Boolean(node.numbering);
+    let level = styleHeadingLevel(node);
+    let source = level ? "style" : null;
+    const next = outline.direct[outlineIndex];
+    const outlineLevel = next && next.text === info.text ? next.level : null;
+    if (outlineLevel) outlineIndex += 1;
+    if (!level && !isListItem && (outlineLevel || outline.byStyle.get(node.styleId))) {
+      level = outlineLevel ?? outline.byStyle.get(node.styleId);
+      source = "outline";
+    }
+    if (!level && isFormattingHeading(info, bodySize, { isListItem, hasFollowingContent: i < records.length - 1 })) {
+      // Nest under the nearest preceding heading set in a larger font. An
+      // explicitly marked heading (style / outline level) is never displaced
+      // by an inferred one — the inferred heading becomes its child.
+      while (headingStack.length && headingStack[headingStack.length - 1].source === "formatting" && headingStack[headingStack.length - 1].size <= info.size) headingStack.pop();
+      level = Math.min(6, (headingStack[headingStack.length - 1]?.level ?? 0) + 1);
+      source = "formatting";
+    }
+    if (level) {
+      if (outline.lists[listIndex]?.text === info.text) listIndex += 1;
+      while (headingStack.length && headingStack[headingStack.length - 1].level >= level) headingStack.pop();
+      headingStack.push({ level, size: info.size, source });
+      sources[source] += 1;
+      const numbered = NUMBERED_HEADING.exec(info.text);
+      blocks.push({ type: "heading", level, number: numbered ? numbered[1] : null, text: info.text, page: null, source });
+      return;
+    }
+    if (isListItem) {
+      const ordered = Boolean(node.numbering.isOrdered);
+      blocks.push({ type: "list_item", text: info.text, ordered, marker: markerFor(info.text, ordered), page: null });
+      return;
+    }
+    // A heading or plain paragraph that is also a Word list item still consumes its entry.
+    if (outline.lists[listIndex]?.text === info.text) listIndex += 1;
+    blocks.push({ type: "paragraph", text: info.text, page: null });
+  });
+
+  const warnings = images ? [`${images} image${images === 1 ? "" : "s"} not extracted (no OCR in this phase).`] : [];
+  return { kind: "docx", pageCount: null, pageChars: [], blocks, warnings, headingSources: sources };
 }
 
 // ── Fragments ───────────────────────────────────────────────────────────────
@@ -282,7 +426,9 @@ export function buildFragments(blocks) {
   };
   const flush = () => {
     if (!chunk) return;
-    push(chunk.type, chunk.parts.join("\n\n"), chunk.pageStart, chunk.pageEnd, { block_count: chunk.parts.length });
+    // List items sit on consecutive lines; paragraphs are separated by a blank line.
+    const text = chunk.parts.map((part, i) => (i === 0 ? "" : part.isList && chunk.parts[i - 1].isList ? "\n" : "\n\n") + part.text).join("");
+    push(chunk.allList ? "list" : "text", text, chunk.pageStart, chunk.pageEnd, { block_count: chunk.parts.length });
     chunk = null;
   };
 
@@ -309,13 +455,18 @@ export function buildFragments(blocks) {
       emit();
       continue;
     }
-    const type = block.type === "list_item" ? "list" : "text";
-    const text = block.type === "list_item" ? `• ${block.text}` : block.text;
+    // Paragraphs and list items of the same section share a fragment (a
+    // requirement list reads with its lead-in); the fragment is "list" only
+    // when every block in it is a list item.
+    const isList = block.type === "list_item";
+    const text = isList ? `${block.marker ?? "•"} ${block.text}` : block.text;
     for (const piece of splitLong(text, LIMITS.fragmentMaxChars)) {
-      const size = chunk ? chunk.parts.join("\n\n").length : 0;
-      if (chunk && (chunk.type !== type || size >= LIMITS.fragmentTargetChars || size + piece.length > LIMITS.fragmentMaxChars)) flush();
-      if (!chunk) chunk = { type, parts: [], pageStart: null, pageEnd: null };
-      chunk.parts.push(piece);
+      // Same measure as before for text-only chunks: characters plus the "\n\n" separators.
+      const size = chunk ? chunk.parts.reduce((n, part) => n + part.text.length, 0) + 2 * (chunk.parts.length - 1) : 0;
+      if (chunk && (size >= LIMITS.fragmentTargetChars || size + piece.length > LIMITS.fragmentMaxChars)) flush();
+      if (!chunk) chunk = { allList: true, parts: [], pageStart: null, pageEnd: null };
+      chunk.allList = chunk.allList && isList;
+      chunk.parts.push({ text: piece, isList });
       if (block.page != null) {
         chunk.pageStart = chunk.pageStart == null ? block.page : Math.min(chunk.pageStart, block.page);
         chunk.pageEnd = chunk.pageEnd == null ? block.page : Math.max(chunk.pageEnd, block.page);
@@ -360,6 +511,7 @@ export function diagnose(extracted, fragments) {
       fragment_count: fragments.length,
       char_count: charCount,
       heading_count: headingCount,
+      heading_sources: extracted.headingSources ?? null,
       table_count: tableCount,
       empty_page_count: emptyPages.length,
       empty_pages: emptyPages,

@@ -43,6 +43,7 @@ await run("a claimed PDF is downloaded, verified, extracted and posted as fragme
   assert.equal(complete.extractor_version, EXTRACTOR_VERSION);
   assert.equal(complete.outcome, "completed");
   assert.ok(h.calls.every((c) => c.headers.Authorization === `Bearer ${TOKEN}` && c.body.worker_version === WORKER_VERSION));
+  assert.ok(h.calls.every((c) => c.body.extractor_version === EXTRACTOR_VERSION), "every call reports the extractor version (drives re-extraction eligibility)");
   assert.ok(h.calls.every((c) => !JSON.stringify(c.body).includes(TOKEN)), "the token is only ever sent as a header");
 });
 

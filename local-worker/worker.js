@@ -53,7 +53,9 @@ export function createApi({ apiBaseUrl, workerToken, requestTimeoutMs = 60_000, 
     const res = await fetchImpl(`${apiBaseUrl}/api/worker/${route}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerToken}` },
-      body: JSON.stringify({ worker_version: WORKER_VERSION, ...body }),
+      // extractor_version lets the server offer re-extraction when this worker
+      // runs a newer extractor than a version's last successful extraction.
+      body: JSON.stringify({ worker_version: WORKER_VERSION, extractor_version: EXTRACTOR_VERSION, ...body }),
       signal: AbortSignal.timeout(requestTimeoutMs),
     });
     const json = await res.json().catch(() => null);
