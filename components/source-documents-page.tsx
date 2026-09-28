@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileSearch, FileText, History, Loader2, RotateCcw, Trash2, Upload, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
@@ -12,9 +12,9 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { canArchiveOrDeleteSourceDocuments, canManageSourceDocuments } from "@/lib/permissions";
 import { scopeProjectData } from "@/lib/project-scope";
-import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, checkUploadCandidate, currentVersionOf, formatBytes, latestJobFor, versionsFor } from "@/lib/source-documents";
+import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, canReextract, checkUploadCandidate, currentVersionOf, formatBytes, jobsForVersion, latestJobFor, latestSuccessfulJobFor, versionsFor } from "@/lib/source-documents";
 import {
-  deleteSourceDocument, openSourceDocumentVersion, queueSourceDocumentExtraction, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
+  deleteSourceDocument, loadAvailableExtractorVersion, openSourceDocumentVersion, queueSourceDocumentExtraction, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
 } from "@/lib/source-documents-client";
 import type { DataStore } from "@/lib/data-store";
 import type { DocumentRecord, DocumentVersion, ExtractionJob, ExtractionStatus } from "@/lib/types";
@@ -56,7 +56,11 @@ function withDocument(data: DataStore, document: DocumentRecord, version?: Docum
 function withJob(data: DataStore, job: ExtractionJob | null): DataStore {
   if (!job) return data;
   const extraction_jobs = [...data.extraction_jobs.filter((j) => j.id !== job.id), job];
-  const status: ExtractionStatus = job.status === "Completed" ? (job.outcome === "completed_with_warnings" ? "Completed with warnings" : "Completed") : job.status;
+  const successStatus = (j: ExtractionJob): ExtractionStatus => (j.outcome === "completed_with_warnings" ? "Completed with warnings" : "Completed");
+  // Mirrors the database (037): a failed run leaves the last successful status in place.
+  const previousSuccess = latestSuccessfulJobFor(job.document_version_id, extraction_jobs);
+  const status: ExtractionStatus = job.status === "Completed" ? successStatus(job)
+    : job.status === "Failed" && previousSuccess ? successStatus(previousSuccess) : job.status;
   const document_versions = data.document_versions.map((v) => (v.id === job.document_version_id ? { ...v, extraction_status: status } : v));
   return { ...data, extraction_jobs, document_versions };
 }
@@ -168,10 +172,20 @@ export function SourceDocumentsPage() {
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ title: string; version: DocumentVersion; job: ExtractionJob } | null>(null);
+  const [viewing, setViewing] = useState<{ title: string; version: DocumentVersion } | null>(null);
+  const [availableExtractor, setAvailableExtractor] = useState<string | null>(null);
 
   const mayManage = canManageSourceDocuments(user?.role);
   const mayArchive = canArchiveOrDeleteSourceDocuments(user?.role);
+
+  // The extractor version the local worker actually reports — the basis for
+  // "Re-extract with newer extractor". Only Managers/Admins need (or can read) it.
+  useEffect(() => {
+    if (!mayManage) return;
+    let active = true;
+    loadAvailableExtractorVersion().then((v) => { if (active) setAvailableExtractor(v); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [mayManage]);
   const pageData = data && activeProject ? scopeProjectData(data, activeProject) : null;
 
   const [active, archived] = useMemo(() => {
@@ -197,29 +211,40 @@ export function SourceDocumentsPage() {
   const open = (version: DocumentVersion, disposition: "inline" | "attachment") =>
     run(version.id, () => openSourceDocumentVersion(projectId, version.id, disposition));
 
-  const queueExtraction = (version: DocumentVersion) => run(version.id, async () => {
-    const { job } = await queueSourceDocumentExtraction(projectId, version.id);
+  const queueExtraction = (version: DocumentVersion, mode: "manual" | "upgrade" = "manual") => run(version.id, async () => {
+    const { job } = await queueSourceDocumentExtraction(projectId, version.id, mode);
     setData((current) => (current ? withJob(current, job) : current));
   });
 
   // Extraction state + actions for one version: status badge, failure reason,
-  // View extraction (everyone, once completed), Extract / Retry (Manager+).
+  // View extraction (everyone; the newest SUCCESSFUL run by default),
+  // Extract / Retry, and Re-extract with a newer extractor (Manager+ only).
   function ExtractionControls({ document, version, compact }: { document: DocumentRecord; version: DocumentVersion; compact?: boolean }) {
     const job = latestJobFor(version.id, jobs);
+    const success = latestSuccessfulJobFor(version.id, jobs);
+    const failedAfterSuccess = job?.status === "Failed" && Boolean(success);
     return (
       <div className={compact ? "inline-flex flex-wrap items-center gap-1" : "flex flex-col items-start gap-1"}>
         <StatusBadge status={version.extraction_status} />
         {job?.status === "Failed" && !compact ? (
-          <span className="max-w-[12rem] text-xs text-destructive" title={job.error_message ?? undefined}>{EXTRACTION_ERROR_LABELS[job.error_category ?? ""] ?? "Extraction failed"}</span>
+          <span className="max-w-[14rem] text-xs text-destructive" title={job.error_message ?? undefined}>
+            {failedAfterSuccess ? "Re-extraction failed — the previous extraction is still in use" : EXTRACTION_ERROR_LABELS[job.error_category ?? ""] ?? "Extraction failed"}
+          </span>
         ) : null}
-        {job && (job.status === "Completed" || job.status === "Failed") ? (
-          <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => setViewing({ title: document.document_name, version, job })}>
-            <FileSearch className="h-3 w-3" aria-hidden="true" />{job.status === "Completed" ? "View extraction" : "Details"}
+        {success && !compact ? <span className="text-xs text-muted-foreground">extractor {success.extractor_version}</span> : null}
+        {job && (success || job.status === "Failed") ? (
+          <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => setViewing({ title: document.document_name, version })}>
+            <FileSearch className="h-3 w-3" aria-hidden="true" />{success ? "View extraction" : "Details"}
           </button>
         ) : null}
         {mayManage && !document.archived_at && canQueueExtraction(job) ? (
           <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => queueExtraction(version)}>
             <RotateCcw className="h-3 w-3" aria-hidden="true" />{job ? "Retry extraction" : "Extract"}
+          </button>
+        ) : null}
+        {mayManage && !document.archived_at && !canQueueExtraction(job) && canReextract(version.id, jobs, availableExtractor) ? (
+          <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => queueExtraction(version, "upgrade")}>
+            <RotateCcw className="h-3 w-3" aria-hidden="true" />Re-extract with newer extractor ({availableExtractor})
           </button>
         ) : null}
       </div>
@@ -371,7 +396,7 @@ export function SourceDocumentsPage() {
         </div>
       ) : null}
 
-      {viewing ? <ExtractionViewer title={viewing.title} version={viewing.version} job={viewing.job} onClose={() => setViewing(null)} /> : null}
+      {viewing ? <ExtractionViewer title={viewing.title} version={viewing.version} runs={jobsForVersion(viewing.version.id, jobs)} onClose={() => setViewing(null)} /> : null}
 
       {uploadTarget ? (
         <UploadDialog

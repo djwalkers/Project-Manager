@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "036_document_extraction";
-export const latestMigration = "036_document_extraction";
+export const schemaVersion = "037_extractor_version_reextraction";
+export const latestMigration = "037_extractor_version_reextraction";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -39,6 +39,7 @@ export const allMigrations = [
   "034_acceptance_criteria_requirement_not_null",
   "035_source_documents",
   "036_document_extraction",
+  "037_extractor_version_reextraction",
 ] as const;
 
 export type SchemaColumn = {
@@ -353,6 +354,7 @@ export const schemaTables: SchemaTable[] = [
       { name: "worker_name", type: "text", required: false, managed: true },
       { name: "worker_version", type: "text", required: false, managed: true },
       { name: "extractor_version", type: "text", required: false, managed: true },
+      { name: "requested_extractor_version", type: "text", required: false, managed: true },
       { name: "outcome", type: "text", required: false, managed: true },
       { name: "warnings_count", type: "integer", required: false, managed: true },
       { name: "fragment_count", type: "integer", required: false, managed: true },

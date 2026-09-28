@@ -4,7 +4,7 @@ import { AlertTriangle, ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { EXTRACTION_ERROR_LABELS } from "@/lib/source-documents";
+import { EXTRACTION_ERROR_LABELS, latestSuccessfulJobFor } from "@/lib/source-documents";
 import { loadExtractionFragments, openSourceDocumentVersion } from "@/lib/source-documents-client";
 import type { DocumentVersion, ExtractionJob, SourceFragment } from "@/lib/types";
 
@@ -16,12 +16,28 @@ import type { DocumentVersion, ExtractionJob, SourceFragment } from "@/lib/types
 const pagesLabel = (f: SourceFragment) =>
   f.page_start == null ? null : f.page_end != null && f.page_end !== f.page_start ? `Pages ${f.page_start}–${f.page_end}` : `Page ${f.page_start}`;
 
-export function ExtractionViewer({ title, version, job, onClose }: {
+const runLabel = (j: ExtractionJob) => {
+  const when = j.completed_at ?? j.queued_at;
+  const date = when ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(when)) : "—";
+  const state = j.status === "Completed" ? (j.outcome === "completed_with_warnings" ? "Completed with warnings" : "Completed") : j.status;
+  return `${date} · extractor ${j.extractor_version ?? j.requested_extractor_version ?? "—"} · ${state}${j.trigger === "upgrade" ? " · re-extraction" : ""}`;
+};
+
+/**
+ * `runs` are all extraction runs of this version (newest first). The newest
+ * successful run is shown by default — a newer failed run never replaces it —
+ * and earlier runs stay selectable as read-only history.
+ */
+export function ExtractionViewer({ title, version, runs, onClose }: {
   title: string;
   version: DocumentVersion;
-  job: ExtractionJob;
+  runs: ExtractionJob[];
   onClose: () => void;
 }) {
+  const defaultRun = latestSuccessfulJobFor(version.id, runs) ?? runs[0];
+  const [selectedId, setSelectedId] = useState(defaultRun?.id ?? "");
+  const job = runs.find((r) => r.id === selectedId) ?? defaultRun;
+  const newerFailure = runs[0] && runs[0].status === "Failed" && defaultRun && runs[0].id !== defaultRun.id ? runs[0] : null;
   const [fragments, setFragments] = useState<SourceFragment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -30,6 +46,8 @@ export function ExtractionViewer({ title, version, job, onClose }: {
   const completed = job.status === "Completed";
 
   useEffect(() => {
+    setFragments(null);
+    setError(null);
     if (!completed) return;
     let active = true;
     loadExtractionFragments(job.id)
@@ -75,6 +93,19 @@ export function ExtractionViewer({ title, version, job, onClose }: {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
+          {runs.length > 1 ? (
+            <label className="mb-4 block text-sm font-medium">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Extraction run</span>
+              <select className="mt-1 block w-full rounded-md border bg-background px-2 py-1.5 text-sm" value={job?.id ?? ""} onChange={(e) => setSelectedId(e.target.value)} aria-label="Extraction run">
+                {runs.map((r) => <option key={r.id} value={r.id}>{runLabel(r)}{r.id === defaultRun?.id ? " (default)" : ""}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {newerFailure && job?.id !== newerFailure.id ? (
+            <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+              A newer extraction run failed ({EXTRACTION_ERROR_LABELS[newerFailure.error_category ?? ""] ?? "failed"}). This is the most recent successful extraction.
+            </div>
+          ) : null}
           {error ? <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</div> : null}
           {job.status === "Failed" ? (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">

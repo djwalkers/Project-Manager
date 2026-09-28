@@ -123,9 +123,56 @@ export function latestJobFor(versionId: string, jobs: ExtractionJob[]): Extracti
     .sort((a, b) => b.queued_at.localeCompare(a.queued_at) || b.id.localeCompare(a.id))[0] ?? null;
 }
 
-/** Manager/Admin may (re)queue only when nothing is active and the last attempt did not complete. */
+/** Manager/Admin may queue when nothing has run yet, or deliberately retry a failed run. */
 export function canQueueExtraction(job: ExtractionJob | null): boolean {
   return !job || job.status === "Failed";
+}
+
+// ── Extractor versions (semantic, not lexical: 1.10.0 > 1.9.0) ─────────────
+
+const SEMVER = /^(\d{1,6})(?:\.(\d{1,6}))?(?:\.(\d{1,6}))?$/;
+
+/** MAJOR[.MINOR[.PATCH]] → [major, minor, patch]; a -pre/+build suffix is ignored. Null if not a version. */
+export function semverParts(version: string | null | undefined): [number, number, number] | null {
+  const core = String(version ?? "").trim().split(/[-+]/)[0];
+  const m = SEMVER.exec(core);
+  return m ? [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)] : null;
+}
+
+/** -1 / 0 / 1, or null when either side is not a version. Mirrors SQL public.compare_semver. */
+export function compareSemver(a: string | null | undefined, b: string | null | undefined): -1 | 0 | 1 | null {
+  const x = semverParts(a), y = semverParts(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1;
+  return 0;
+}
+
+/** Every extraction run of a version, newest first. */
+export function jobsForVersion(versionId: string, jobs: ExtractionJob[]): ExtractionJob[] {
+  return jobs.filter((j) => j.document_version_id === versionId)
+    .sort((a, b) => b.queued_at.localeCompare(a.queued_at) || b.id.localeCompare(a.id));
+}
+
+/**
+ * The extraction shown by default: the most recent SUCCESSFUL run
+ * (Completed or Completed with warnings). A newer failed run never replaces it.
+ */
+export function latestSuccessfulJobFor(versionId: string, jobs: ExtractionJob[]): ExtractionJob | null {
+  return jobs.filter((j) => j.document_version_id === versionId && j.status === "Completed")
+    .sort((a, b) => String(b.completed_at ?? "").localeCompare(String(a.completed_at ?? "")) || b.id.localeCompare(a.id))[0] ?? null;
+}
+
+/**
+ * "Re-extract with newer extractor" is offered only when the version has a
+ * successful extraction, nothing is queued/running, and the extractor the
+ * worker actually reports is semantically newer than that extraction's.
+ */
+export function canReextract(versionId: string, jobs: ExtractionJob[], availableExtractorVersion: string | null | undefined): boolean {
+  const latest = latestJobFor(versionId, jobs);
+  if (latest && (latest.status === "Queued" || latest.status === "Running")) return false;
+  const success = latestSuccessfulJobFor(versionId, jobs);
+  if (!success) return false;
+  return compareSemver(availableExtractorVersion, success.extractor_version) === 1;
 }
 
 export const EXTRACTION_ERROR_LABELS: Record<string, string> = {
