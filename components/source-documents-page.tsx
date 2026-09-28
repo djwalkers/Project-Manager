@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileSearch, FileText, History, Loader2, RotateCcw, Trash2, Upload, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileSearch, FileText, History, Loader2, MoreHorizontal, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
@@ -12,7 +13,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { canArchiveOrDeleteSourceDocuments, canManageSourceDocuments } from "@/lib/permissions";
 import { scopeProjectData } from "@/lib/project-scope";
-import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, canReextract, checkUploadCandidate, currentVersionOf, formatBytes, jobsForVersion, latestJobFor, latestSuccessfulJobFor, versionsFor } from "@/lib/source-documents";
+import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, canReextract, checkUploadCandidate, currentVersionOf, fileSummary, formatBytes, jobsForVersion, latestJobFor, latestSuccessfulJobFor, versionsFor } from "@/lib/source-documents";
 import {
   deleteSourceDocument, loadAvailableExtractorVersion, openSourceDocumentVersion, queueSourceDocumentExtraction, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
 } from "@/lib/source-documents-client";
@@ -274,93 +275,156 @@ export function SourceDocumentsPage() {
     });
   };
 
-  function DocumentRows({ documents }: { documents: DocumentRecord[] }) {
+  // Secondary, role-appropriate actions for one document, behind "⋯".
+  // Viewers get Download and Version history only.
+  function documentMenuItems(document: DocumentRecord, current: DocumentVersion | null): RowMenuItem[] {
+    const items: RowMenuItem[] = [];
+    if (current) items.push({ label: "Download original", icon: Download, onSelect: () => open(current, "attachment") });
+    if (mayManage && !document.archived_at) items.push({ label: "Upload New Version", icon: Upload, onSelect: () => setUploadTarget({ mode: "version", document }) });
+    items.push({ label: historyFor === document.id ? "Hide version history" : "Version history", icon: History, onSelect: () => setHistoryFor(historyFor === document.id ? null : document.id) });
+    if (mayArchive) items.push({ label: document.archived_at ? "Restore" : "Archive", icon: document.archived_at ? ArchiveRestore : Archive, onSelect: () => toggleArchived(document), separated: true });
+    if (mayArchive && document.archived_at) items.push({ label: "Delete permanently", icon: Trash2, onSelect: () => remove(document), destructive: true });
+    return items;
+  }
+
+  function DocumentTitle({ document, current }: { document: DocumentRecord; current: DocumentVersion | null }) {
+    const tooltip = current ? `${document.document_name}\n${current.original_filename}` : document.document_name;
     return (
-      <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full min-w-[980px] text-sm">
-          <thead className="bg-muted/60 text-left text-xs font-semibold uppercase text-muted-foreground">
-            <tr>
-              {["Document", "Type", "Version", "Original file", "Uploaded", "Uploaded by", "Size", "Extraction", "Analysis", ""].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {documents.map((document) => {
-              const current = currentVersionOf(document, versions);
-              const history = versionsFor(document.id, versions);
-              const busy = busyId === document.id || history.some((v) => v.id === busyId);
-              return (
+      <div className="min-w-0">
+        <p className="line-clamp-2 break-words font-medium" title={tooltip}>{document.document_name}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground" title={current?.original_filename}>
+          {[document.document_type, current ? fileSummary(current) : null].filter(Boolean).join(" · ") || "—"}
+        </p>
+        {document.notes ? <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground" title={document.notes}>{document.notes}</p> : null}
+        {document.archived_at ? <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Archived {formatDate(document.archived_at)}</p> : null}
+      </div>
+    );
+  }
+
+  const VersionSummary = ({ document, current }: { document: DocumentRecord; current: DocumentVersion | null }) => {
+    const count = versionsFor(document.id, versions).length;
+    return <p className="whitespace-nowrap font-medium">{current ? `v${current.version_number}` : "—"}<span className="block text-xs font-normal text-muted-foreground">{count} version{count === 1 ? "" : "s"}</span></p>;
+  };
+
+  const Uploaded = ({ current }: { current: DocumentVersion | null }) => (
+    <p className="min-w-0"><span className="block whitespace-nowrap">{formatDate(current?.uploaded_at)}</span><span className="block truncate text-xs text-muted-foreground" title={current?.uploaded_by_name ?? undefined}>{current?.uploaded_by_name ?? "—"}</span></p>
+  );
+
+  function PrimaryActions({ document, current, busy }: { document: DocumentRecord; current: DocumentVersion | null; busy: boolean }) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        {busy ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Working" /> : null}
+        {current ? (
+          <Button variant="outline" size="sm" className="whitespace-nowrap" aria-label={`View original of ${document.document_name}`} onClick={() => open(current, "inline")}>
+            <Eye className="h-3.5 w-3.5" aria-hidden="true" />View original
+          </Button>
+        ) : null}
+        <RowMenu label={`More actions for ${document.document_name}`} items={documentMenuItems(document, current)} />
+      </div>
+    );
+  }
+
+  // Full version history (every version, with its own extraction state).
+  function VersionHistory({ document }: { document: DocumentRecord }) {
+    const history = versionsFor(document.id, versions);
+    return (
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Version history</p>
+        <ul className="divide-y text-xs">
+          {history.map((version) => (
+            <li key={version.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-2">
+              <span className="w-8 font-medium">v{version.version_number}</span>
+              <span className="min-w-[10rem] max-w-[22rem] flex-1 truncate" title={version.original_filename}>{version.original_filename}</span>
+              <span className="whitespace-nowrap">{formatDate(version.uploaded_at)} · {version.uploaded_by_name}</span>
+              <span className="whitespace-nowrap">{fileSummary(version)}</span>
+              <span className="whitespace-nowrap font-mono" title={version.sha256}>sha256 {version.sha256.slice(0, 12)}…</span>
+              <span className="inline-flex items-center gap-1"><ExtractionControls document={document} version={version} compact /> <StatusBadge status={version.analysis_status} /></span>
+              <span className="ml-auto inline-flex items-center gap-1 whitespace-nowrap">
+                {version.id === document.current_version_id ? (
+                  <span className="mr-1 rounded bg-primary/10 px-2 py-0.5 font-semibold text-primary">Current</span>
+                ) : mayManage && !document.archived_at ? (
+                  <Button variant="outline" size="sm" onClick={() => makeCurrent(document, version)}>Make current</Button>
+                ) : null}
+                <Button variant="ghost" size="icon" title="View original" aria-label={`View v${version.version_number}`} onClick={() => open(version, "inline")}><Eye className="h-4 w-4" aria-hidden="true" /></Button>
+                <Button variant="ghost" size="icon" title="Download original" aria-label={`Download v${version.version_number}`} onClick={() => open(version, "attachment")}><Download className="h-4 w-4" aria-hidden="true" /></Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  // Wide screens (xl+): a fixed-layout table where the document column takes
+  // the spare width. Narrower screens: one card per document, so nothing is
+  // squeezed into one-word-per-line columns.
+  function DocumentRows({ documents }: { documents: DocumentRecord[] }) {
+    const rows = documents.map((document) => {
+      const current = currentVersionOf(document, versions);
+      const busy = busyId === document.id || versionsFor(document.id, versions).some((v) => v.id === busyId);
+      return { document, current, busy };
+    });
+    const extraction = (document: DocumentRecord, current: DocumentVersion | null) =>
+      current ? <ExtractionControls document={document} version={current} /> : <StatusBadge status={undefined} />;
+    return (
+      <>
+        <div className="hidden rounded-lg border bg-card xl:block">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col />
+              <col className="w-[5.5rem]" />
+              <col className="w-[10rem]" />
+              <col className="w-[12rem]" />
+              <col className="w-[9rem]" />
+              <col className="w-[11rem]" />
+            </colgroup>
+            <thead className="bg-muted/60 text-left text-xs font-semibold uppercase text-muted-foreground">
+              <tr>
+                {["Document", "Version", "Uploaded", "Extraction", "Analysis", "Actions"].map((h) => (
+                  <th key={h} className={`px-3 py-2 first:rounded-tl-lg last:rounded-tr-lg ${h === "Actions" ? "text-right" : ""}`}>{h === "Actions" ? <span className="sr-only">{h}</span> : h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ document, current, busy }) => (
                 <FragmentRows key={document.id}>
                   <tr className="border-t align-top">
-                    <td className="px-3 py-2">
-                      <p className="font-medium">{document.document_name}</p>
-                      {document.notes ? <p className="mt-0.5 max-w-xs text-xs text-muted-foreground">{document.notes}</p> : null}
-                      {document.archived_at ? <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Archived {formatDate(document.archived_at)}</p> : null}
-                    </td>
-                    <td className="px-3 py-2">{document.document_type ?? "—"}</td>
-                    <td className="px-3 py-2 font-medium">{current ? `v${current.version_number}` : "—"}<span className="block text-xs font-normal text-muted-foreground">{history.length} version{history.length === 1 ? "" : "s"}</span></td>
-                    <td className="px-3 py-2 break-all">{current?.original_filename ?? "—"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{formatDate(current?.uploaded_at)}</td>
-                    <td className="px-3 py-2">{current?.uploaded_by_name ?? "—"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{current ? formatBytes(current.size_bytes) : "—"}</td>
-                    <td className="px-3 py-2">{current ? <ExtractionControls document={document} version={current} /> : <StatusBadge status={undefined} />}</td>
-                    <td className="px-3 py-2"><StatusBadge status={current?.analysis_status} /></td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap justify-end gap-1">
-                        {busy ? <Loader2 className="m-2 h-4 w-4 animate-spin text-muted-foreground" aria-label="Working" /> : null}
-                        {current ? <Button variant="ghost" size="icon" title="View" aria-label={`View ${document.document_name}`} onClick={() => open(current, "inline")}><Eye className="h-4 w-4" aria-hidden="true" /></Button> : null}
-                        {current ? <Button variant="ghost" size="icon" title="Download" aria-label={`Download ${document.document_name}`} onClick={() => open(current, "attachment")}><Download className="h-4 w-4" aria-hidden="true" /></Button> : null}
-                        <Button variant="ghost" size="icon" title="Version history" aria-label={`Version history for ${document.document_name}`} onClick={() => setHistoryFor(historyFor === document.id ? null : document.id)}><History className="h-4 w-4" aria-hidden="true" /></Button>
-                        {mayManage && !document.archived_at ? (
-                          <Button variant="outline" size="sm" onClick={() => setUploadTarget({ mode: "version", document })}><Upload className="h-3.5 w-3.5" aria-hidden="true" />Upload New Version</Button>
-                        ) : null}
-                        {mayArchive ? (
-                          <Button variant="ghost" size="icon" title={document.archived_at ? "Restore" : "Archive"} aria-label={document.archived_at ? "Restore" : "Archive"} onClick={() => toggleArchived(document)}>
-                            {document.archived_at ? <ArchiveRestore className="h-4 w-4" aria-hidden="true" /> : <Archive className="h-4 w-4" aria-hidden="true" />}
-                          </Button>
-                        ) : null}
-                        {mayArchive && document.archived_at ? (
-                          <Button variant="ghost" size="icon" title="Delete permanently" aria-label="Delete permanently" onClick={() => remove(document)}><Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" /></Button>
-                        ) : null}
-                      </div>
-                    </td>
+                    <td className="px-3 py-2.5"><DocumentTitle document={document} current={current} /></td>
+                    <td className="px-3 py-2.5"><VersionSummary document={document} current={current} /></td>
+                    <td className="px-3 py-2.5"><Uploaded current={current} /></td>
+                    <td className="px-3 py-2.5">{extraction(document, current)}</td>
+                    <td className="px-3 py-2.5"><StatusBadge status={current?.analysis_status} /></td>
+                    <td className="px-3 py-2.5"><PrimaryActions document={document} current={current} busy={busy} /></td>
                   </tr>
                   {historyFor === document.id ? (
                     <tr className="border-t bg-muted/30">
-                      <td colSpan={10} className="px-3 py-3">
-                        <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Version history</p>
-                        <table className="w-full text-xs">
-                          <tbody>
-                            {history.map((version) => (
-                              <tr key={version.id} className="border-t first:border-t-0">
-                                <td className="py-1.5 pr-3 font-medium">v{version.version_number}</td>
-                                <td className="py-1.5 pr-3 break-all">{version.original_filename}</td>
-                                <td className="py-1.5 pr-3 whitespace-nowrap">{formatDate(version.uploaded_at)}</td>
-                                <td className="py-1.5 pr-3">{version.uploaded_by_name}</td>
-                                <td className="py-1.5 pr-3 whitespace-nowrap">{formatBytes(version.size_bytes)}</td>
-                                <td className="py-1.5 pr-3 font-mono" title={version.sha256}>sha256 {version.sha256.slice(0, 12)}…</td>
-                                <td className="py-1.5 pr-3"><ExtractionControls document={document} version={version} compact /> <StatusBadge status={version.analysis_status} /></td>
-                                <td className="py-1.5 text-right whitespace-nowrap">
-                                  {version.id === document.current_version_id ? (
-                                    <span className="mr-2 rounded bg-primary/10 px-2 py-0.5 font-semibold text-primary">Current</span>
-                                  ) : mayManage && !document.archived_at ? (
-                                    <Button variant="outline" size="sm" className="mr-1" onClick={() => makeCurrent(document, version)}>Make current</Button>
-                                  ) : null}
-                                  <Button variant="ghost" size="icon" title="View" aria-label={`View v${version.version_number}`} onClick={() => open(version, "inline")}><Eye className="h-4 w-4" aria-hidden="true" /></Button>
-                                  <Button variant="ghost" size="icon" title="Download" aria-label={`Download v${version.version_number}`} onClick={() => open(version, "attachment")}><Download className="h-4 w-4" aria-hidden="true" /></Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </td>
+                      <td colSpan={6} className="px-3 py-3"><VersionHistory document={document} /></td>
                     </tr>
                   ) : null}
                 </FragmentRows>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <ul className="space-y-3 xl:hidden">
+          {rows.map(({ document, current, busy }) => (
+            <li key={document.id} className="rounded-lg border bg-card p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <DocumentTitle document={document} current={current} />
+                <div className="shrink-0"><PrimaryActions document={document} current={current} busy={busy} /></div>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Version</dt><dd className="mt-0.5"><VersionSummary document={document} current={current} /></dd></div>
+                <div className="min-w-0"><dt className="text-xs font-semibold uppercase text-muted-foreground">Uploaded</dt><dd className="mt-0.5"><Uploaded current={current} /></dd></div>
+                <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Extraction</dt><dd className="mt-0.5">{extraction(document, current)}</dd></div>
+                <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Analysis</dt><dd className="mt-0.5"><StatusBadge status={current?.analysis_status} /></dd></div>
+              </dl>
+              {historyFor === document.id ? <div className="mt-3 border-t pt-3"><VersionHistory document={document} /></div> : null}
+            </li>
+          ))}
+        </ul>
+      </>
     );
   }
 
@@ -410,6 +474,46 @@ export function SourceDocumentsPage() {
         />
       ) : null}
     </AppShell>
+  );
+}
+
+type RowMenuItem = { label: string; icon: LucideIcon; onSelect: () => void; destructive?: boolean; separated?: boolean };
+
+/** "⋯" overflow menu for a row's secondary actions (closes on select, outside click or Escape). */
+function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const close = () => { setOpen(false); container.current?.querySelector<HTMLButtonElement>("button")?.focus(); };
+  return (
+    <div ref={container} className="relative">
+      <Button variant="ghost" size="icon" title="More actions" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+      </Button>
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            aria-label={label}
+            className="absolute right-0 z-20 mt-1 min-w-[12rem] rounded-md border bg-card p-1 shadow-lg"
+            onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                autoFocus={item === items[0]}
+                className={`flex w-full items-center gap-2 whitespace-nowrap rounded px-2.5 py-1.5 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none ${item.separated ? "mt-1 border-t pt-2" : ""} ${item.destructive ? "text-destructive" : ""}`}
+                onClick={() => { setOpen(false); item.onSelect(); }}
+              >
+                <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />{item.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 

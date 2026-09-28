@@ -57,6 +57,19 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Short file format for the document list ("PDF", "DOCX"), from the stored content type, else the extension. */
+export function fileFormatLabel(version: { content_type?: string | null; original_filename?: string | null }): string {
+  if (version.content_type === "application/pdf") return "PDF";
+  if (version.content_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "DOCX";
+  const ext = /\.([A-Za-z0-9]{1,5})$/.exec(version.original_filename ?? "")?.[1];
+  return ext ? ext.toUpperCase() : "File";
+}
+
+/** Compact file metadata for the document list: "PDF · 116.5 KB". */
+export function fileSummary(version: { content_type?: string | null; original_filename?: string | null; size_bytes: number }): string {
+  return `${fileFormatLabel(version)} · ${formatBytes(version.size_bytes)}`;
+}
+
 export type UploadCheck =
   | { ok: true; extension: SourceDocumentExtension; contentType: string }
   | { ok: false; error: string };
