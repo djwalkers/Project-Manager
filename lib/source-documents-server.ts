@@ -22,6 +22,7 @@ import {
   isIssuedPathForProject,
   typeForExtension,
 } from "@/lib/source-documents";
+import { extractionQueuedAudit } from "@/lib/extraction-server";
 
 export type Actor = { userId: string | null; displayName: string };
 export type ServiceResult = { status: number; body: Record<string, unknown> };
@@ -182,8 +183,11 @@ export async function finalizeUpload(db: SupabaseClient, actor: Actor, body: Rec
       old_value: result.previous_version_number ? `v${result.previous_version_number}` : null, new_value: `v${result.version_number}`,
     });
   }
+  // Migration 036 queues every new version for extraction automatically.
+  auditRows.push(extractionQueuedAudit(projectId, result.version_id, `${docTitle} v${result.version_number}`, "automatic", null) as AuditRow);
   const auditWarning = await audit(db, actor, auditRows);
-  return { status: 200, body: { document, version, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
+  const { data: extractionJob } = await db.from("extraction_jobs").select("*").eq("document_version_id", result.version_id).maybeSingle();
+  return { status: 200, body: { document, version, extraction_job: extractionJob ?? null, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
 }
 
 // ── 3. Download / view: short-lived signed URL after a project check ────────

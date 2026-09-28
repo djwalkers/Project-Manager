@@ -1,22 +1,23 @@
 "use client";
 
-import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileText, History, Loader2, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileSearch, FileText, History, Loader2, RotateCcw, Trash2, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
 import { EmptyState } from "@/components/empty-state";
+import { ExtractionViewer } from "@/components/extraction-viewer";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { canArchiveOrDeleteSourceDocuments, canManageSourceDocuments } from "@/lib/permissions";
 import { scopeProjectData } from "@/lib/project-scope";
-import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, MAX_SOURCE_DOCUMENT_BYTES, checkUploadCandidate, currentVersionOf, formatBytes, versionsFor } from "@/lib/source-documents";
+import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, checkUploadCandidate, currentVersionOf, formatBytes, latestJobFor, versionsFor } from "@/lib/source-documents";
 import {
-  deleteSourceDocument, openSourceDocumentVersion, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
+  deleteSourceDocument, openSourceDocumentVersion, queueSourceDocumentExtraction, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
 } from "@/lib/source-documents-client";
 import type { DataStore } from "@/lib/data-store";
-import type { DocumentProcessingStatus, DocumentRecord, DocumentVersion } from "@/lib/types";
+import type { DocumentRecord, DocumentVersion, ExtractionJob, ExtractionStatus } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
 
 // ── Source Documents (Phase 1A) ─────────────────────────────────────────────
@@ -24,35 +25,47 @@ import { useProjectData } from "@/lib/use-project-data";
 // with an immutable version history. Viewer: view/download. Manager: also
 // upload documents and new versions, and choose the current version.
 // Admin: also archive/restore and permanently delete (archived only).
+// Extraction (Phase 1B): each version shows its canonical extraction_status;
+// everyone may view a completed extraction; Manager/Admin may start or retry.
 
 const formatDate = (value: string | null | undefined) =>
   value ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
-function StatusBadge({ status }: { status: DocumentProcessingStatus | undefined }) {
-  const tone = status === "Complete" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-    : status === "Failed" ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
-      : status === "Queued" || status === "In Progress" ? "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
-        : "bg-muted text-muted-foreground";
+function StatusBadge({ status }: { status: string | undefined }) {
+  const tone = status === "Complete" || status === "Completed" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+    : status === "Completed with warnings" ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+      : status === "Failed" ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+        : status === "Queued" || status === "In Progress" || status === "Running" ? "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+          : "bg-muted text-muted-foreground";
   return <span className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${tone}`}>{status ?? "—"}</span>;
 }
 
 type UploadTarget = { mode: "new" } | { mode: "version"; document: DocumentRecord };
 
-function withDocument(data: DataStore, document: DocumentRecord, version?: DocumentVersion): DataStore {
+function withDocument(data: DataStore, document: DocumentRecord, version?: DocumentVersion, job?: ExtractionJob | null): DataStore {
   const documents = data.documents.some((d) => d.id === document.id)
     ? data.documents.map((d) => (d.id === document.id ? document : d))
     : [document, ...data.documents];
   const document_versions = version && !data.document_versions.some((v) => v.id === version.id)
     ? [...data.document_versions, version]
     : data.document_versions;
-  return { ...data, documents, document_versions };
+  return withJob({ ...data, documents, document_versions }, job ?? null);
+}
+
+/** Adds/replaces an extraction job and mirrors its state onto the version's canonical status. */
+function withJob(data: DataStore, job: ExtractionJob | null): DataStore {
+  if (!job) return data;
+  const extraction_jobs = [...data.extraction_jobs.filter((j) => j.id !== job.id), job];
+  const status: ExtractionStatus = job.status === "Completed" ? (job.outcome === "completed_with_warnings" ? "Completed with warnings" : "Completed") : job.status;
+  const document_versions = data.document_versions.map((v) => (v.id === job.document_version_id ? { ...v, extraction_status: status } : v));
+  return { ...data, extraction_jobs, document_versions };
 }
 
 function UploadDialog({ target, projectId, onClose, onUploaded }: {
   target: UploadTarget;
   projectId: string;
   onClose: () => void;
-  onUploaded: (document: DocumentRecord, version: DocumentVersion) => void;
+  onUploaded: (document: DocumentRecord, version: DocumentVersion, job: ExtractionJob | null) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
@@ -80,14 +93,14 @@ function UploadDialog({ target, projectId, onClose, onUploaded }: {
     setBusy(true);
     setError(null);
     try {
-      const { document, version } = await uploadSourceDocument({
+      const { document, version, extraction_job } = await uploadSourceDocument({
         projectId, file,
         documentId: target.mode === "version" ? target.document.id : undefined,
         title: isNew ? title.trim() : undefined,
         documentType: isNew ? documentType : undefined,
         notes: isNew ? notes : undefined,
       });
-      onUploaded(document, version);
+      onUploaded(document, version, extraction_job);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Upload failed.");
     } finally {
@@ -155,6 +168,7 @@ export function SourceDocumentsPage() {
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ title: string; version: DocumentVersion; job: ExtractionJob } | null>(null);
 
   const mayManage = canManageSourceDocuments(user?.role);
   const mayArchive = canArchiveOrDeleteSourceDocuments(user?.role);
@@ -172,6 +186,7 @@ export function SourceDocumentsPage() {
   }
   const projectId = activeProject.id;
   const versions = pageData.document_versions;
+  const jobs = pageData.extraction_jobs;
 
   async function run(id: string, action: () => Promise<void>) {
     setActionError(null);
@@ -181,6 +196,35 @@ export function SourceDocumentsPage() {
 
   const open = (version: DocumentVersion, disposition: "inline" | "attachment") =>
     run(version.id, () => openSourceDocumentVersion(projectId, version.id, disposition));
+
+  const queueExtraction = (version: DocumentVersion) => run(version.id, async () => {
+    const { job } = await queueSourceDocumentExtraction(projectId, version.id);
+    setData((current) => (current ? withJob(current, job) : current));
+  });
+
+  // Extraction state + actions for one version: status badge, failure reason,
+  // View extraction (everyone, once completed), Extract / Retry (Manager+).
+  function ExtractionControls({ document, version, compact }: { document: DocumentRecord; version: DocumentVersion; compact?: boolean }) {
+    const job = latestJobFor(version.id, jobs);
+    return (
+      <div className={compact ? "inline-flex flex-wrap items-center gap-1" : "flex flex-col items-start gap-1"}>
+        <StatusBadge status={version.extraction_status} />
+        {job?.status === "Failed" && !compact ? (
+          <span className="max-w-[12rem] text-xs text-destructive" title={job.error_message ?? undefined}>{EXTRACTION_ERROR_LABELS[job.error_category ?? ""] ?? "Extraction failed"}</span>
+        ) : null}
+        {job && (job.status === "Completed" || job.status === "Failed") ? (
+          <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => setViewing({ title: document.document_name, version, job })}>
+            <FileSearch className="h-3 w-3" aria-hidden="true" />{job.status === "Completed" ? "View extraction" : "Details"}
+          </button>
+        ) : null}
+        {mayManage && !document.archived_at && canQueueExtraction(job) ? (
+          <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => queueExtraction(version)}>
+            <RotateCcw className="h-3 w-3" aria-hidden="true" />{job ? "Retry extraction" : "Extract"}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   const makeCurrent = (document: DocumentRecord, version: DocumentVersion) => run(version.id, async () => {
     const { document: saved } = await setCurrentSourceDocumentVersion(projectId, document.id, version.id);
@@ -200,6 +244,7 @@ export function SourceDocumentsPage() {
         ...current,
         documents: current.documents.filter((d) => d.id !== document.id),
         document_versions: current.document_versions.filter((v) => v.document_id !== document.id),
+        extraction_jobs: current.extraction_jobs.filter((j) => !versionsFor(document.id, current.document_versions).some((v) => v.id === j.document_version_id)),
       } : current);
     });
   };
@@ -232,7 +277,7 @@ export function SourceDocumentsPage() {
                     <td className="px-3 py-2 whitespace-nowrap">{formatDate(current?.uploaded_at)}</td>
                     <td className="px-3 py-2">{current?.uploaded_by_name ?? "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{current ? formatBytes(current.size_bytes) : "—"}</td>
-                    <td className="px-3 py-2"><StatusBadge status={current?.extraction_status} /></td>
+                    <td className="px-3 py-2">{current ? <ExtractionControls document={document} version={current} /> : <StatusBadge status={undefined} />}</td>
                     <td className="px-3 py-2"><StatusBadge status={current?.analysis_status} /></td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap justify-end gap-1">
@@ -268,7 +313,7 @@ export function SourceDocumentsPage() {
                                 <td className="py-1.5 pr-3">{version.uploaded_by_name}</td>
                                 <td className="py-1.5 pr-3 whitespace-nowrap">{formatBytes(version.size_bytes)}</td>
                                 <td className="py-1.5 pr-3 font-mono" title={version.sha256}>sha256 {version.sha256.slice(0, 12)}…</td>
-                                <td className="py-1.5 pr-3"><StatusBadge status={version.extraction_status} /> <StatusBadge status={version.analysis_status} /></td>
+                                <td className="py-1.5 pr-3"><ExtractionControls document={document} version={version} compact /> <StatusBadge status={version.analysis_status} /></td>
                                 <td className="py-1.5 text-right whitespace-nowrap">
                                   {version.id === document.current_version_id ? (
                                     <span className="mr-2 rounded bg-primary/10 px-2 py-0.5 font-semibold text-primary">Current</span>
@@ -326,13 +371,15 @@ export function SourceDocumentsPage() {
         </div>
       ) : null}
 
+      {viewing ? <ExtractionViewer title={viewing.title} version={viewing.version} job={viewing.job} onClose={() => setViewing(null)} /> : null}
+
       {uploadTarget ? (
         <UploadDialog
           target={uploadTarget}
           projectId={projectId}
           onClose={() => setUploadTarget(null)}
-          onUploaded={(document, version) => {
-            setData((current) => (current ? withDocument(current, document, version) : current));
+          onUploaded={(document, version, job) => {
+            setData((current) => (current ? withDocument(current, document, version, job) : current));
             setUploadTarget(null);
           }}
         />

@@ -10,7 +10,7 @@
 
 import { SOURCE_DOCUMENTS_BUCKET, checkUploadCandidate } from "@/lib/source-documents";
 import { supabase } from "@/lib/supabase/client";
-import type { DocumentRecord, DocumentVersion } from "@/lib/types";
+import type { DocumentRecord, DocumentVersion, ExtractionJob, SourceFragment } from "@/lib/types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: "same-origin", ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
@@ -29,7 +29,7 @@ export type UploadInput = {
   notes?: string;
 };
 
-export async function uploadSourceDocument(input: UploadInput): Promise<{ document: DocumentRecord; version: DocumentVersion }> {
+export async function uploadSourceDocument(input: UploadInput): Promise<{ document: DocumentRecord; version: DocumentVersion; extraction_job: ExtractionJob | null }> {
   const check = checkUploadCandidate({ filename: input.file.name, contentType: input.file.type, size: input.file.size });
   if (!check.ok) throw new Error(check.error);
   if (!supabase) throw new Error("Uploading needs the Supabase connection (not available in local mode).");
@@ -52,12 +52,12 @@ export async function uploadSourceDocument(input: UploadInput): Promise<{ docume
   });
 }
 
-/** Opens a version's original file (inline view or download) via a short-lived signed URL. */
-export async function openSourceDocumentVersion(projectId: string, versionId: string, disposition: "inline" | "attachment") {
+/** Opens a version's original file (inline view or download) via a short-lived signed URL; `page` jumps to a PDF page. */
+export async function openSourceDocumentVersion(projectId: string, versionId: string, disposition: "inline" | "attachment", page?: number | null) {
   const target = disposition === "inline" ? window.open("about:blank", "_blank") : null;
   try {
     const { url } = await call<{ url: string }>(`/api/source-documents/download?project_id=${encodeURIComponent(projectId)}&version_id=${encodeURIComponent(versionId)}&disposition=${disposition}`);
-    if (target) target.location.href = url;
+    if (target) target.location.href = page ? `${url}#page=${page}` : url;
     else window.location.assign(url);
   } catch (error) {
     target?.close();
@@ -79,4 +79,19 @@ export function setSourceDocumentArchived(projectId: string, documentId: string,
 
 export function deleteSourceDocument(projectId: string, documentId: string) {
   return call<{ deleted: true; storage_warning?: string }>(`/api/source-documents?project_id=${encodeURIComponent(projectId)}&document_id=${encodeURIComponent(documentId)}`, { method: "DELETE" });
+}
+
+/** Manager/Admin: queue extraction of a version, or retry after a failure. */
+export function queueSourceDocumentExtraction(projectId: string, versionId: string) {
+  return call<{ job: ExtractionJob }>("/api/source-documents/extraction", {
+    method: "POST", body: JSON.stringify({ project_id: projectId, version_id: versionId }),
+  });
+}
+
+/** The fragments of one completed extraction, in order — read directly under RLS (any valid role). */
+export async function loadExtractionFragments(jobId: string): Promise<SourceFragment[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from("source_fragments").select("*").eq("extraction_job_id", jobId).order("sequence", { ascending: true });
+  if (error) throw new Error(`Could not load the extracted content: ${error.message}`);
+  return (data ?? []) as SourceFragment[];
 }

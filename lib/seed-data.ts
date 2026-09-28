@@ -387,6 +387,7 @@ export const seedData = {
   meetings,
   documents,
   document_versions: [],
+  extraction_jobs: [],
   activity_log,
   discovery_questions,
   milestones,

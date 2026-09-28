@@ -5,7 +5,7 @@
 // CHECK constraints (migration 035), and the Storage bucket enforces the
 // same size and MIME allow-list.
 
-import type { DocumentRecord, DocumentVersion } from "@/lib/types";
+import type { DocumentRecord, DocumentVersion, ExtractionJob } from "@/lib/types";
 
 export const SOURCE_DOCUMENTS_BUCKET = "source-documents";
 
@@ -115,6 +115,30 @@ export function isIssuedPathForProject(path: unknown, projectId: string): path i
 }
 
 export const PROCESSING_STATUSES = ["Not Started", "Queued", "In Progress", "Complete", "Failed"] as const;
+export const EXTRACTION_STATUSES = ["Not Started", "Queued", "Running", "Completed", "Completed with warnings", "Failed"] as const;
+
+/** Latest extraction attempt of a version (newest queued first). */
+export function latestJobFor(versionId: string, jobs: ExtractionJob[]): ExtractionJob | null {
+  return jobs.filter((j) => j.document_version_id === versionId)
+    .sort((a, b) => b.queued_at.localeCompare(a.queued_at) || b.id.localeCompare(a.id))[0] ?? null;
+}
+
+/** Manager/Admin may (re)queue only when nothing is active and the last attempt did not complete. */
+export function canQueueExtraction(job: ExtractionJob | null): boolean {
+  return !job || job.status === "Failed";
+}
+
+export const EXTRACTION_ERROR_LABELS: Record<string, string> = {
+  download_failed: "The worker could not download the file",
+  integrity_mismatch: "The downloaded file did not match its recorded hash",
+  unsupported_type: "Unsupported file type",
+  parse_error: "The file could not be parsed",
+  encrypted: "The file is password-protected",
+  ocr_required: "No extractable text — OCR / manual review required",
+  worker_timeout: "The extraction worker stopped responding",
+  upload_failed: "The worker could not save the extracted fragments",
+  internal_error: "Unexpected extraction error",
+};
 
 /** Versions of one document, newest first. */
 export function versionsFor(documentId: string, versions: DocumentVersion[]): DocumentVersion[] {

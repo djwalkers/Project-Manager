@@ -1,0 +1,7 @@
+{
+  "apiBaseUrl": "https://REPLACE-WITH-YOUR-PRODUCTION-VERCEL-ORIGIN",
+  "workerToken": "tmw_REPLACE_WITH_THE_TOKEN_ISSUED_IN_SYSTEM_HEALTH",
+  "pollIntervalMs": 15000,
+  "heartbeatIntervalMs": 60000,
+  "requestTimeoutMs": 60000
+}
