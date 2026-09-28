@@ -4,6 +4,7 @@ import { AlertTriangle, Bot, BrainCircuit, CheckCircle2, ClipboardCopy, Database
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadingState } from "@/components/data-state";
+import { ExtractionWorkerHealth } from "@/components/extraction-worker-health";
 import { getSystemHealth, type SystemHealthReport } from "@/lib/system-health";
 import { useAuth } from "@/contexts/auth-context";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
@@ -166,6 +167,9 @@ export function SystemHealthPage() {
           <MetricCard label="Audit Records" value={report.audit.recordCount} />
         </div>
       </section>
+
+      {/* Local extraction worker (Phase 1B) */}
+      <ExtractionWorkerHealth />
 
       {/* Schema / Migration */}
       <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="migration-health-title">

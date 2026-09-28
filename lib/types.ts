@@ -319,7 +319,72 @@ export type DocumentRecord = {
   archived_by_name: string | null;
 };
 
+/** Canonical extraction state of a version (migration 036). */
+export type ExtractionStatus = "Not Started" | "Queued" | "Running" | "Completed" | "Completed with warnings" | "Failed";
+/** AI analysis placeholder (Phase 1C) — unchanged from migration 035. */
 export type DocumentProcessingStatus = "Not Started" | "Queued" | "In Progress" | "Complete" | "Failed";
+
+export type ExtractionErrorCategory = "download_failed" | "integrity_mismatch" | "unsupported_type" | "parse_error" | "encrypted" | "ocr_required" | "worker_timeout" | "upload_failed" | "internal_error";
+
+export type ExtractionDiagnostics = {
+  page_count: number | null;
+  fragment_count: number;
+  char_count: number;
+  heading_count: number;
+  table_count: number;
+  empty_page_count: number;
+  empty_pages: number[];
+  empty_section_count: number;
+  meaningful_text: boolean;
+  warnings: string[];
+};
+
+/** One extraction attempt of one immutable document version — migration 036. */
+export type ExtractionJob = {
+  id: string;
+  project_id: string;
+  document_version_id: string;
+  status: "Queued" | "Running" | "Completed" | "Failed";
+  trigger: "upload" | "manual" | "retry";
+  requested_by: string | null;
+  requested_by_name: string | null;
+  queued_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  lease_expires_at: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  worker_id: string | null;
+  worker_name: string | null;
+  worker_version: string | null;
+  extractor_version: string | null;
+  outcome: "completed" | "completed_with_warnings" | null;
+  warnings_count: number | null;
+  fragment_count: number | null;
+  diagnostics: Partial<ExtractionDiagnostics> | null;
+  error_category: ExtractionErrorCategory | null;
+  error_message: string | null;
+};
+
+/** What the extractor found, with provenance — migration 036. Immutable. Loaded on demand, not in the DataStore. */
+export type SourceFragment = {
+  id: string;
+  project_id: string;
+  document_version_id: string;
+  extraction_job_id: string;
+  sequence: number;
+  fragment_type: "text" | "table" | "list";
+  section_heading: string | null;
+  section_number: string | null;
+  section_path: string[];
+  page_start: number | null;
+  page_end: number | null;
+  text: string;
+  text_hash: string;
+  char_count: number;
+  metadata: { block_count?: number; table?: { columns: number; header: string[]; rows: string[][] } };
+  created_at: string;
+};
 
 /** One immutable uploaded original of a source document — migration 035. */
 export type DocumentVersion = {
@@ -337,7 +402,7 @@ export type DocumentVersion = {
   uploaded_by_name: string;
   uploaded_at: string;
   is_original: boolean;
-  extraction_status: DocumentProcessingStatus;
+  extraction_status: ExtractionStatus;
   analysis_status: DocumentProcessingStatus;
   status_updated_at: string | null;
 };
@@ -539,6 +604,7 @@ export type EntityMap = {
   meetings: Meeting;
   documents: DocumentRecord;
   document_versions: DocumentVersion;
+  extraction_jobs: ExtractionJob;
   activity_log: ActivityLog;
   discovery_questions: DiscoveryQuestion;
   milestones: Milestone;

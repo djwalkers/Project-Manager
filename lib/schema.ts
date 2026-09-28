@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "035_source_documents";
-export const latestMigration = "035_source_documents";
+export const schemaVersion = "036_document_extraction";
+export const latestMigration = "036_document_extraction";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -38,6 +38,7 @@ export const allMigrations = [
   "033_acceptance_criteria_integrity",
   "034_acceptance_criteria_requirement_not_null",
   "035_source_documents",
+  "036_document_extraction",
 ] as const;
 
 export type SchemaColumn = {
@@ -329,6 +330,35 @@ export const schemaTables: SchemaTable[] = [
       { name: "extraction_status", type: "text", required: true, managed: true },
       { name: "analysis_status", type: "text", required: true, managed: true },
       { name: "status_updated_at", type: "timestamptz", required: false, managed: true },
+    ],
+  },
+  {
+    // Extraction attempts (036). Read under RLS by every role; written only
+    // by the server (queue_extraction_job and the worker functions).
+    name: "extraction_jobs",
+    columns: [
+      id, projectId,
+      { name: "document_version_id", type: "uuid", required: true, foreignKey: "document_versions.id" },
+      { name: "status", type: "text", required: true, managed: true },
+      { name: "trigger", type: "text", required: true, managed: true },
+      { name: "requested_by", type: "uuid", required: false, managed: true },
+      { name: "requested_by_name", type: "text", required: false, managed: true },
+      { name: "queued_at", type: "timestamptz", required: true, managed: true },
+      { name: "started_at", type: "timestamptz", required: false, managed: true },
+      { name: "completed_at", type: "timestamptz", required: false, managed: true },
+      { name: "lease_expires_at", type: "timestamptz", required: false, managed: true },
+      { name: "attempt_count", type: "integer", required: true, managed: true },
+      { name: "max_attempts", type: "integer", required: true, managed: true },
+      { name: "worker_id", type: "uuid", required: false, managed: true },
+      { name: "worker_name", type: "text", required: false, managed: true },
+      { name: "worker_version", type: "text", required: false, managed: true },
+      { name: "extractor_version", type: "text", required: false, managed: true },
+      { name: "outcome", type: "text", required: false, managed: true },
+      { name: "warnings_count", type: "integer", required: false, managed: true },
+      { name: "fragment_count", type: "integer", required: false, managed: true },
+      { name: "diagnostics", type: "text", required: false, managed: true },
+      { name: "error_category", type: "text", required: false, managed: true },
+      { name: "error_message", type: "text", required: false, managed: true },
     ],
   },
   {

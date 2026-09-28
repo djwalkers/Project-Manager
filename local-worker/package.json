@@ -1,0 +1,21 @@
+{
+  "name": "local-extraction-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone local worker that performs deterministic (non-AI) text extraction of Test Manager source documents on this Mac. Not part of the Next.js/Vercel build.",
+  "scripts": {
+    "start": "node worker.js",
+    "test": "node tests/extract.test.mjs && node tests/worker.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mammoth": "1.13.0",
+    "pdfjs-dist": "6.3.289"
+  },
+  "devDependencies": {
+    "jszip": "3.10.2"
+  }
+}

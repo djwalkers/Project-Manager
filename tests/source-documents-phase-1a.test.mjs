@@ -66,8 +66,8 @@ const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 // ── In-memory service-role stand-in ─────────────────────────────────────────
 let session = null;
-const db = { projects: [{ id: P1 }, { id: P2 }], documents: [], document_versions: [], audit_log: [], profiles: {}, objects: new Map(), removed: [] };
-const tables = { projects: () => db.projects, documents: () => db.documents, document_versions: () => db.document_versions, audit_log: () => db.audit_log };
+const db = { projects: [{ id: P1 }, { id: P2 }], documents: [], document_versions: [], extraction_jobs: [], audit_log: [], profiles: {}, objects: new Map(), removed: [] };
+const tables = { projects: () => db.projects, documents: () => db.documents, document_versions: () => db.document_versions, extraction_jobs: () => db.extraction_jobs, audit_log: () => db.audit_log };
 let uuidSeq = 0;
 const uuid = () => `00000000-0000-4000-8000-${String(++uuidSeq).padStart(12, "0")}`;
 
@@ -116,6 +116,7 @@ function rpc(name, a) {
     }
     db.document_versions.push({ id: versionId, document_id: doc.id, project_id: a.p_project_id, version_number: next, original_filename: a.p_original_filename, storage_bucket: "source-documents", storage_path: a.p_storage_path, sha256: a.p_sha256, content_type: a.p_content_type, size_bytes: a.p_size_bytes, uploaded_by: a.p_user_id, uploaded_by_name: a.p_user_name, uploaded_at: new Date().toISOString(), is_original: true, extraction_status: "Not Started", analysis_status: "Not Started", status_updated_at: null });
     doc.current_version_id = versionId;
+    db.extraction_jobs.push({ id: uuid(), project_id: a.p_project_id, document_version_id: versionId, status: "Queued", trigger: "upload", queued_at: new Date().toISOString() });
     return { data: [{ document_id: doc.id, version_id: versionId, version_number: next, previous_version_number: prev, created_document: created }], error: null };
   }
   if (name === "set_current_document_version") {
@@ -238,7 +239,8 @@ await run("Manager uploads a source document: version 1 is created, current, has
   assert.equal(version.sha256, sha(v1Bytes), "server-computed SHA-256 of the stored bytes");
   assert.match(version.storage_path, new RegExp(`^${P1}/[0-9a-f-]{36}\\.pdf$`));
   const audits = db.audit_log.map((a) => `${a.entity_type}:${a.action_type}:${a.field_name}`);
-  assert.deepEqual(audits, ["documents:Create:source_document", "document_versions:Create:version"]);
+  assert.deepEqual(audits, ["documents:Create:source_document", "document_versions:Create:version", "document_versions:Status Change:extraction"], "Phase 1B: the automatic extraction queueing is audited too");
+  assert.equal(res.body.extraction_job.status, "Queued");
   assert.ok(db.audit_log.every((a) => a.changed_by === U.Manager && a.changed_by_name === "Manager User" && a.project_id === P1));
 });
 
@@ -253,9 +255,10 @@ await run("uploading a revision creates version 2 — version 1 is kept, not ove
   assert.equal(db.document_versions.filter((v) => v.document_id === docId).length, 2);
   assert.deepEqual(db.objects.get(beforePath), v1Bytes, "v1's stored file is untouched");
   assert.equal(db.documents.find((d) => d.id === docId).current_version_id, v2Id);
-  const last = db.audit_log.slice(-2).map((a) => [a.entity_type, a.action_type, a.field_name, a.old_value, a.new_value]);
+  const last = db.audit_log.slice(-3).map((a) => [a.entity_type, a.action_type, a.field_name, a.old_value, a.new_value]);
   assert.deepEqual(last[1], ["documents", "Update", "current_version", "v1", "v2"]);
   assert.equal(last[0][0], "document_versions");
+  assert.deepEqual(last[2], ["document_versions", "Status Change", "extraction", null, "Queued (automatic, on upload)"]);
 });
 
 await run("the old version remains accessible via a short-lived signed URL", async () => {
@@ -394,7 +397,7 @@ await run("035 adds to the existing documents table without changing existing ro
   assert.match(m035, /ALTER TABLE public\.documents\s+ADD COLUMN IF NOT EXISTS current_version_id uuid,/);
   const topLevel = m035.replace(/AS \$\$[\s\S]*?\$\$;/g, "");
   assert.doesNotMatch(topLevel, /\bUPDATE public\.|\bDELETE FROM public\.|DROP TABLE|DROP COLUMN/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "035_source_documents");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "035_source_documents");
 });
 
 await run("UI: upload / new-version controls only for Manager+; archive / delete only for Admin; no generic document form", () => {

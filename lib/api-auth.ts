@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canCreateProject, canManageSourceDocuments, canReadProjectData, canSendProjectEmail, canWriteDeliveryData } from "@/lib/permissions";
+import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canConfigureSystem, canCreateProject, canManageSourceDocuments, canReadProjectData, canSendProjectEmail, canWriteDeliveryData } from "@/lib/permissions";
 import type { UserRole } from "@/lib/auth";
 
 /**
@@ -192,4 +192,9 @@ export async function resolveActor(db: { from: (table: string) => any }): Promis
     if (profile?.full_name) displayName = String(profile.full_name);
   }
   return { userId, displayName };
+}
+
+/** System configuration (e.g. issuing the extraction-worker token) — Admin only. */
+export function requireCanConfigureSystem(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canConfigureSystem, "Admin access required");
 }
