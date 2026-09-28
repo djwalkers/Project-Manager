@@ -405,10 +405,40 @@ await run("UI: upload / new-version controls only for Manager+; archive / delete
   assert.match(page, /const mayManage = canManageSourceDocuments\(user\?\.role\);/);
   assert.match(page, /const mayArchive = canArchiveOrDeleteSourceDocuments\(user\?\.role\);/);
   assert.match(page, /\{mayManage \? \(\n\s+<Button onClick=\{\(\) => setUploadTarget\(\{ mode: "new" \}\)\}/);
-  assert.match(page, /\{mayManage && !document\.archived_at \? \(\n\s+<Button[^\n]*Upload New Version/);
-  assert.match(page, /\{mayArchive && document\.archived_at \? \(/);
+  assert.match(page, /if \(mayManage && !document\.archived_at\) items\.push\(\{ label: "Upload New Version"/);
+  assert.match(page, /if \(mayArchive\) items\.push\(\{ label: document\.archived_at \? "Restore" : "Archive"/);
+  assert.match(page, /if \(mayArchive && document\.archived_at\) items\.push\(\{ label: "Delete permanently"/);
   assert.match(read("app/[section]/page.tsx"), /if \(section === "documents"\) return <SourceDocumentsPage \/>;/);
   assert.doesNotMatch(read("components/form-dialog.tsx") + read("components/app-client.tsx"), /Document upload will be added in v2/);
+});
+
+await run("UI: compact list — clamped titles, file summary instead of a filename column, combined uploaded, cards below xl", () => {
+  const page = read("components/source-documents-page.tsx");
+  assert.match(page, /<p className="line-clamp-2 break-words font-medium" title=\{tooltip\}>\{document\.document_name\}<\/p>/, "title clamped to two lines, full title (and filename) in the tooltip");
+  assert.match(page, /\{\[document\.document_type, current \? fileSummary\(current\) : null\]/, "type · format · size under the title");
+  assert.doesNotMatch(page, /"Original file"|"Uploaded by"|"Size"|break-all/, "no wide filename / uploader / size columns; no one-character wrapping");
+  assert.match(page, /\["Document", "Version", "Uploaded", "Extraction", "Analysis", "Actions"\]/);
+  assert.match(page, /className="hidden rounded-lg border bg-card xl:block"/, "table only on wide screens");
+  assert.match(page, /<ul className="space-y-3 xl:hidden">/, "cards on narrower screens");
+  assert.match(page, /whitespace-nowrap[^"]*"[^\n]*aria-label=\{`View original of/, "primary action stays on one line");
+  assert.match(page, /role="menuitem"[\s\S]{0,120}whitespace-nowrap/, "menu items (incl. Upload New Version) never wrap");
+  assert.match(page, /aria-haspopup="menu" aria-expanded=\{open\}/);
+  assert.equal(shared.fileSummary({ content_type: "application/pdf", original_filename: "x.pdf", size_bytes: 119296 }), "PDF · 116.5 KB");
+  assert.equal(shared.fileSummary({ content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", original_filename: "x.docx", size_bytes: 18330 }), "DOCX · 17.9 KB");
+  assert.equal(shared.fileFormatLabel({ content_type: "application/octet-stream", original_filename: "Spec v2.DOCX" }), "DOCX");
+  assert.equal(shared.fileFormatLabel({ content_type: null, original_filename: "no-extension" }), "File");
+});
+
+await run("UI: the ⋯ menu gives Viewers only Download and Version history; View original and View extraction stay ungated", () => {
+  const page = read("components/source-documents-page.tsx");
+  const menu = page.slice(page.indexOf("function documentMenuItems"), page.indexOf("function DocumentTitle"));
+  assert.match(menu, /if \(current\) items\.push\(\{ label: "Download original"/, "not role-gated");
+  assert.match(menu, /items\.push\(\{ label: historyFor === document\.id \? "Hide version history" : "Version history"/, "not role-gated");
+  assert.equal((menu.match(/items\.push/g) ?? []).length, 5);
+  assert.equal((menu.match(/if \(mayArchive/g) ?? []).length, 2, "archive/restore and delete are Admin-only");
+  const primary = page.slice(page.indexOf("function PrimaryActions"), page.indexOf("function VersionHistory"));
+  assert.doesNotMatch(primary, /mayManage|mayArchive/, "View original is available to every role");
+  assert.match(page, /\{job && \(success \|\| job\.status === "Failed"\) \? \(/, "View extraction is not role-gated");
 });
 
 console.log("\nAll Phase 1A source-document tests passed.\n");
