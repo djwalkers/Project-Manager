@@ -381,22 +381,120 @@ run("header shows customer only when present, and never crashes when absent", ()
   assert.doesNotThrow(() => buildTestStatusEmail(data2, noCustomer, now));
 });
 
-// ── Full Test Status excludes large content ─────────────────────────────────
+// ── Expected / Actual Result (as stored on the test case) ──────────────────
+//
+// Supersedes the 2026-09-23 rule that kept recorded results out of the
+// emailed report: recipients now see each test's Actual Result, taken
+// verbatim from test_cases.actual_result (never inferred), and Failed /
+// Blocked tests also show their Expected Result.
 
-run("Full Test Status does not include expected_result/actual_result content (kept concise); the recorded result lives only in the print appendix", () => {
+function resultFixture(tests) {
   const pl10 = project("pl10");
   const data = baseDataStore();
   data.projects = [pl10];
-  data.test_cases = [testCase(pl10.id, "TST-1", "Passed", { expected_result: "SHOULD_NOT_APPEAR_IN_EMAIL", actual_result: "ALSO_SHOULD_NOT_APPEAR" })];
-  const content = buildTestStatusEmail(data, pl10, now);
-  assert.doesNotMatch(content.html + content.text, /SHOULD_NOT_APPEAR_IN_EMAIL/);
-  assert.doesNotMatch(content.html + content.text, /ALSO_SHOULD_NOT_APPEAR/, "the emailed report never carries recorded results");
-  const print = buildTestStatusEmail(data, pl10, now, { variant: "print" });
-  const mainHtml = print.html.slice(0, print.html.indexOf("Detailed Test Procedures"));
-  assert.doesNotMatch(mainHtml, /ALSO_SHOULD_NOT_APPEAR/);
-  assert.doesNotMatch(print.html, /SHOULD_NOT_APPEAR_IN_EMAIL/, "expected_result is never printed anywhere in the report");
-  const appendixHtml = print.html.slice(print.html.indexOf("Detailed Test Procedures"));
-  assert.match(appendixHtml, /ALSO_SHOULD_NOT_APPEAR/, "the print appendix shows the recorded result for evidence/history");
+  data.test_cases = tests(pl10.id);
+  return { pl10, data, email: buildTestStatusEmail(data, pl10, now), print: buildTestStatusEmail(data, pl10, now, { variant: "print" }) };
+}
+const attentionOf = (html) => html.slice(html.indexOf("Attention &amp; Remaining"), html.indexOf("Full Test Status</h2>"));
+const fullStatusOf = (html) => html.slice(html.indexOf("Full Test Status</h2>"), html.indexOf("<footer"));
+
+run("Failed test with an Actual Result: Expected and Actual Result appear, Actual prominently", () => {
+  const { email } = resultFixture((pid) => [testCase(pid, "TST-038", "Failed", {
+    scenario: "Outside tolerance prevents progression",
+    expected_result: "Weight displays red and Print is disabled.",
+    actual_result: "Weight displayed red but Print remained enabled.",
+  })]);
+  const attention = attentionOf(email.html);
+  assert.match(attention, /Expected Result:<\/div><div class="wrap" style="font-size:12px;color:#334155">Weight displays red and Print is disabled\.<\/div>/);
+  assert.match(attention, /color:#991b1b">Actual Result:<\/div><div class="wrap" style="font-size:12px;color:#7f1d1d;font-weight:600">Weight displayed red but Print remained enabled\.<\/div>/, "prominent for Failed");
+  assert.match(email.text, /TST-038 — Outside tolerance prevents progression — Failed — [^\n]*\n  Expected Result: Weight displays red and Print is disabled\.\n  Actual Result: Weight displayed red but Print remained enabled\./);
+});
+
+const NOT_RECORDED_HTML = /color:#b45309">Actual Result:<\/div><div class="wrap" style="font-size:12px;font-style:italic;color:#b45309">Not recorded<\/div>/;
+
+for (const status of ["Failed", "Blocked"]) {
+  run(`${status} test with a blank Actual Result: "Actual Result: Not recorded" (amber, not the red failure styling)`, () => {
+    const { data, email, print } = resultFixture((pid) => [testCase(pid, "TST-2", status, { expected_result: "It works.", actual_result: "   " })]);
+    const attention = attentionOf(email.html);
+    assert.match(attention, NOT_RECORDED_HTML);
+    assert.doesNotMatch(attention, /color:#991b1b">Actual Result|font-weight:600">Not recorded/, "not presented as the failure result");
+    assert.match(attention, /Expected Result:/);
+    assert.match(email.text, /TST-2 — [^\n]*\n  Expected Result: It works\.\n  Actual Result: Not recorded/);
+    const appendix = print.html.slice(print.html.indexOf("Detailed Test Procedures"));
+    assert.match(appendix, /color:#b45309"><span style="font-style:normal">Actual Result:<\/span> Not recorded<\/div>/);
+    assert.match(print.text, /Expected Result: It works\.\nActual Result: Not recorded/);
+    assert.doesNotMatch(fullStatusOf(email.html), /Actual Result/, "the compact Full Test Status line still appears only for a recorded value");
+    assert.doesNotMatch(email.html + print.html, /No result or reason recorded/);
+    assert.equal(data.test_cases[0].actual_result, "   ", "presentation only — the stored value is untouched");
+  });
+}
+
+run("Passed test with a blank Actual Result: no Actual Result line anywhere", () => {
+  const { email, print } = resultFixture((pid) => [testCase(pid, "TST-9", "Passed", { expected_result: "E9", actual_result: null })]);
+  for (const out of [email.html, email.text, print.html, print.text]) assert.doesNotMatch(out, /Actual Result|Not recorded/);
+});
+
+run("Passed test with an Actual Result: shown compactly in Full Test Status (no Expected Result there)", () => {
+  const { email } = resultFixture((pid) => [testCase(pid, "TST-3", "Passed", { expected_result: "EXPECTED_PASS_TEXT", actual_result: "Label printed with correct weight." })]);
+  const full = fullStatusOf(email.html);
+  assert.match(full, /<div class="wrap" style="margin-top:2px;font-size:11px;color:#64748b"><span style="font-weight:700">Actual Result:<\/span> Label printed with correct weight\.<\/div>/);
+  assert.doesNotMatch(full, /EXPECTED_PASS_TEXT/, "Full Test Status stays compact");
+  assert.match(email.text, /TST-3 — [^\n]* — Passed — AC: —\n  Actual Result: Label printed with correct weight\./);
+  assert.doesNotMatch(attentionOf(email.html), /Label printed/, "Passed tests are not listed under Attention");
+});
+
+run("Blocked test with an Actual Result: shown (it may explain the blocker)", () => {
+  const { email } = resultFixture((pid) => [testCase(pid, "TST-4", "Blocked", { actual_result: "Scale not available in the test environment." })]);
+  assert.match(attentionOf(email.html), /color:#64748b">Actual Result:<\/div><div class="wrap" style="font-size:12px;color:#334155">Scale not available in the test environment\.<\/div>/, "shown, but not in the Failed emphasis");
+  assert.match(fullStatusOf(email.html), /Actual Result:<\/span> Scale not available/);
+});
+
+run("Pending / In Progress: no (possibly stale) Actual Result in the email, and never 'Not recorded'", () => {
+  const { email, print } = resultFixture((pid) => [
+    testCase(pid, "TST-5", "Pending", { actual_result: "STALE_PENDING_RESULT" }),
+    testCase(pid, "TST-6", "In Progress", { actual_result: "STALE_INPROGRESS_RESULT" }),
+    testCase(pid, "TST-10", "Pending", { actual_result: null }),
+  ]);
+  assert.doesNotMatch(email.html + email.text, /STALE_PENDING_RESULT|STALE_INPROGRESS_RESULT|Actual Result|Not recorded/);
+  assert.doesNotMatch(print.html + print.text, /Not recorded/, "the warning is for Failed/Blocked only");
+});
+
+run("Expected / Actual Result from another project cannot leak into the email", () => {
+  const pl10 = project("pl10");
+  const cr28 = project("cr28");
+  const data = baseDataStore();
+  data.projects = [pl10, cr28];
+  data.test_cases = [
+    testCase(pl10.id, "TST-1", "Failed", { expected_result: "PL10 expected", actual_result: "PL10 actual" }),
+    testCase(cr28.id, "TST-1", "Failed", { expected_result: "CR28_EXPECTED_LEAK", actual_result: "CR28_ACTUAL_LEAK" }),
+  ];
+  for (const variant of ["email", "print"]) {
+    const content = buildTestStatusEmail(data, pl10, now, { variant });
+    assert.match(content.html, /PL10 actual/);
+    assert.doesNotMatch(content.html + content.text, /CR28_(EXPECTED|ACTUAL)_LEAK/, variant);
+  }
+});
+
+run("Expected Result is rendered exactly as stored (unchanged), and results are HTML-escaped", () => {
+  const { email, print } = resultFixture((pid) => [testCase(pid, "TST-7", "Failed", {
+    expected_result: "  Total <= 10 & \"OK\"  ",
+    actual_result: "<script>alert('x')</script> & <b>bold</b>",
+  })]);
+  for (const html of [email.html, print.html]) {
+    assert.match(html, /Total &lt;= 10 &amp; &quot;OK&quot;/, "stored value, only trimmed and escaped");
+    assert.match(html, /&lt;script&gt;alert\(&#039;x&#039;\)&lt;\/script&gt; &amp; &lt;b&gt;bold&lt;\/b&gt;/);
+    assert.doesNotMatch(html, /<script>alert|<b>bold<\/b>/);
+  }
+  assert.match(email.text, /Expected Result: Total <= 10 & "OK"\n/, "plain text carries the raw stored text");
+});
+
+run("print appendix shows Expected and Actual Result (replacing the old 'Recorded result' label)", () => {
+  const { print } = resultFixture((pid) => [testCase(pid, "TST-8", "Passed", { expected_result: "E8", actual_result: "A8" })]);
+  const appendix = print.html.slice(print.html.indexOf("Detailed Test Procedures"));
+  assert.match(appendix, /Expected Result:<\/span> E8/);
+  assert.match(appendix, /Actual Result:<\/span> A8/);
+  assert.match(print.text, /Expected Result: E8\nActual Result: A8/);
+  assert.doesNotMatch(print.html + print.text, /Recorded result/);
 });
 
 console.log("\nAll Test Status email tests passed.\n");

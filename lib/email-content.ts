@@ -540,11 +540,24 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
       }).join("")}</tr></table></div>`
     : `<p style="margin:0;color:#64748b;font-size:13px">No requirements recorded for this project.</p>`;
 
+  // Expected / Actual Result are shown exactly as stored on the test case —
+  // never inferred or generated — and a blank value renders no section.
+  const expectedOf = (t: TestCase) => t.expected_result?.trim() || null;
+  const actualOf = (t: TestCase) => t.actual_result?.trim() || null;
+  const resultBlockHtml = (label: string, value: string, emphasis: boolean) =>
+    `<div style="margin-top:6px"><div style="font-size:11px;font-weight:700;color:${emphasis ? "#991b1b" : "#64748b"}">${label}</div><div class="wrap" style="font-size:12px;color:${emphasis ? "#7f1d1d" : "#334155"}${emphasis ? ";font-weight:600" : ""}">${escapeHtml(value)}</div></div>`;
+  // Failed / Blocked tests always show an Actual Result line. A blank one is
+  // a documentation gap, shown as a subdued amber "Not recorded" — never as
+  // the failure result itself. Presentation only; nothing is written back.
+  const NOT_RECORDED = "Not recorded";
+  const requiresActual = (t: TestCase) => t.status === "Failed" || t.status === "Blocked";
+  const notRecordedBlockHtml = `<div style="margin-top:6px"><div style="font-size:11px;font-weight:700;color:#b45309">Actual Result:</div><div class="wrap" style="font-size:12px;font-style:italic;color:#b45309">${NOT_RECORDED}</div></div>`;
   const exceptionRows = exceptions.map((t) => {
     const reqs = reqRefsFor(t);
-    const reason = t.actual_result?.trim() || "No result or reason recorded.";
+    const expected = expectedOf(t);
+    const actual = actualOf(t);
     return `<tr><td style="padding:8px 10px 8px 0;border-top:1px solid #fecaca;vertical-align:top">${refHtml(t.test_ref, 700)}</td>
-      <td class="wrap" style="padding:8px 10px 8px 0;border-top:1px solid #fecaca;vertical-align:top;font-size:13px;color:#0f172a">${escapeHtml(titleOf(t))}<div style="margin-top:2px;font-size:11px;color:#64748b">Requirement: ${reqs.length ? reqs.map((r) => `${refHtml(r, 400)} ${escapeHtml(reqTitles.get(r) ?? "")}`).join("; ") : "—"}${acRefsFor(t).length ? ` · AC: ${refListHtml(acRefsFor(t))}` : ""}</div><div style="margin-top:4px;font-size:12px;color:#7f1d1d">${escapeHtml(reason)}</div></td>
+      <td class="wrap" style="padding:8px 10px 8px 0;border-top:1px solid #fecaca;vertical-align:top;font-size:13px;color:#0f172a">${escapeHtml(titleOf(t))}<div style="margin-top:2px;font-size:11px;color:#64748b">Requirement: ${reqs.length ? reqs.map((r) => `${refHtml(r, 400)} ${escapeHtml(reqTitles.get(r) ?? "")}`).join("; ") : "—"}${acRefsFor(t).length ? ` · AC: ${refListHtml(acRefsFor(t))}` : ""}</div>${expected ? resultBlockHtml("Expected Result:", expected, false) : ""}${actual ? resultBlockHtml("Actual Result:", actual, t.status === "Failed") : notRecordedBlockHtml}</td>
       <td style="padding:8px 0;border-top:1px solid #fecaca;vertical-align:top;text-align:right">${statusBadge(t.status)}</td></tr>`;
   }).join("");
   const exceptionsCore = exceptions.length > 0
@@ -555,13 +568,20 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     : "";
   const exceptionsHtml = exceptionsCore + openNote;
 
+  // In the (long) Full Test Status list only the Actual Result is shown, and
+  // only for executed-or-blocked tests, to keep each row compact.
+  const ROW_RESULT_STATUSES = new Set(["Passed", "Failed", "Blocked"]);
+  const rowActualOf = (t: TestCase) => (ROW_RESULT_STATUSES.has(t.status) ? actualOf(t) : null);
+
   function testRowHtml(row: { test: TestCase; acRefs: string[]; alsoUnder: string[] }): string {
     const t = row.test;
     const acInline = row.acRefs.length ? `<div class="ac-m" style="display:none;margin-top:2px;font-size:11px;color:#64748b">AC: ${refListHtml(row.acRefs)}</div>` : "";
     const also = row.alsoUnder.length ? `<div style="margin-top:2px;font-size:11px;color:#94a3b8">Also under ${row.alsoUnder.map((r) => refHtml(r, 400)).join(", ")}</div>` : "";
+    const actual = rowActualOf(t);
+    const actualLine = actual ? `<div class="wrap" style="margin-top:2px;font-size:11px;color:${t.status === "Failed" ? "#7f1d1d" : "#64748b"}"><span style="font-weight:700">Actual Result:</span> ${escapeHtml(actual)}</div>` : "";
     return `<tr>
       <td class="c-ref" style="width:72px;padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:13px">${refHtml(t.test_ref)}</td>
-      <td class="wrap" style="padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:13px;color:#1e293b">${escapeHtml(titleOf(t))}${acInline}${also}</td>
+      <td class="wrap" style="padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:13px;color:#1e293b">${escapeHtml(titleOf(t))}${acInline}${also}${actualLine}</td>
       <td class="c-ac" style="width:92px;padding:6px 10px 6px 0;border-top:1px solid #f1f5f9;vertical-align:top;font-size:12px;color:#475569">${refListHtml(row.acRefs)}</td>
       <td class="c-st" style="width:98px;padding:6px 0;border-top:1px solid #f1f5f9;vertical-align:top;text-align:right">${statusBadge(t.status)}</td>
     </tr>`;
@@ -598,17 +618,20 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     const steps = splitSteps(p.steps);
     const reqs = reqRefsFor(t);
     const acs = acRefsFor(t);
-    const result = t.actual_result?.trim();
+    const expected = expectedOf(t);
+    const actual = actualOf(t);
     return `<div class="proc" style="padding:10px 0;border-top:1px solid #e2e8f0">
       <table role="presentation" width="100%"><tr><td style="vertical-align:top;font-size:13px">${refHtml(t.test_ref, 700)} <span style="color:#334155">${escapeHtml(p.title)}</span></td><td style="width:98px;vertical-align:top;text-align:right">${statusBadge(t.status)}</td></tr></table>
       <div style="margin-top:3px;font-size:11px;color:#64748b">Requirement: ${refListHtml(reqs)} · AC: ${refListHtml(acs)}</div>
       <div class="wrap" style="margin-top:6px;font-size:12px;color:#334155"><span style="color:#64748b">Objective:</span> ${escapeHtml(p.objective)}</div>
       ${steps.length ? `<div style="margin-top:4px;font-size:12px;color:#64748b">Steps:</div><ol class="wrap" style="margin:2px 0 0;padding-left:20px;font-size:12px;color:#334155">${steps.map((s) => `<li style="margin:0 0 2px">${escapeHtml(s)}</li>`).join("")}</ol>` : ""}
-      ${result ? `<div class="wrap" style="margin-top:4px;font-size:12px;color:#334155"><span style="color:#64748b">Recorded result:</span> ${escapeHtml(result)}</div>` : ""}
+      ${expected ? `<div class="wrap" style="margin-top:4px;font-size:12px;color:#334155"><span style="color:#64748b">Expected Result:</span> ${escapeHtml(expected)}</div>` : ""}
+      ${actual ? `<div class="wrap" style="margin-top:4px;font-size:12px;color:#334155"><span style="color:#64748b">Actual Result:</span> ${escapeHtml(actual)}</div>`
+        : requiresActual(t) ? `<div class="wrap" style="margin-top:4px;font-size:12px;font-style:italic;color:#b45309"><span style="font-style:normal">Actual Result:</span> ${NOT_RECORDED}</div>` : ""}
     </div>`;
   }).join("");
   const appendixHtml = includeProcedures && total > 0
-    ? reportSection("Appendix — Detailed Test Procedures", `<div style="font-size:12px;color:#64748b;margin-bottom:4px">Full objective, steps and recorded result for each test, in reference order.</div>${proceduresHtml}`, "appendix")
+    ? reportSection("Appendix — Detailed Test Procedures", `<div style="font-size:12px;color:#64748b;margin-bottom:4px">Full objective, steps, and expected and actual result for each test, in reference order.</div>${proceduresHtml}`, "appendix")
     : "";
 
   const footer = `<footer style="margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8"><strong style="color:#64748b">${BRAND.productName}</strong> · Test Status Report · Generated ${escapeHtml(generated)}</footer>`;
@@ -671,13 +694,17 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
     ? `${verificationStates.map((state) => `${state}: ${stateSummary[state]}`).join("\n")}\n(${stateSummary.Verified} of ${requirementCount} requirements verified)`
     : "No requirements recorded for this project.";
 
-  const exceptionLinesText = exceptions.map((t) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — Requirement: ${reqText(reqRefsFor(t))} — AC: ${acText(acRefsFor(t))} — Reason: ${t.actual_result?.trim() || "No result or reason recorded."}`).join("\n");
+  const exceptionLinesText = exceptions.map((t) => [
+    `${t.test_ref} — ${titleOf(t)} — ${t.status} — Requirement: ${reqText(reqRefsFor(t))} — AC: ${acText(acRefsFor(t))}`,
+    expectedOf(t) ? `  Expected Result: ${expectedOf(t)}` : "",
+    `  Actual Result: ${actualOf(t) ?? NOT_RECORDED}`,
+  ].filter(Boolean).join("\n")).join("\n");
   const exceptionsText = [
     exceptions.length > 0 ? exceptionLinesText : "No failed or blocked tests.",
     openTotal > 0 ? `Awaiting execution: ${openTotal} ${openTotal === 1 ? "test is" : "tests are"} pending or in progress${openAreas.length ? ` — ${openAreas.join(", ")}` : ""}. These are open, not defects.` : "",
   ].filter(Boolean).join("\n");
 
-  const rowText = (t: TestCase, acRefs: string[]) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — AC: ${acRefs.length ? acRefs.join(", ") : "—"}`;
+  const rowText = (t: TestCase, acRefs: string[]) => `${t.test_ref} — ${titleOf(t)} — ${t.status} — AC: ${acRefs.length ? acRefs.join(", ") : "—"}${rowActualOf(t) ? `\n  Actual Result: ${rowActualOf(t)}` : ""}`;
   const fullStatusText = total > 0
     ? [
       ...grouped.groups.map((g) => `${g.requirementRef} — ${g.requirementTitle} — ${g.passed}/${g.testCount} passed — ${g.state}\n${g.rows.map((r) => rowText(r.test, r.acRefs)).join("\n")}`),
@@ -694,7 +721,8 @@ export function buildTestStatusEmail(data: DataStore, project: Project, now = ne
       `Requirement: ${reqRefsFor(t).join(", ") || "—"} | AC: ${acRefsFor(t).join(", ") || "—"}`,
       `Objective: ${p.objective}`,
       steps.length ? `Steps:\n${steps.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}` : "",
-      t.actual_result?.trim() ? `Recorded result: ${t.actual_result.trim()}` : "",
+      expectedOf(t) ? `Expected Result: ${expectedOf(t)}` : "",
+      actualOf(t) ? `Actual Result: ${actualOf(t)}` : requiresActual(t) ? `Actual Result: ${NOT_RECORDED}` : "",
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 
