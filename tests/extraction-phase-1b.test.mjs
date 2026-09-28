@@ -348,7 +348,7 @@ await run("the local worker never talks to an AI provider and holds no Supabase 
   assert.doesNotMatch(worker, /openai|anthropic|gemini|generativelanguage|ollama|SUPABASE|service_role|supabase\.co/i);
   assert.match(read("local-worker/worker.js"), /\/api\/worker\/\$\{route\}/, "it only calls the /api/worker/* routes");
   const pkg = JSON.parse(read("local-worker/package.json"));
-  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["mammoth", "pdfjs-dist"]);
+  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["jszip", "mammoth", "pdfjs-dist"], "jszip reads DOCX outline levels / list ids (already a mammoth dependency)");
   assert.match(read("local-worker/.gitignore"), /^config\.json$/m);
 });
 

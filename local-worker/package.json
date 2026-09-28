@@ -12,10 +12,8 @@
     "node": ">=20"
   },
   "dependencies": {
+    "jszip": "3.10.2",
     "mammoth": "1.13.0",
     "pdfjs-dist": "6.3.289"
-  },
-  "devDependencies": {
-    "jszip": "3.10.2"
   }
 }
