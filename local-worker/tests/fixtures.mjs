@@ -13,13 +13,14 @@ export function makePdf(pages) {
   const catalog = add(null);
   const pagesObj = add(null);
   const font = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const bold = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
   const kids = [];
   for (const page of pages) {
     const ops = page.imageOnly
       ? "0.2 0.2 0.2 rg 72 72 450 650 re f"
-      : page.lines.map((l) => `BT /F1 ${l.size} Tf ${l.x ?? 72} ${l.y} Td (${esc(l.text)}) Tj ET`).join("\n");
+      : page.lines.map((l) => `BT /${l.bold ? "F2" : "F1"} ${l.size} Tf ${l.x ?? 72} ${l.y} Td (${esc(l.text)}) Tj ET`).join("\n");
     const stream = add(`<< /Length ${Buffer.byteLength(ops)} >>\nstream\n${ops}\nendstream`);
-    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${stream} 0 R >>`));
+    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${font} 0 R /F2 ${bold} 0 R >> >> /Contents ${stream} 0 R >>`));
   }
   objects[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`;
   objects[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${kids.length} >>`;
@@ -142,4 +143,77 @@ export function crPdf() {
     for (const row of s.table ?? []) add(row.join("  "), 10, 2);
   });
   return makePdf([{ lines }]);
+}
+
+/**
+ * An issue-tracker "printable view" export, laid out like a real one: a
+ * repeated printed header and URL footer with a page counter, a title in a
+ * larger size, a left column of bold field labels with regular values (plus
+ * a second label/value column), an evaluation field whose value holds bold
+ * upper-case section labels — some left empty, as templates are — and on
+ * page 2 a label/value table with a wrapped label beside a vertically
+ * centred multi-line value, ending with a "Generated at …" export stamp.
+ * Generic names only: nothing here is a real issue.
+ */
+export const TRACKER_TEXT = {
+  requirements: [
+    "On the order dashboard, the picker name must remain against the",
+    "multi-order pick task and must not change on palletising.",
+    "The same name must be shown in every reporting extract.",
+  ],
+  benefit: "It gives the warehouse real time traceability of pick tasks.",
+  change: [
+    "Currently the name against a pick task changes to the next user",
+    "who handles the task once it is palletised on the order dashboard.",
+    "We require the picker name to remain against the pick task on the",
+    "dashboard after palletising, and the palletiser to be recorded",
+    "against the new pallet task that palletising creates.",
+  ],
+  gains: [
+    "Supervisors will see who picked each task in real time, giving",
+    "better traceability for accuracy and performance on every shift.",
+  ],
+};
+
+export function trackerPdf() {
+  const b = (text, x, y, size = 8) => ({ text, size, x, y, bold: true });
+  const r = (text, x, y, size = 8) => ({ text, size, x, y });
+  const chrome = (n) => [
+    r("9/28/26, 10:15 AM", 24, 770), r("[#ABC-77] ABCCR01 - Pick tasks keep the picker name", 114, 770),
+    r("https://tracker.example.com/browse/ABC-77", 24, 16), r(`${n}/2`, 577, 16),
+  ];
+  const t = TRACKER_TEXT;
+  return makePdf([
+    { lines: [
+      ...chrome(1),
+      r("[ABC-77] ABCCR01 - Pick tasks keep the picker name after palletising", 30, 720, 11),
+      b("Status:", 30, 700), r("Open", 141, 700),
+      b("Project:", 30, 686), r("ALPHA", 141, 686),
+      b("Type:", 30, 672), r("Change Request", 141, 672), b("Priority:", 308, 672), r("Medium", 419, 672),
+      b("Reporter:", 30, 658), r("Jo Bloggs", 141, 658), b("Assignee:", 308, 658), r("Sam Doe", 419, 658),
+      b("Resolution:", 30, 644), r("Unresolved", 141, 644), b("Votes:", 308, 644), r("0", 419, 644),
+      b("Labels:", 30, 630), r("None", 141, 630),
+      b("Change Request", 30, 600), b("Evaluation:", 30, 588),
+      b("ESTIMATED WORKDAYS", 144, 596),
+      b("DETAILED REQUIREMENTS", 144, 566),
+      r(t.requirements[0], 144, 552), r(t.requirements[1], 144, 540), r(t.requirements[2], 144, 528),
+      b("WORK REQUIRED", 144, 500),
+      b("BENEFIT VS IMPACT STATEMENT", 144, 472), r(t.benefit, 144, 458),
+      b("RISKS / ISSUES / DEPENDENCIES", 144, 430),
+      b("Sprint:", 30, 90),
+    ] },
+    { lines: [
+      ...chrome(2),
+      b("Description", 32, 742),
+      b("Phase//Drop", 34, 722), r("Phase 2", 205, 722),
+      b("WHO RAISED IT", 34, 706), r("A. Tester", 205, 706),
+      ...t.change.map((line, i) => r(line, 205, 670 - i * 12)),
+      b("CHANGE DESCRIPTION * (describe", 34, 652), b("requirement)", 34, 640),
+      r("*ESTIMATED GAINS **", 34, 600), r(t.gains[0], 205, 600),
+      b("(Productivity and/or Savings)", 34, 588), r(t.gains[1], 205, 588),
+      b("Priority", 34, 570), r("High", 205, 570),
+      r("Generated at Mon Sep 28 10:15:00 UTC 2026 by A. Tester using Tracker 9.1.", 28, 540),
+      r("rev:0123abcd4567ef.", 28, 528),
+    ] },
+  ]);
 }

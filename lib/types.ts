@@ -337,6 +337,12 @@ export type ExtractionDiagnostics = {
   empty_section_count: number;
   meaningful_text: boolean;
   warnings: string[];
+  /** PDF, extractor ≥ 1.2.0: "flow" (numbered/larger headings) or "label_value" (form-like export). */
+  layout?: "flow" | "label_value";
+  field_count?: number;
+  /** PDF, extractor ≥ 1.2.0: page furniture set aside before structure detection. */
+  chrome_line_count?: number;
+  chrome_lines?: { page: number; position: "header" | "footer" | "end"; rule: "repeated_header" | "repeated_footer" | "generator_stamp"; text: string }[];
 };
 
 /** One extraction attempt of one immutable document version — migration 036. */

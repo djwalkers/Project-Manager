@@ -19,6 +19,14 @@ holds credentials.
    (a short, standalone, bold or noticeably larger line that is not a
    sentence or list item and has content after it). List numbers follow
    Word's own lists; DOCX has no page numbers.
+   PDF headings are numbered or larger standalone lines. Form-like PDF
+   exports (issue trackers, templates) are read by weight and position
+   instead: a column of bold field labels with values beside them becomes
+   "Label: value" lines, a long field value becomes its own section, and
+   bold upper-case / Title Case labels become sections; empty template
+   sections produce no fragments. Repeated printed page headers, URL
+   footers, page counters and a trailing "Generated at …" stamp are set
+   aside as document chrome and listed in the job diagnostics.
 4. Builds section-aware fragments with provenance (section, pages) and a
    SHA-256 per fragment, and posts them back in batches.
 5. Marks the job **Completed**, **Completed with warnings**, or **Failed**
@@ -75,3 +83,10 @@ npm test
 
 Builds real PDF/DOCX files in memory and runs them through the real
 extractor and the worker protocol against a fake API — no network.
+
+Real project documents are never committed. To re-check them locally
+(matched by SHA-256; skipped when absent):
+
+```bash
+EXTRACT_REAL_DOCS_DIR=~/Downloads npm run test:real
+```

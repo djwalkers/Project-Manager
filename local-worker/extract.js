@@ -1,6 +1,6 @@
 // Deterministic source-document extraction (Phase 1B). No AI, no network.
 //
-//   PDF  → pdfjs-dist text content per page → lines → paragraphs/headings
+//   PDF  → pdfjs-dist text content per page → lines → paragraphs/headings/fields
 //   DOCX → mammoth (Word styles → h1..h6, p, lists, tables) → blocks
 //   blocks → section-aware fragments with provenance + SHA-256 text hashes
 //
@@ -15,7 +15,10 @@ import mammoth from "mammoth";
 
 // 1.1.0 — DOCX: headings from Word outline levels and a conservative
 // formatting fallback; text and list items of one section chunked together.
-export const EXTRACTOR_VERSION = "1.1.0";
+// 1.2.0 — PDF: repeated page headers/footers and export stamps set aside as
+// document chrome; label/value and bold section-label layouts recognised
+// when a PDF has no numbered or larger headings.
+export const EXTRACTOR_VERSION = "1.2.0";
 
 export const LIMITS = {
   /** A text fragment is closed once it reaches this size at a block boundary. */
@@ -56,16 +59,55 @@ export function normaliseText(value) {
 const NUMBERED_HEADING = /^(\d{1,2}(?:\.\d{1,3}){0,5})\.?\s+(\S.*)$/;
 
 // ── PDF ─────────────────────────────────────────────────────────────────────
+//
+// Two passes over the same text items, both deterministic:
+//
+//   1. Document chrome is set aside first: lines repeated at the same place
+//      in the top/bottom margin of most pages (printed headers, URL footers,
+//      page counters) and a trailing "Generated at … by/using …" export
+//      stamp. Each removed line is recorded in the diagnostics — never
+//      dropped silently.
+//   2. The flow pass (unchanged since 1.0.0): headings are short standalone
+//      lines that are numbered ("4.2 Replenishment Processing") or set
+//      noticeably larger than the body text.
+//   3. The layout pass reads structure from font weight and position
+//      instead — the way form-like exports (issue trackers, templates)
+//      present it: a left column of bold field labels with values beside
+//      them, and bold title-like section labels with regular body text
+//      below. It replaces the flow pass only when a page has such a field
+//      column (several rows sharing one label x and one value x), or when
+//      the flow pass finds no heading at all.
+//
+// Page numbers are kept on every block, so provenance survives both passes.
+
+export const PDF_LAYOUT_RULES = {
+  /** Top/bottom share of the page height searched for repeated chrome. */
+  chromeBand: 0.08,
+  /** A chrome line must repeat on at least this share of the pages (and ≥ 2). */
+  chromeRepeatShare: 0.6,
+  /** Minimum label/value rows sharing one label x and one value x to call it a field column. */
+  minFieldRows: 3,
+  /** A second label/value column beside the first needs this many rows. */
+  minSecondaryFieldRows: 2,
+  /** A field value longer than this becomes its own section instead of a field line. */
+  fieldValueMaxChars: 120,
+  /** Bold section labels: at most this many characters / words. */
+  labelMaxChars: 100,
+  labelMaxWords: 12,
+  /** Bold section labels are ignored when this share of the text is bold. */
+  maxBoldShare: 0.5,
+};
 
 async function loadPdfjs() {
   return import("pdfjs-dist/legacy/build/pdf.mjs");
 }
 
+// Real font names ("ABCDEF+Arial-BoldMT"); pdfjs's generic font family
+// ("sans-serif") carries no weight.
+const BOLD_FONT = /bold|black|heavy|semibold|demibold|extrabold/i;
+
 /**
- * Extracts text blocks from a PDF, one page at a time. Headings are
- * detected deterministically: a short standalone line that is either
- * numbered ("4.2 Replenishment Processing") or set noticeably larger than
- * the document's body text.
+ * Extracts text blocks from a PDF, one page at a time.
  */
 export async function extractPdf(bytes) {
   const pdfjs = await loadPdfjs();
@@ -94,22 +136,39 @@ export async function extractPdf(bytes) {
     for (let n = 1; n <= doc.numPages; n += 1) {
       const page = await doc.getPage(n);
       const content = await page.getTextContent({ includeMarkedContent: false, disableNormalization: false });
-      pages.push({ number: n, lines: pdfLines(content.items) });
+      const fonts = await fontNames(page, content.items);
+      pages.push({ number: n, height: page.view[3] - page.view[1], lines: pdfLines(content.items, fonts) });
       page.cleanup();
     }
   } finally {
     await task.destroy();
   }
 
+  const chrome = removeChrome(pages);
+
   // Body font size = the size carrying the most characters.
   const weight = new Map();
   for (const page of pages) for (const line of page.lines) weight.set(line.size, (weight.get(line.size) ?? 0) + line.text.length);
   const bodySize = [...weight.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? 0;
 
+  const pageChars = pages.map((page) => ({ page: page.number, chars: page.lines.reduce((sum, l) => sum + l.text.length, 0) }));
+  const base = { kind: "pdf", pageCount: pages.length, pageChars, warnings: [], chrome };
+
+  // A label/value field column is strong evidence of a form-like layout; bold
+  // section labels alone are used only when the flow pass finds no headings.
+  const flow = flowPass(pages, bodySize);
+  const layout = layoutPass(pages, bodySize);
+  const flowHasHeadings = flow.some((b) => b.type === "heading");
+  if (layout && (layout.fieldPages > 0 || !flowHasHeadings) && layout.blocks.some((b) => b.type === "heading" || b.type === "field")) {
+    return { ...base, layout: "label_value", headingSources: layout.sources, blocks: layout.blocks.filter((b) => b.text || b.type === "field") };
+  }
+  return { ...base, layout: "flow", blocks: flow };
+}
+
+/** The 1.0.0 flow pass: numbered or larger standalone lines are headings. */
+function flowPass(pages, bodySize) {
   const blocks = [];
-  const pageChars = [];
   for (const page of pages) {
-    pageChars.push({ page: page.number, chars: page.lines.reduce((sum, l) => sum + l.text.length, 0) });
     let paragraph = null;
     const flush = () => {
       if (paragraph) blocks.push({ type: "paragraph", text: normaliseText(paragraph.text), page: page.number });
@@ -136,10 +195,26 @@ export async function extractPdf(bytes) {
     });
     flush();
   }
-  return { kind: "pdf", pageCount: pages.length, pageChars, blocks: blocks.filter((b) => b.text), warnings: [] };
+  return blocks.filter((b) => b.text);
 }
 
-function pdfLines(items) {
+async function fontNames(page, items) {
+  const names = new Map();
+  try {
+    await page.getOperatorList(); // loads the page's fonts into commonObjs
+    for (const item of items) {
+      if (!item.fontName || names.has(item.fontName)) continue;
+      let name = "";
+      try { name = String(page.commonObjs.get(item.fontName)?.name ?? ""); } catch { /* font not resolved */ }
+      names.set(item.fontName, name);
+    }
+  } catch {
+    // Weight is only supporting evidence: without font names the flow pass still runs.
+  }
+  return names;
+}
+
+function pdfLines(items, fonts = new Map()) {
   const rows = [];
   for (const item of items) {
     if (typeof item.str !== "string") continue;
@@ -151,15 +226,19 @@ function pdfLines(items) {
     let row = rows.find((r) => Math.abs(r.y - y) <= Math.max(size, r.size) * 0.4);
     if (!row) { row = { y, size, parts: [] }; rows.push(row); }
     row.size = Math.max(row.size, size);
-    row.parts.push({ x, text });
+    row.parts.push({ x, y, size, width: Math.max(0, Number(item.width) || 0), bold: BOLD_FONT.test(fonts.get(item.fontName) ?? ""), text });
   }
   return rows
     .sort((a, b) => b.y - a.y)
-    .map((row) => ({
-      y: row.y,
-      size: row.size,
-      text: row.parts.sort((a, b) => a.x - b.x).map((p) => p.text).join(" ").replace(/\s+/g, " ").trim(),
-    }))
+    .map((row) => {
+      const parts = row.parts.sort((a, b) => a.x - b.x);
+      return {
+        y: row.y,
+        size: row.size,
+        text: parts.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim(),
+        parts: parts.filter((p) => p.text.trim()),
+      };
+    })
     .filter((line) => line.text);
 }
 
@@ -172,6 +251,306 @@ function pdfHeading(line, bodySize, standalone) {
   }
   return null;
 }
+
+// ── PDF document chrome ─────────────────────────────────────────────────────
+
+// Digits vary between pages ("1/2", "2/2", dates); the rest must match.
+const chromeKey = (text) => text.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+const GENERATOR_STAMP = /^generated (?:at|on)\b.{3,200}\b(?:by|using)\b/i;
+const REVISION_STAMP = /^rev(?:ision)?\s*[:#]?\s*[0-9a-f]{7,64}\.?$/i;
+
+/**
+ * Removes lines that are page furniture rather than document content and
+ * returns what was removed, per page, with the rule that matched.
+ */
+export function removeChrome(pages) {
+  const removed = [];
+  const content = pages.filter((p) => p.lines.length);
+  if (content.length >= 2) {
+    const needed = Math.max(2, Math.ceil(content.length * PDF_LAYOUT_RULES.chromeRepeatShare));
+    const band = (page, line) => {
+      const margin = page.height * PDF_LAYOUT_RULES.chromeBand;
+      return line.y >= page.height - margin ? "header" : line.y <= margin ? "footer" : null;
+    };
+    // key|position → pages it occurs on (once per page) and its baselines.
+    const seen = new Map();
+    for (const page of content) {
+      for (const line of page.lines) {
+        const position = band(page, line);
+        if (!position) continue;
+        const key = `${position}|${chromeKey(line.text)}`;
+        const entry = seen.get(key) ?? { pages: new Set(), ys: [] };
+        entry.pages.add(page.number);
+        entry.ys.push(line.y);
+        seen.set(key, entry);
+      }
+    }
+    for (const page of content) {
+      page.lines = page.lines.filter((line) => {
+        const position = band(page, line);
+        if (!position) return true;
+        const entry = seen.get(`${position}|${chromeKey(line.text)}`);
+        const steady = entry && Math.max(...entry.ys) - Math.min(...entry.ys) <= 3;
+        if (!entry || entry.pages.size < needed || !steady) return true;
+        removed.push({ page: page.number, position, rule: position === "header" ? "repeated_header" : "repeated_footer", text: line.text });
+        return false;
+      });
+    }
+  }
+  // An export stamp is chrome only as the last thing on its page (optionally
+  // followed by a bare revision hash) — never in the middle of content.
+  for (const page of pages) {
+    const n = page.lines.length;
+    const last = page.lines[n - 1];
+    const stampAt = last && GENERATOR_STAMP.test(last.text) ? n - 1
+      : n >= 2 && REVISION_STAMP.test(last.text) && GENERATOR_STAMP.test(page.lines[n - 2].text) ? n - 2 : -1;
+    if (stampAt < 0) continue;
+    for (const line of page.lines.splice(stampAt)) removed.push({ page: page.number, position: "end", rule: "generator_stamp", text: line.text });
+  }
+  return removed.sort((a, b) => a.page - b.page);
+}
+
+// ── PDF layout pass (label/value and bold section labels) ──────────────────
+
+const near = (a, b, tolerance = 3) => Math.abs(a - b) <= tolerance;
+const sameSize = (a, b) => Math.max(a, b) <= Math.min(a, b) * 1.15;
+
+/** Splits a line into cells at wide horizontal gaps or font-size changes. */
+function segments(line) {
+  const out = [];
+  for (const part of line.parts) {
+    const last = out[out.length - 1];
+    const gap = last ? part.x - last.xEnd : 0;
+    if (last && gap <= part.size * 1.5 && sameSize(last.size, part.size)) {
+      last.text += gap > part.size * 0.1 && !last.text.endsWith(" ") ? ` ${part.text}` : part.text;
+      last.xEnd = Math.max(last.xEnd, part.x + part.width);
+      last.boldChars += part.bold ? part.text.length : 0;
+      last.chars += part.text.length;
+    } else {
+      out.push({ x: part.x, xEnd: part.x + part.width, y: line.y, size: part.size, text: part.text, boldChars: part.bold ? part.text.length : 0, chars: part.text.length });
+    }
+  }
+  return out.map((s) => ({ ...s, text: s.text.replace(/\s+/g, " ").trim(), bold: s.boldChars > 0 && s.boldChars >= s.chars * 0.8 })).filter((s) => s.text);
+}
+
+const toLine = (cells, alone = true) => ({
+  y: cells[0].y,
+  x: cells[0].x,
+  size: Math.max(...cells.map((c) => c.size)),
+  text: cells.map((c) => c.text).join(" "),
+  bold: cells.every((c) => c.bold),
+  alone,
+});
+
+/** One row as lines of reading text: cells of one font size stay together. */
+function rowLines(cells) {
+  const groups = [];
+  for (const cell of cells) {
+    const group = groups[groups.length - 1];
+    if (group && sameSize(group[0].size, cell.size)) group.push(cell);
+    else groups.push([cell]);
+  }
+  return groups.map((g) => toLine(g, groups.length === 1));
+}
+
+/**
+ * A bold standalone label that reads as a section title: short, not a
+ * sentence or list item, and upper-case or Title Case.
+ */
+export function isSectionLabel(text) {
+  const t = text.trim();
+  const words = t.split(/\s+/);
+  if (!t || t.length > PDF_LAYOUT_RULES.labelMaxChars || words.length > PDF_LAYOUT_RULES.labelMaxWords) return false;
+  if (/[.;,:!?]$/.test(t) || /^([•▪◦\-–*]|\(?[a-z0-9]{1,3}[.)])\s/i.test(t)) return false;
+  const letters = t.replace(/[^A-Za-z]/g, "");
+  if (letters.length < 3) return false;
+  const upper = letters.replace(/[^A-Z]/g, "").length / letters.length;
+  if (upper >= 0.7) return true;
+  const significant = words.filter((w) => /^[A-Za-z]{4,}/.test(w));
+  return /^[A-Z]/.test(words[0]) && significant.every((w) => /^[A-Z]/.test(w));
+}
+
+/** Finds label/value column pairs from rows of "bold label · regular value". */
+function fieldColumns(rows) {
+  const pairs = [];
+  for (const cells of rows) {
+    for (let i = 0; i + 1 < cells.length; i += 1) {
+      const [label, value] = [cells[i], cells[i + 1]];
+      if (!label.bold || value.bold || !sameSize(label.size, value.size)) continue;
+      if (label.text.length > 60 || label.text.split(/\s+/).length > 8) continue;
+      pairs.push({ labelX: label.x, valueX: value.x, y: label.y, size: label.size });
+    }
+  }
+  const clusters = [];
+  for (const pair of pairs) {
+    const cluster = clusters.find((c) => near(c.labelX, pair.labelX) && near(c.valueX, pair.valueX));
+    if (cluster) cluster.rows.push(pair);
+    else clusters.push({ labelX: pair.labelX, valueX: pair.valueX, rows: [pair] });
+  }
+  const primary = clusters
+    .filter((c) => c.rows.length >= PDF_LAYOUT_RULES.minFieldRows)
+    .sort((a, b) => a.labelX - b.labelX || b.rows.length - a.rows.length)[0];
+  if (!primary) return null;
+  const secondary = clusters.filter((c) => c !== primary && c.labelX > primary.valueX && c.rows.length >= PDF_LAYOUT_RULES.minSecondaryFieldRows);
+  return { primary, secondary, top: Math.max(...primary.rows.map((r) => r.y)), size: primary.rows[0].size };
+}
+
+/**
+ * Paragraphs and bold section labels from a run of lines (y descending).
+ * Consecutive bold label lines are one wrapped label.
+ */
+function flowLayout(lines, page, bodySize, level, sources, allowBold) {
+  const blocks = [];
+  let paragraph = null;
+  let label = null;
+  const flushParagraph = () => {
+    if (paragraph) blocks.push({ type: "paragraph", text: normaliseText(paragraph.text), page });
+    paragraph = null;
+  };
+  const flushLabel = () => {
+    if (label) blocks.push({ type: "heading", level: label.level, number: null, text: normaliseText(label.text), page });
+    label = null;
+  };
+  lines.forEach((line, index) => {
+    const previous = lines[index - 1];
+    const isolated = !previous || previous.y - line.y > line.size * 1.6;
+    const sized = bodySize > 0 && line.size >= bodySize * 1.2 && /[A-Za-z]/.test(line.text) && !/[.:;,]$/.test(line.text);
+    // A larger title may wrap over several lines of the same size.
+    if (sized && label?.sized && !isolated && sameSize(label.size, line.size)) { label.text += ` ${line.text}`; return; }
+    if (sized && (isolated || label?.sized === false)) {
+      flushParagraph(); flushLabel();
+      label = { level: level === 2 ? 1 : level, text: line.text, size: line.size, sized: true };
+      sources.size += 1;
+      return;
+    }
+    // A bold label stands alone on its row; a directly following bold line
+    // continues it when the two still read as one label (a wrapped label).
+    if (allowBold && line.bold && line.alone && isSectionLabel(line.text)) {
+      if (label && !label.sized && !isolated && isSectionLabel(`${label.text} ${line.text}`)) { label.text += ` ${line.text}`; return; }
+      if (isolated || !previous?.bold) {
+        flushParagraph(); flushLabel();
+        label = { level, text: line.text, size: line.size, sized: false };
+        sources.bold += 1;
+        return;
+      }
+    }
+    flushLabel();
+    if (!paragraph || isolated) {
+      flushParagraph();
+      paragraph = { text: line.text };
+    } else {
+      paragraph.text += paragraph.text.endsWith("-") ? line.text : ` ${line.text}`;
+    }
+  });
+  flushParagraph(); flushLabel();
+  return blocks;
+}
+
+/** Groups consecutive lines (y descending) that sit within normal line spacing. */
+function stack(lines, breakAfter = () => false) {
+  const groups = [];
+  for (const line of lines) {
+    const group = groups[groups.length - 1];
+    const last = group?.lines[group.lines.length - 1];
+    if (group && last.y - line.y <= line.size * 1.6 && !breakAfter(last)) group.lines.push(line);
+    else groups.push({ lines: [line] });
+  }
+  for (const g of groups) { g.top = g.lines[0].y; g.bottom = g.lines[g.lines.length - 1].y; g.centre = (g.top + g.bottom) / 2; }
+  return groups;
+}
+
+const joinLines = (lines) => lines.reduce((text, l) => (!text ? l.text : text.endsWith("-") ? text + l.text : `${text} ${l.text}`), "");
+const labelText = (text) => normaliseText(text).replace(/\s*:$/, "");
+
+/**
+ * Structure from weight and position (see the PDF section notes). Levels: 1 larger title, 2 bold section label, 3 a field whose
+ * value is long enough to be a section, 4 a bold label inside that value.
+ * Short fields become "Label: value" lines under the enclosing section.
+ */
+function layoutPass(pages, bodySize) {
+  let chars = 0;
+  let boldChars = 0;
+  for (const page of pages) for (const line of page.lines) for (const p of line.parts) { chars += p.text.length; boldChars += p.bold ? p.text.length : 0; }
+  if (!boldChars) return null;
+  const allowBold = boldChars <= chars * PDF_LAYOUT_RULES.maxBoldShare;
+  const sources = { size: 0, bold: 0, field_label: 0 };
+  const blocks = [];
+  let fieldPages = 0;
+
+  for (const page of pages) {
+    const rows = page.lines.map((line) => segments(line)).filter((cells) => cells.length);
+    const grid = fieldColumns(rows);
+    if (!grid) {
+      blocks.push(...flowLayout(rows.flatMap(rowLines), page.number, bodySize, 2, sources, allowBold));
+      continue;
+    }
+    fieldPages += 1;
+    const tolerance = grid.size * 0.5;
+    const before = rows.filter((cells) => cells[0].y > grid.top + tolerance);
+    blocks.push(...flowLayout(before.flatMap(rowLines), page.number, bodySize, 2, sources, allowBold));
+
+    // Split each grid row into its left-column label, its value, and any
+    // label/value pairs of a second column beside it.
+    const labels = [];
+    const values = [];
+    const extras = [];
+    for (const cells of rows.filter((c) => c[0].y <= grid.top + tolerance)) {
+      const left = [];
+      const right = [];
+      let extra = null;
+      for (const cell of cells) {
+        const column = cell.bold && grid.secondary.find((c) => near(c.labelX, cell.x));
+        if (column) { extra = { y: cell.y, label: cell.text, value: [], column }; extras.push(extra); continue; }
+        if (extra && cell.x >= extra.column.valueX - 3) { extra.value.push(cell.text); continue; }
+        (cell.x < grid.primary.valueX - 3 ? left : right).push(cell);
+      }
+      if (left.length) labels.push(toLine(left));
+      if (right.length) values.push(toLine(right));
+    }
+
+    const labelGroups = stack(labels, (line) => /:$/.test(line.text));
+    const owned = new Map(labelGroups.map((g) => [g, []]));
+    const orphans = [];
+    for (const group of stack(values)) {
+      const inside = labelGroups.filter((l) => l.centre <= group.top + tolerance && l.centre >= group.bottom - tolerance);
+      if (inside.length === 1) { owned.get(inside[0]).push(...group.lines); continue; }
+      if (inside.length > 1) {
+        for (const line of group.lines) owned.get(inside.reduce((a, b) => (Math.abs(b.centre - line.y) < Math.abs(a.centre - line.y) ? b : a))).push(line);
+        continue;
+      }
+      // Top-aligned rows: the value belongs to the nearest label at or above it.
+      const above = labelGroups.filter((l) => l.top >= group.top - tolerance);
+      if (above.length) owned.get(above[above.length - 1]).push(...group.lines);
+      else orphans.push(...group.lines);
+    }
+    if (orphans.length) blocks.push(...flowLayout(orphans, page.number, bodySize, 3, sources, false));
+
+    for (const group of labelGroups) {
+      const label = normaliseText(joinLines(group.lines));
+      const valueLines = owned.get(group).sort((a, b) => b.y - a.y || a.x - b.x);
+      const value = normaliseText(joinLines(valueLines));
+      if (value.length > PDF_LAYOUT_RULES.fieldValueMaxChars) {
+        blocks.push({ type: "heading", level: 3, number: null, text: labelText(label), page: page.number });
+        sources.field_label += 1;
+        blocks.push(...flowLayout(valueLines, page.number, bodySize, 4, sources, allowBold));
+      } else {
+        blocks.push({ type: "field", level: 3, label, value, text: fieldText(label, value), page: page.number });
+      }
+      for (const extra of extras.filter((e) => !e.done && group.lines.some((l) => near(l.y, e.y, tolerance)))) blocks.push(extraField(extra, page.number));
+    }
+    for (const extra of extras.filter((e) => !e.done)) blocks.push(extraField(extra, page.number));
+  }
+  return { blocks, sources, fieldPages };
+}
+
+function extraField(extra, page) {
+  extra.done = true;
+  const label = normaliseText(extra.label);
+  const value = normaliseText(extra.value.join(" "));
+  return { type: "field", level: 3, label, value, text: fieldText(label, value), page };
+}
+
+const fieldText = (label, value) => (!value ? label : /[:?]$/.test(label) ? `${label} ${value}` : `${label}: ${value}`);
 
 // ── DOCX ────────────────────────────────────────────────────────────────────
 //
@@ -426,9 +805,10 @@ export function buildFragments(blocks) {
   };
   const flush = () => {
     if (!chunk) return;
-    // List items sit on consecutive lines; paragraphs are separated by a blank line.
-    const text = chunk.parts.map((part, i) => (i === 0 ? "" : part.isList && chunk.parts[i - 1].isList ? "\n" : "\n\n") + part.text).join("");
-    push(chunk.allList ? "list" : "text", text, chunk.pageStart, chunk.pageEnd, { block_count: chunk.parts.length });
+    // List items and fields sit on consecutive lines; paragraphs are separated by a blank line.
+    const text = chunk.parts.map((part, i) => (i === 0 ? "" : part.tight && chunk.parts[i - 1].tight ? "\n" : "\n\n") + part.text).join("");
+    const fields = chunk.parts.filter((part) => part.field).map((part) => part.field);
+    push(chunk.allList ? "list" : "text", text, chunk.pageStart, chunk.pageEnd, fields.length ? { block_count: chunk.parts.length, fields } : { block_count: chunk.parts.length });
     chunk = null;
   };
 
@@ -455,10 +835,17 @@ export function buildFragments(blocks) {
       emit();
       continue;
     }
-    // Paragraphs and list items of the same section share a fragment (a
-    // requirement list reads with its lead-in); the fragment is "list" only
-    // when every block in it is a list item.
+    // A field ("Status: Open") closes any deeper section it follows: it
+    // belongs to the section that encloses the field column.
+    if (block.type === "field" && stack.length && stack[stack.length - 1].level >= block.level) {
+      flush();
+      while (stack.length && stack[stack.length - 1].level >= block.level) stack.pop();
+    }
+    // Paragraphs, list items and fields of the same section share a fragment
+    // (a requirement list reads with its lead-in); the fragment is "list"
+    // only when every block in it is a list item.
     const isList = block.type === "list_item";
+    const field = block.type === "field" ? { label: block.label, value: block.value, page: block.page ?? null } : null;
     const text = isList ? `${block.marker ?? "•"} ${block.text}` : block.text;
     for (const piece of splitLong(text, LIMITS.fragmentMaxChars)) {
       // Same measure as before for text-only chunks: characters plus the "\n\n" separators.
@@ -466,7 +853,7 @@ export function buildFragments(blocks) {
       if (chunk && (size >= LIMITS.fragmentTargetChars || size + piece.length > LIMITS.fragmentMaxChars)) flush();
       if (!chunk) chunk = { allList: true, parts: [], pageStart: null, pageEnd: null };
       chunk.allList = chunk.allList && isList;
-      chunk.parts.push({ text: piece, isList });
+      chunk.parts.push({ text: piece, isList, tight: isList || Boolean(field), field });
       if (block.page != null) {
         chunk.pageStart = chunk.pageStart == null ? block.page : Math.min(chunk.pageStart, block.page);
         chunk.pageEnd = chunk.pageEnd == null ? block.page : Math.max(chunk.pageEnd, block.page);
@@ -499,7 +886,8 @@ export function diagnose(extracted, fragments) {
   if (extracted.kind === "pdf" && emptyPages.length) {
     warnings.push(`${emptyPages.length} of ${extracted.pageCount} page${extracted.pageCount === 1 ? "" : "s"} had no extractable text (page${emptyPages.length === 1 ? "" : "s"} ${emptyPages.join(", ")}) — possibly scanned images; not OCR'd.`);
   }
-  if (headingCount === 0 && fragments.length) warnings.push("No headings were detected; fragments follow document order without section provenance.");
+  const fieldCount = extracted.blocks.filter((b) => b.type === "field").length;
+  if (headingCount === 0 && fieldCount === 0 && fragments.length) warnings.push("No headings were detected; fragments follow document order without section provenance.");
   // Headings directly followed by a same-level heading (titles, cover pages)
   // are normal document structure: counted in diagnostics, not a warning.
   const meaningfulText = charCount >= LIMITS.minMeaningfulChars;
@@ -512,6 +900,14 @@ export function diagnose(extracted, fragments) {
       char_count: charCount,
       heading_count: headingCount,
       heading_sources: extracted.headingSources ?? null,
+      ...(extracted.kind === "pdf" ? {
+        layout: extracted.layout,
+        field_count: fieldCount,
+        // Page furniture set aside before structure detection (deterministic
+        // document-chrome filtering) — recorded so nothing disappears silently.
+        chrome_line_count: extracted.chrome.length,
+        chrome_lines: extracted.chrome.map((c) => ({ ...c, text: c.text.slice(0, 300) })),
+      } : {}),
       table_count: tableCount,
       empty_page_count: emptyPages.length,
       empty_pages: emptyPages,
