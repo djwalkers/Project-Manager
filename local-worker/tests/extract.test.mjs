@@ -1,8 +1,8 @@
 // Deterministic extraction tests (Phase 1B) — real PDF/DOCX bytes built by
 // tests/fixtures.mjs, parsed by the real libraries. No network, no AI.
 import assert from "node:assert/strict";
-import { EXTRACTOR_VERSION, ExtractionError, LIMITS, PDF_MIME, DOCX_MIME, buildFragments, extractSourceDocument, sha256Hex } from "../extract.js";
-import { CR_CONTENT, crDocx, crPdf, makeDocx, makePdf, specPdf } from "./fixtures.mjs";
+import { EXTRACTOR_VERSION, ExtractionError, LIMITS, PDF_MIME, DOCX_MIME, buildFragments, extractSourceDocument, isSectionLabel, sha256Hex } from "../extract.js";
+import { CR_CONTENT, TRACKER_TEXT, crDocx, crPdf, makeDocx, makePdf, specPdf, trackerPdf } from "./fixtures.mjs";
 
 async function run(name, fn) {
   try { await fn(); console.log(`✓ ${name}`); } catch (error) { console.error(`✗ ${name}`); throw error; }
@@ -218,6 +218,144 @@ await run("PDF extraction is unchanged by the DOCX work", async () => {
   const r = await extractSourceDocument(specPdf(), PDF_MIME);
   assert.deepEqual(r.fragments.map((f) => [f.section_number, f.page_start, f.page_end, f.fragment_type]), [["4.2", 1, 2, "text"], ["4.3", 2, 2, "text"]]);
   assert.equal(r.diagnostics.heading_sources, null);
+});
+
+
+// ── 1.2.0: form-like PDF exports (label/value columns, bold labels, chrome) ──
+
+const tracker = await extractSourceDocument(trackerPdf(), PDF_MIME);
+const bySection = (r, heading) => r.fragments.filter((f) => f.section_heading === heading);
+
+await run("PDF layout: bold upper-case section labels become sections under their field; empty template sections produce no fragments", async () => {
+  assert.equal(tracker.outcome, "completed", JSON.stringify(tracker.diagnostics.warnings));
+  assert.equal(tracker.diagnostics.layout, "label_value");
+  const req = bySection(tracker, "DETAILED REQUIREMENTS");
+  assert.equal(req.length, 1);
+  assert.deepEqual(req[0].section_path.slice(1), ["Change Request Evaluation", "DETAILED REQUIREMENTS"], "the label sits inside the value of the wrapped \"Change Request Evaluation:\" field");
+  assert.equal(req[0].text, TRACKER_TEXT.requirements.join(" "));
+  assert.equal(req[0].page_start, 1);
+  assert.equal(bySection(tracker, "BENEFIT VS IMPACT STATEMENT")[0].text, TRACKER_TEXT.benefit);
+  for (const empty of ["ESTIMATED WORKDAYS", "WORK REQUIRED", "RISKS / ISSUES / DEPENDENCIES"]) {
+    assert.equal(bySection(tracker, empty).length, 0, `${empty} is an empty template section`);
+    assert.ok(!tracker.fragments.some((f) => f.text.includes(empty)), `${empty} does not leak into another fragment as text`);
+  }
+  assert.equal(tracker.diagnostics.empty_section_count, 2, "ESTIMATED WORKDAYS and WORK REQUIRED (RISKS is followed by a field, not a heading)");
+});
+
+await run("PDF layout: label/value rows become field lines (second column kept beside its row) under the enclosing section", async () => {
+  const meta = tracker.fragments[0];
+  assert.equal(meta.section_path.length, 1, "document title only — field rows do not invent a hierarchy");
+  assert.match(meta.section_heading, /^\[ABC-77\] ABCCR01 - Pick tasks keep/);
+  assert.equal(meta.text, ["Status: Open", "Project: ALPHA", "Type: Change Request", "Priority: Medium", "Reporter: Jo Bloggs", "Assignee: Sam Doe", "Resolution: Unresolved", "Votes: 0", "Labels: None"].join("\n"));
+  assert.deepEqual(meta.metadata.fields.slice(0, 4).map((f) => [f.label, f.value]), [["Status:", "Open"], ["Project:", "ALPHA"], ["Type:", "Change Request"], ["Priority:", "Medium"]]);
+  const sprint = tracker.fragments.find((f) => f.text === "Sprint:");
+  assert.ok(sprint, "a field after the evaluation returns to the title section");
+  assert.deepEqual(sprint.section_path, meta.section_path);
+});
+
+await run("PDF layout: a wrapped label beside a vertically centred multi-line value keeps the whole value, on page 2", async () => {
+  const change = bySection(tracker, "CHANGE DESCRIPTION * (describe requirement)");
+  assert.equal(change.length, 1);
+  assert.equal(change[0].text, TRACKER_TEXT.change.join(" "), "no label words interleaved into the value");
+  assert.deepEqual(change[0].section_path.slice(1), ["Description", "CHANGE DESCRIPTION * (describe requirement)"]);
+  assert.deepEqual([change[0].page_start, change[0].page_end], [2, 2]);
+  const gains = bySection(tracker, "*ESTIMATED GAINS ** (Productivity and/or Savings)");
+  assert.equal(gains[0]?.text, TRACKER_TEXT.gains.join(" "), "a regular-weight label in the label column still labels its value");
+  const page2 = tracker.fragments.filter((f) => f.page_start === 2).map((f) => f.text);
+  assert.equal(page2[0], "Phase//Drop: Phase 2\nWHO RAISED IT: A. Tester");
+  assert.equal(page2[page2.length - 1], "Priority: High");
+});
+
+await run("PDF chrome: repeated printed headers, URL footers with page counters and a trailing export stamp are set aside and recorded", async () => {
+  const d = tracker.diagnostics;
+  assert.equal(d.chrome_line_count, 6);
+  assert.deepEqual(d.chrome_lines.map((c) => [c.page, c.position, c.rule]), [
+    [1, "header", "repeated_header"], [1, "footer", "repeated_footer"],
+    [2, "header", "repeated_header"], [2, "footer", "repeated_footer"],
+    [2, "end", "generator_stamp"], [2, "end", "generator_stamp"],
+  ]);
+  assert.equal(d.chrome_lines[1].text, "https://tracker.example.com/browse/ABC-77 1/2", "the removed text is kept in the diagnostics");
+  const all = tracker.fragments.map((f) => f.text).join("\n");
+  for (const gone of ["tracker.example.com", "10:15 AM", "Generated at", "rev:"]) assert.ok(!all.includes(gone), gone);
+});
+
+await run("PDF chrome: nothing is removed from a single page, from mid-page repeats, or from a stamp followed by content", async () => {
+  const header = (y) => ({ text: "Confidential - internal use", size: 9, y });
+  const para = (y, text) => ({ text, size: 11, y });
+  const single = await extractSourceDocument(makePdf([{ lines: [header(770), para(700, "Only one page, so the top line cannot be shown to repeat on every page."), para(686, "It therefore stays as content for the reader to judge.")] }]), PDF_MIME);
+  assert.equal(single.diagnostics.chrome_line_count, 0);
+  assert.match(single.fragments[0].text, /^Confidential - internal use/);
+  const mid = await extractSourceDocument(makePdf([
+    { lines: [para(700, "Repeated wording in the body of every page is document content."), para(430, "Generated at 10:00 by the nightly job using the planner, then reviewed."), para(400, "Check the stock level.")] },
+    { lines: [para(700, "Page two carries the same instruction again in its body text."), para(400, "Check the stock level.")] },
+  ]), PDF_MIME);
+  assert.equal(mid.diagnostics.chrome_line_count, 0);
+  const text = mid.fragments.map((f) => f.text).join("\n");
+  assert.equal(text.match(/Check the stock level\./g).length, 2, "repeated wording is never deduplicated");
+  assert.ok(text.includes("Generated at 10:00"), "a stamp-like line that is not last on its page is content");
+});
+
+await run("PDF layout: a normal PDF with inline bold and bold sentences is not misclassified", async () => {
+  const r = await extractSourceDocument(makePdf([{ lines: [
+    { text: "Note:", size: 11, x: 72, y: 700, bold: true }, { text: "the plant filter applies to all mobile apps from the next release.", size: 11, x: 102, y: 700 },
+    { text: "Operators keep their existing default plant and temperature.", size: 11, y: 686 },
+    { text: "This whole sentence is set in bold for emphasis.", size: 11, y: 660, bold: true },
+    { text: "more detail follows in plain text for the supervisors.", size: 11, y: 646 },
+    { text: "important for all users", size: 11, y: 620, bold: true },
+    { text: "Supervisors review the change before it goes live in the warehouse.", size: 11, y: 606 },
+  ] }]), PDF_MIME);
+  assert.equal(r.diagnostics.layout, "flow");
+  assert.equal(r.diagnostics.heading_count, 0);
+  assert.equal(r.diagnostics.field_count, 0);
+  assert.ok(r.diagnostics.warnings.some((w) => /No headings/.test(w)));
+  assert.equal(isSectionLabel("This whole sentence is set in bold for emphasis."), false);
+  assert.equal(isSectionLabel("important for all users"), false);
+  assert.equal(isSectionLabel("1. Add a plant filter"), false);
+  assert.equal(isSectionLabel("RISKS / ISSUES / DEPENDENCIES / ASSUMPTIONS"), true);
+  assert.equal(isSectionLabel("Proposed Change"), true);
+});
+
+await run("PDF layout: bold Title Case labels without a field column give sections when there are no other headings", async () => {
+  const r = await extractSourceDocument(makePdf([{ lines: [
+    { text: "Background", size: 11, y: 720, bold: true },
+    { text: "The current dashboard shows the last user to touch a pick task.", size: 11, y: 700 },
+    { text: "Proposed Change", size: 11, y: 670, bold: true },
+    { text: "Keep the picker name against the task after it is palletised.", size: 11, y: 650 },
+    { text: "Show the palletiser against the new pallet task that is created.", size: 11, y: 636 },
+  ] }]), PDF_MIME);
+  assert.equal(r.diagnostics.layout, "label_value");
+  assert.deepEqual(r.fragments.map((f) => [f.section_heading, f.text.slice(0, 20)]), [["Background", "The current dashboar"], ["Proposed Change", "Keep the picker name"]]);
+  assert.deepEqual(r.diagnostics.heading_sources, { size: 0, bold: 2, field_label: 0 });
+});
+
+await run("PDF: numbered specification headings still use the flow pass, with a repeated footer removed", async () => {
+  const footer = (n) => ({ text: `Replenishment specification v1.0 - page ${n} of 2`, size: 8, y: 30 });
+  const body = (y, text) => ({ text, size: 11, y });
+  const r = await extractSourceDocument(makePdf([
+    { lines: [{ text: "4.2 Replenishment Processing", size: 12, y: 700, bold: true }, body(675, "The job runs every 15 minutes for each plant and each temperature."), body(662, "It creates transfer requirements for pick faces below minimum."), footer(1)] },
+    { lines: [body(740, "Frozen pick faces are processed first on every run of the job."), { text: "4.3 Exceptions", size: 12, y: 700, bold: true }, body(675, "Unconfirmed transfers raise an exception after 30 minutes."), footer(2)] },
+  ]), PDF_MIME);
+  assert.equal(r.diagnostics.layout, "flow");
+  assert.deepEqual(r.fragments.map((f) => [f.section_number, f.page_start, f.page_end]), [["4.2", 1, 2], ["4.3", 2, 2]]);
+  assert.equal(r.diagnostics.chrome_line_count, 2);
+  assert.ok(!r.fragments.some((f) => f.text.includes("page 1 of 2")));
+});
+
+await run("PDF: 1.1.0 output of the spec and PL10-style CR fixtures is unchanged (golden hashes)", async () => {
+  const key = (r) => r.fragments.map((f) => [f.section_path.join(" > "), f.page_start, f.page_end, f.text_hash.slice(0, 12)]);
+  assert.deepEqual(key(await extractSourceDocument(specPdf(), PDF_MIME)), [
+    ["4 Replenishment > 4.2 Replenishment Processing", 1, 2, "93e06530e654"], ["4 Replenishment > 4.3 Exceptions", 2, 2, "e2401b18fb61"],
+  ]);
+  assert.deepEqual(key(await extractSourceDocument(crPdf(), PDF_MIME)), [
+    ["1 Global / Master Data", 1, 1, "2808186101a1"], ["2 Plant Behaviour Rules", 1, 1, "2b1bb065de64"],
+    ["3 Execution Apps (Mobile) > 3.1 Pick Execution", 1, 1, "004f2770d890"], ["3 Execution Apps (Mobile) > 3.2 Marshalling Execution", 1, 1, "66fdeaea7514"],
+    ["4 Temperature Priorities", 1, 1, "48907ae1779e"],
+  ]);
+});
+
+await run("PDF layout: extraction is deterministic", async () => {
+  const again = await extractSourceDocument(trackerPdf(), PDF_MIME);
+  assert.deepEqual(again, tracker);
 });
 
 console.log("\nAll extraction tests passed.\n");

@@ -72,6 +72,7 @@ export function ExtractionViewer({ title, version, runs, onClose }: {
     diagnostics.char_count != null ? `${diagnostics.char_count.toLocaleString("en-GB")} characters` : null,
     diagnostics.heading_count != null ? `${diagnostics.heading_count} headings` : null,
     diagnostics.table_count != null ? `${diagnostics.table_count} tables` : null,
+    diagnostics.field_count ? `${diagnostics.field_count} fields` : null,
   ].filter(Boolean).join(" · ");
 
   return (
@@ -118,6 +119,17 @@ export function ExtractionViewer({ title, version, runs, onClose }: {
               <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" />Extraction warnings</p>
               <ul className="mt-1 list-disc pl-5">{diagnostics.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
             </div>
+          ) : null}
+          {diagnostics.chrome_lines?.length ? (
+            <details className="mb-4 rounded-md border p-3 text-sm">
+              <summary className="cursor-pointer font-medium">
+                {diagnostics.chrome_lines.length} page header/footer line{diagnostics.chrome_lines.length === 1 ? "" : "s"} excluded as document chrome
+              </summary>
+              <p className="mt-1 text-xs text-muted-foreground">Repeated printed headers, footers, page counters and export stamps are set aside deterministically and are not part of any fragment.</p>
+              <ul className="mt-2 space-y-1 text-xs">
+                {diagnostics.chrome_lines.map((c, i) => <li key={i}><span className="text-muted-foreground">p.{c.page} {c.position}:</span> {c.text}</li>)}
+              </ul>
+            </details>
           ) : null}
           {completed && !fragments && !error ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading extracted content…</p> : null}
           {fragments ? (
