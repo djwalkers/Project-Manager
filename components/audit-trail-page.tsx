@@ -26,6 +26,7 @@ const ENTITY_LABELS: Record<string, string> = {
   email_settings: "Email Settings",
   documents: "Source Document",
   document_versions: "Document Version",
+  analysis_runs: "Analysis Run",
 };
 
 const ACTION_TYPES: AuditActionType[] = [

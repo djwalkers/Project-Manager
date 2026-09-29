@@ -1,7 +1,9 @@
-# Local Extraction Worker
+# Local Extraction & Analysis Worker
 
 A small standalone Node process that performs **deterministic text
-extraction** of Test Manager source documents (PDF and DOCX) on this Mac.
+extraction** of Test Manager source documents (PDF and DOCX) on this Mac,
+and (Phase 1C) **requirement analysis** of completed extractions with a
+**local Ollama model**.
 It is not part of the Next.js/Vercel build, has its own `package.json`, and
 is separate from the local AI gateway (`../local-gateway`), which never
 holds credentials.
@@ -32,8 +34,47 @@ holds credentials.
 5. Marks the job **Completed**, **Completed with warnings**, or **Failed**
    (with a category such as `ocr_required` for scanned/image-only PDFs).
 
-Document text is only ever sent to Test Manager's own backend. It is never
-sent to OpenAI, Gemini, Anthropic or any other external service.
+Document text is only ever sent to Test Manager's own backend and to Ollama
+on this Mac. It is never sent to OpenAI, Gemini, Anthropic or any other
+external service.
+
+## Requirement analysis (Phase 1C)
+
+When no extraction is waiting, the worker takes a queued analysis run
+(Manager/Admin press **Analyse document** in Source Documents). A run
+analyses exactly one completed extraction run — its fragments are the only
+input; canonical Requirements are never read. Stages (`analysis/`):
+
+1. **Classification** — each fragment: requirement, metadata, context,
+   benefit, test information, template/admin or unknown.
+2. **Requirement candidates** — from requirement fragments only; metadata is
+   context (it may support a priority, never be a requirement).
+3. **Ambiguities** — missing information, contradictions, untestable
+   statements, assumptions; the prompt forbids filling gaps with plausible
+   behaviour.
+4. **Consolidation** — duplicates across the whole run are grouped by the
+   model, then checked deterministically (wording overlap); a merged
+   proposal keeps the strongest member's exact wording and every member's
+   source fragments.
+5. **Validation** — deterministic: schema, fragment IDs exist in this run,
+   every proposal has provenance, Explicit claims quote the source verbatim
+   (otherwise recorded as Inferred → Needs Review), enums, unique IDs.
+
+Every model call uses Ollama structured output (JSON schema) and is
+re-validated here; invalid output is retried (up to 3 attempts, with the
+errors fed back) and a stage that still fails fails the run cleanly.
+Fragments are shown to the model as short labels (`F<sequence>`) that are
+mapped back to fragment IDs; any other label is treated as fabricated.
+Validated stage results are saved, so a retried run reuses them. The server
+repeats the provenance checks, and the database enforces them again.
+
+Prompts are versioned (`analysis/prompts.js` `PROMPT_VERSION`; each run
+records the version and a SHA-256 of the prompt text). Change the wording →
+bump the version → pin the new fingerprint in `tests/analysis.test.mjs`.
+
+The model is chosen by an Admin in System Health (default `qwen3:8b`) from
+the models this worker reports as installed; nothing is downloaded
+automatically. `ollamaUrl` must be loopback (`127.0.0.1`/`localhost`).
 
 ## Security model
 
@@ -41,9 +82,11 @@ sent to OpenAI, Gemini, Anthropic or any other external service.
   issues in **System Health → Local extraction worker**. Only its SHA-256 is
   stored server-side; issuing a new one revokes the old one immediately.
 - The token is accepted **only** by `/api/worker/*`: claim a job, add
-  fragments / complete / fail the job it claimed, and send a heartbeat. It
-  cannot read or change any other project data, and it is not a Supabase
-  key — the worker never holds Supabase credentials.
+  fragments / complete / fail the job it claimed, and send a heartbeat; and
+  for analysis, claim a run (receiving that run's fragments only), record
+  stage results, and complete / fail that run. It cannot read or change any
+  other project data (no Requirements access), and it is not a Supabase key
+  — the worker never holds Supabase credentials.
 - The database itself enforces that a worker can only write to the job it
   currently holds (with a lease), that fragment hashes match their text, and
   that completed extractions are immutable.
@@ -63,6 +106,9 @@ Edit `config.json` (gitignored):
 - `apiBaseUrl` — your production Test Manager origin (https). `http` is
   accepted only for `localhost` during development.
 - `workerToken` — the token shown once in System Health (Admin).
+- `analysisEnabled` (default `true`), `ollamaUrl` (default
+  `http://127.0.0.1:11434`, loopback only), `ollamaTimeoutMs` (per model
+  call, default 300000).
 
 ## Running
 
@@ -70,7 +116,8 @@ Edit `config.json` (gitignored):
 npm start
 ```
 
-Leave it running while you want uploaded documents to be extracted. If it
+Leave it running while you want uploaded documents to be extracted and
+analysed (Ollama must be running for analysis). If it
 is stopped, jobs simply wait in the queue; a job interrupted mid-way is
 re-queued automatically after its lease expires (and failed after three
 attempts). System Health shows whether the worker has been seen recently.

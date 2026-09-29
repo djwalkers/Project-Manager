@@ -3,5 +3,8 @@
   "workerToken": "tmw_REPLACE_WITH_THE_TOKEN_ISSUED_IN_SYSTEM_HEALTH",
   "pollIntervalMs": 15000,
   "heartbeatIntervalMs": 60000,
-  "requestTimeoutMs": 60000
+  "requestTimeoutMs": 60000,
+  "analysisEnabled": true,
+  "ollamaUrl": "http://127.0.0.1:11434",
+  "ollamaTimeoutMs": 300000
 }
