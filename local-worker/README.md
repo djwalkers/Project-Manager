@@ -48,17 +48,30 @@ input; canonical Requirements are never read. Stages (`analysis/`):
 1. **Classification** — each fragment: requirement, metadata, context,
    benefit, test information, template/admin or unknown.
 2. **Requirement candidates** — from requirement fragments only; metadata is
-   context (it may support a priority, never be a requirement).
-3. **Ambiguities** — missing information, contradictions, untestable
-   statements, assumptions; the prompt forbids filling gaps with plausible
-   behaviour.
-4. **Consolidation** — duplicates across the whole run are grouped by the
-   model, then checked deterministically (wording overlap); a merged
-   proposal keeps the strongest member's exact wording and every member's
-   source fragments.
+   context (it may support a priority, never be a requirement). Each item
+   has a statement type: behaviour, **constraint** (an explicit negative
+   requirement such as "No X required" — kept as a requirement) or
+   **no change** ("No change required" — kept as a scope/regression note,
+   not a requirement). The decision is made on the source wording. Plans,
+   status lines and dates are excluded. A **coverage** pass re-examines any
+   statement no candidate covers.
+3. **Ambiguities** — only questions whose answer could change
+   implementation, tests, acceptance criteria, data migration, integration,
+   scope or operations. Each needs a verbatim source trigger, an impact and
+   a specific question; generic/speculative/vague questions are suppressed.
+4. **Consolidation** — requirement groups are "duplicate" (the same rule;
+   across applications only with the same wording, otherwise only for the
+   same operated object) or "parts" of one requirement (one object; a
+   data-model definition may join the rule that uses it). Merged
+   descriptions keep **every distinct clause**. Issues asking the same
+   question merge with all their sources, impacts and proposal links; a
+   **source check** suppresses questions another fragment already answers
+   (verified by a word-for-word quote; a question's own trigger sentence is
+   never its answer).
 5. **Validation** — deterministic: schema, fragment IDs exist in this run,
-   every proposal has provenance, Explicit claims quote the source verbatim
-   (otherwise recorded as Inferred → Needs Review), enums, unique IDs.
+   every proposal/issue/note has provenance, Explicit claims quote the
+   source verbatim (otherwise recorded as Inferred → Needs Review), enums,
+   unique IDs.
 
 Every model call uses Ollama structured output (JSON schema) and is
 re-validated here; invalid output is retried (up to 3 attempts, with the

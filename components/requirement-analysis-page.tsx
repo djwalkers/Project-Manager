@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowLeft, ExternalLink, FileText, HelpCircle, Layers, ListChecks, Loader2, Lock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ExternalLink, FileText, HelpCircle, Layers, ListChecks, Loader2, Lock, ShieldCheck, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -21,7 +21,7 @@ import { openSourceDocumentVersion } from "@/lib/source-documents-client";
 // file. Proposals are NON-AUTHORITATIVE: nothing here creates or changes a
 // canonical Requirement (promotion is Phase 1D). Manager/Admin only.
 
-type Tab = "overview" | "source" | "proposals" | "issues";
+type Tab = "overview" | "source" | "proposals" | "issues" | "scope";
 
 const when = (value: string | null | undefined) =>
   value ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
@@ -77,6 +77,7 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
   if (!detail) return <AppShell><LoadingState /></AppShell>;
 
   const { run, proposals, issues, version, document, extraction_job: job } = detail;
+  const scopeNotes = detail.scope_notes ?? [];
   const openIssues = issues.filter((i) => i.status === "Open").length;
   const isPdf = version?.content_type === "application/pdf";
   const focused = focus ? fragments.get(focus) ?? null : null;
@@ -86,6 +87,7 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
     { id: "source", label: "Source", count: detail.fragments.length },
     { id: "proposals", label: "Proposed Requirements", count: proposals.length },
     { id: "issues", label: "Issues", count: openIssues },
+    { id: "scope", label: "Scope & Regression Notes", count: scopeNotes.length },
   ];
 
   function SourceRefs({ ids, primary }: { ids: string[]; primary?: string }) {
@@ -127,10 +129,15 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
         <div className="mt-3"><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Source</p><SourceRefs ids={p.source_fragment_ids} primary={p.primary_source_fragment_id} /></div>
         {merged ? (
           <details className="mt-3 rounded-md border p-2 text-xs">
-            <summary className="flex cursor-pointer items-center gap-1 font-medium"><Layers className="h-3.5 w-3.5" aria-hidden="true" />Consolidated from {p.consolidation.members!.length} statements</summary>
+            <summary className="flex cursor-pointer items-center gap-1 font-medium"><Layers className="h-3.5 w-3.5" aria-hidden="true" />Consolidated from {p.consolidation.members!.length} statements{p.consolidation.kind === "parts" ? " (parts of one requirement)" : p.consolidation.kind === "duplicate" ? " (the same obligation repeated)" : ""}</summary>
             {p.consolidation.reason ? <p className="mt-1 text-muted-foreground">{p.consolidation.reason}</p> : null}
             <ul className="mt-2 space-y-1">
-              {p.consolidation.members!.map((m) => <li key={m.key}><span className="font-medium">{m.title}</span> <span className="text-muted-foreground">— {m.section} · {m.evidence_basis}</span></li>)}
+              {p.consolidation.members!.map((m) => (
+                <li key={m.key}>
+                  <span className="font-medium">{m.title}</span> <span className="text-muted-foreground">— {m.section} · {m.evidence_basis}</span>
+                  {m.quote ? <span className="block italic text-muted-foreground">“{m.quote}”</span> : null}
+                </li>
+              ))}
             </ul>
           </details>
         ) : null}
@@ -147,6 +154,14 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
         </div>
         <p className="mt-2 text-sm leading-relaxed">{i.description}</p>
         {i.suggested_question ? <p className="mt-2 flex items-start gap-1.5 text-sm font-medium"><HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />{i.suggested_question}</p> : null}
+        {i.trigger_quote ? <blockquote className="mt-2 border-l-2 pl-3 text-xs italic text-muted-foreground">Raised by: “{i.trigger_quote}”</blockquote> : null}
+        {i.impact?.length ? <p className="mt-2 flex flex-wrap gap-1">{i.impact.map((m) => <Pill key={m} tone="info">{m.replace("_", " ")}</Pill>)}</p> : null}
+        {i.consolidation?.merged && i.consolidation.members?.length ? (
+          <details className="mt-2 rounded-md border p-2 text-xs">
+            <summary className="cursor-pointer font-medium">Merged from {i.consolidation.members.length} questions</summary>
+            <ul className="mt-1 list-disc pl-4">{i.consolidation.members.map((m, n) => <li key={n}>{m.question}</li>)}</ul>
+          </details>
+        ) : null}
         <div className="mt-3"><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Source</p><SourceRefs ids={i.source_fragment_ids} /></div>
         {i.related_proposal_sequences.length ? (
           <p className="mt-2 text-xs text-muted-foreground">Affects proposed requirement{i.related_proposal_sequences.length === 1 ? "" : "s"} {i.related_proposal_sequences.map((s) => `#${s}`).join(", ")}</p>
@@ -196,10 +211,11 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
 
       {tab === "overview" ? (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {[
               ["Proposed requirements", run.proposal_count ?? "—"],
               ["Open issues", openIssues],
+              ["Scope & regression notes", scopeNotes.length],
               ["Fragments analysed", d.fragment_count ?? detail.fragments.length],
               ["Candidates before consolidation", d.candidates_before_consolidation ?? "—"],
             ].map(([label, value]) => (
@@ -217,7 +233,13 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
             {d.classifications ? (
               <p className="mt-3 text-xs"><span className="font-semibold">Fragment classification: </span>{Object.entries(d.classifications).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(" · ")}</p>
             ) : null}
-            {d.consolidation_overrides?.length ? <p className="mt-2 text-xs text-muted-foreground">{d.consolidation_overrides.length} model-proposed merge(s) were split by the deterministic similarity check.</p> : null}
+            {d.consolidation_overrides?.length ? <p className="mt-2 text-xs text-muted-foreground">{d.consolidation_overrides.length} model-proposed group(s) were split by the deterministic checks (same wording / same object).</p> : null}
+            {d.suppressed_issues?.length ? (
+              <details className="mt-2 text-xs">
+                <summary className="cursor-pointer text-muted-foreground">{d.suppressed_issues.length} question(s) suppressed by the issue quality gate</summary>
+                <ul className="mt-1 list-disc pl-4">{d.suppressed_issues.map((x, n) => <li key={n}><span className="text-muted-foreground">{x.reason}:</span> {x.question}</li>)}</ul>
+              </details>
+            ) : null}
           </div>
           {d.warnings?.length ? (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
@@ -257,6 +279,27 @@ export function RequirementAnalysisPage({ runId }: { runId: string }) {
       {tab === "proposals" ? (
         proposals.length ? <ul className="space-y-3">{proposals.map((p) => <ProposalCard key={p.id} p={p} />)}</ul>
           : <EmptyState title={active ? "Analysis in progress" : "No proposed requirements"} description={active ? "The local worker is analysing this document." : "The analysis did not propose any requirements for this extraction."} icon={ListChecks} />
+      ) : null}
+
+      {tab === "scope" ? (
+        scopeNotes.length ? (
+          <div>
+            <p className="mb-3 text-sm text-muted-foreground">Statements that an area needs no change. They are not proposed requirements; they are kept, with their source, for regression planning.</p>
+            <ul className="space-y-3">
+              {scopeNotes.map((n) => (
+                <li key={n.id} className="rounded-lg border bg-card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="font-semibold"><span className="mr-2 text-muted-foreground">#{n.sequence}</span>{n.area ?? "Unnamed area"}</p>
+                    <Pill>{n.note_type}</Pill>
+                  </div>
+                  <p className="mt-2 text-sm">{n.description}</p>
+                  {n.source_quote && n.source_quote !== n.description ? <blockquote className="mt-2 border-l-2 pl-3 text-sm italic text-muted-foreground">“{n.source_quote}”</blockquote> : null}
+                  <div className="mt-3"><p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Source</p><SourceRefs ids={n.source_fragment_ids} /></div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : <EmptyState title={active ? "Analysis in progress" : "No scope or regression notes"} description={run.analysis_schema_version && run.analysis_schema_version < "2" ? "This run used analysis schema 1.0.0, which did not record scope notes." : "The source contains no \"no change\" statements."} icon={ShieldCheck} />
       ) : null}
 
       {tab === "issues" ? (

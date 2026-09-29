@@ -8,7 +8,9 @@
 export type AnalysisRunStatus = "Queued" | "Running" | "Completed" | "Completed with warnings" | "Failed";
 export type AnalysisErrorCategory = "ollama_unreachable" | "model_unavailable" | "invalid_model_output" | "validation_failed" | "context_too_large" | "model_timeout" | "worker_timeout" | "upload_failed" | "internal_error";
 
-export const ANALYSIS_STAGES = ["classification", "requirements", "ambiguities", "consolidation"] as const;
+export const ANALYSIS_STAGES = ["classification", "requirements", "coverage", "ambiguities", "consolidation", "source_check"] as const;
+/** Why an issue is worth asking (prompts ≥ 2.0.0): what its answer could change. */
+export const ISSUE_IMPACTS = ["implementation", "test_design", "acceptance_criteria", "data_migration", "integration", "scope", "operational"] as const;
 export const EVIDENCE_BASES = ["Explicit", "Inferred"] as const;
 export const CONFIDENCES = ["High", "Medium", "Low"] as const;
 export const SEVERITIES = ["High", "Medium", "Low"] as const;
@@ -49,6 +51,8 @@ export type AnalysisRun = {
   analysis_schema_version: string | null;
   proposal_count: number | null;
   issue_count: number | null;
+  /** Migration 039; null on runs completed before it. */
+  scope_note_count?: number | null;
   warnings_count: number | null;
   diagnostics: AnalysisDiagnostics | null;
   error_category: AnalysisErrorCategory | null;
@@ -65,12 +69,16 @@ export type AnalysisDiagnostics = {
   fragment_classifications?: Record<string, string>;
   candidates_before_consolidation?: number;
   issues_before_consolidation?: number;
-  consolidation_overrides?: { kind: string; proposed: string[]; kept_separate: string[][] }[];
+  consolidation_overrides?: { kind: string; proposed: string[]; kept_separate?: string[][]; kept?: string[][] }[];
+  suppressed_issues?: { question: string; reason: string; answered_by?: string; answer_quote?: string; source_fragment_ids?: string[] }[];
+  uncaptured_statements?: { fragment_id: string; text: string }[];
+  excluded_plan_statements?: { fragment_id: string; text: string }[];
+  scope_note_count?: number;
   stage_calls?: { stage: string; chunk: string; attempts: number; reused: boolean; duration_ms?: number; dropped?: number }[];
   warnings?: string[];
 };
 
-export type ConsolidationMember = { key: string; title: string; section: string; evidence_basis: string; confidence: string; source_ids: string[] };
+export type ConsolidationMember = { key: string; title: string; section: string; evidence_basis: string; confidence: string; source_ids: string[]; description?: string; quote?: string | null; applies_to?: string; category?: string | null };
 
 export type RequirementProposal = {
   id: string;
@@ -89,7 +97,21 @@ export type RequirementProposal = {
   evidence_basis: (typeof EVIDENCE_BASES)[number];
   confidence: (typeof CONFIDENCES)[number];
   review_status: (typeof PROPOSAL_REVIEW_STATUSES)[number];
-  consolidation: { merged?: boolean; member_count?: number; reason?: string; representative?: string; sections?: string[]; priority_conflict?: string[]; members?: ConsolidationMember[] };
+  consolidation: { merged?: boolean; kind?: "duplicate" | "parts" | "single"; member_count?: number; reason?: string; representative?: string; sections?: string[]; priority_conflict?: string[]; members?: ConsolidationMember[] };
+  created_at: string;
+};
+
+/** "No change required" statements (migration 039): scope/regression information, not requirements. */
+export type AnalysisScopeNote = {
+  id: string;
+  analysis_run_id: string;
+  project_id: string;
+  sequence: number;
+  note_type: "No Change";
+  area: string | null;
+  description: string;
+  source_quote: string | null;
+  source_fragment_ids: string[];
   created_at: string;
 };
 
@@ -105,6 +127,10 @@ export type AnalysisIssue = {
   source_fragment_ids: string[];
   related_proposal_sequences: number[];
   status: (typeof ISSUE_STATUSES)[number];
+  /** Prompts ≥ 2.0.0; empty/null on earlier runs. */
+  impact?: (typeof ISSUE_IMPACTS)[number][];
+  trigger_quote?: string | null;
+  consolidation?: { merged?: boolean; reason?: string; members?: { question: string; description: string; source_ids: string[]; impact: string[] }[] };
   created_at: string;
 };
 
@@ -140,6 +166,10 @@ export type ProposalInput = {
 export type IssueInput = {
   sequence: number; issue_type: string; severity: string; description: string; suggested_question: string | null;
   source_fragment_ids: string[]; related_proposal_sequences: number[];
+  impact: string[]; trigger_quote: string | null; consolidation: Record<string, unknown>;
+};
+export type ScopeNoteInput = {
+  sequence: number; note_type: "No Change"; area: string | null; description: string; source_quote: string | null; source_fragment_ids: string[];
 };
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -151,11 +181,11 @@ const oneOf = <T extends readonly string[]>(list: T, v: unknown) => (list as rea
  * or the list of problems — nothing malformed ever reaches the database.
  * The model never supplies review_status or requirement references.
  */
-export function validateAnalysisSubmission(proposalsRaw: unknown, issuesRaw: unknown, fragmentIds: Set<string>):
-  { ok: true; proposals: ProposalInput[]; issues: IssueInput[] } | { ok: false; problems: string[] } {
+export function validateAnalysisSubmission(proposalsRaw: unknown, issuesRaw: unknown, fragmentIds: Set<string>, scopeNotesRaw: unknown = []):
+  { ok: true; proposals: ProposalInput[]; issues: IssueInput[]; scopeNotes: ScopeNoteInput[] } | { ok: false; problems: string[] } {
   const problems: string[] = [];
-  if (!Array.isArray(proposalsRaw) || !Array.isArray(issuesRaw)) return { ok: false, problems: ["proposals and issues must be arrays"] };
-  if (proposalsRaw.length > 500 || issuesRaw.length > 500) return { ok: false, problems: ["too many proposals or issues"] };
+  if (!Array.isArray(proposalsRaw) || !Array.isArray(issuesRaw) || !Array.isArray(scopeNotesRaw)) return { ok: false, problems: ["proposals, issues and scope notes must be arrays"] };
+  if (proposalsRaw.length > 500 || issuesRaw.length > 500 || scopeNotesRaw.length > 500) return { ok: false, problems: ["too many proposals, issues or scope notes"] };
   const ids = (v: unknown) => (Array.isArray(v) ? v.map(str) : []);
   const proposals: ProposalInput[] = [];
   const sequences = new Set<number>();
@@ -206,11 +236,35 @@ export function validateAnalysisSubmission(proposalsRaw: unknown, issuesRaw: unk
     if (!description || description.length > 2000) problems.push(`${where}: description is required (≤ 2000 characters)`);
     const related = Array.isArray(x.related_proposal_sequences) ? [...new Set(x.related_proposal_sequences.map(Number))] : [];
     if (related.some((s) => !sequences.has(s))) problems.push(`${where}: refers to a proposal that does not exist`);
+    const impact = Array.isArray(x.impact) ? [...new Set(x.impact.map(str))] : [];
+    if (impact.some((m) => !oneOf(ISSUE_IMPACTS, m))) problems.push(`${where}: invalid impact`);
+    const consolidation = x.consolidation && typeof x.consolidation === "object" && !Array.isArray(x.consolidation) ? x.consolidation as Record<string, unknown> : {};
+    if (JSON.stringify(consolidation).length > 20_000) problems.push(`${where}: consolidation evidence is too large`);
     issues.push({
       sequence: seq, issue_type: x.issue_type as string, severity: x.severity as string, description,
       suggested_question: x.suggested_question == null ? null : str(x.suggested_question).slice(0, 1000) || null,
       source_fragment_ids: sourceIds, related_proposal_sequences: related,
+      impact, trigger_quote: x.trigger_quote == null ? null : str(x.trigger_quote).slice(0, 400) || null, consolidation,
     });
   });
-  return problems.length ? { ok: false, problems } : { ok: true, proposals, issues };
+  const scopeNotes: ScopeNoteInput[] = [];
+  const noteSequences = new Set<number>();
+  scopeNotesRaw.forEach((raw, i) => {
+    const n = (raw ?? {}) as Record<string, unknown>;
+    const where = `scope note ${i + 1}`;
+    const sourceIds = [...new Set(ids(n.source_fragment_ids))];
+    const seq = Number(n.sequence);
+    if (!Number.isInteger(seq) || seq < 1 || noteSequences.has(seq)) problems.push(`${where}: duplicate or invalid sequence`);
+    noteSequences.add(seq);
+    if (sourceIds.length === 0) problems.push(`${where}: no source fragments`);
+    if (sourceIds.some((id) => !fragmentIds.has(id))) problems.push(`${where}: cites a fragment that is not part of the analysed extraction run`);
+    if ((n.note_type ?? "No Change") !== "No Change") problems.push(`${where}: invalid note_type`);
+    const description = str(n.description);
+    if (!description || description.length > 2000) problems.push(`${where}: description is required (≤ 2000 characters)`);
+    scopeNotes.push({
+      sequence: seq, note_type: "No Change", area: str(n.area).slice(0, 300) || null, description,
+      source_quote: n.source_quote == null ? null : str(n.source_quote).slice(0, 2000) || null, source_fragment_ids: sourceIds,
+    });
+  });
+  return problems.length ? { ok: false, problems } : { ok: true, proposals, issues, scopeNotes };
 }

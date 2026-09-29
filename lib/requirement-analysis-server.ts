@@ -151,9 +151,10 @@ export async function getAnalysisRun(db: SupabaseClient, projectId: string, runI
   const { data: run } = await db.from("analysis_runs").select("*").eq("id", runId).eq("project_id", projectId).maybeSingle();
   if (!run) return fail(404, "Analysis run not found in this project");
   const r = run as { extraction_job_id: string; document_version_id: string; document_id: string };
-  const [proposals, issues, fragments, version, document, job] = await Promise.all([
+  const [proposals, issues, scopeNotes, fragments, version, document, job] = await Promise.all([
     db.from("requirement_proposals").select("*").eq("analysis_run_id", runId).order("sequence", { ascending: true }),
     db.from("analysis_issues").select("*").eq("analysis_run_id", runId).order("sequence", { ascending: true }),
+    db.from("analysis_scope_notes").select("*").eq("analysis_run_id", runId).order("sequence", { ascending: true }),
     db.from("source_fragments").select(FRAGMENT_COLUMNS).eq("extraction_job_id", r.extraction_job_id).order("sequence", { ascending: true }),
     db.from("document_versions").select("id, version_number, original_filename, content_type, uploaded_at").eq("id", r.document_version_id).maybeSingle(),
     db.from("documents").select("id, document_name, document_type, current_version_id").eq("id", r.document_id).maybeSingle(),
@@ -162,7 +163,7 @@ export async function getAnalysisRun(db: SupabaseClient, projectId: string, runI
   return {
     status: 200,
     body: {
-      run, proposals: proposals.data ?? [], issues: issues.data ?? [], fragments: fragments.data ?? [],
+      run, proposals: proposals.data ?? [], issues: issues.data ?? [], scope_notes: scopeNotes.data ?? [], fragments: fragments.data ?? [],
       version: version.data, document: document.data, extraction_job: job.data,
     },
   };
@@ -273,22 +274,22 @@ export async function workerAnalysisComplete(db: SupabaseClient, worker: WorkerI
   // Stage 5 on the server: provenance against the run's OWN fragment set.
   const { data: fragments } = await db.from("source_fragments").select("id").eq("extraction_job_id", r.extraction_job_id);
   const fragmentIds = new Set(((fragments ?? []) as { id: string }[]).map((f) => f.id));
-  const checked = validateAnalysisSubmission(body.proposals, body.issues, fragmentIds);
+  const checked = validateAnalysisSubmission(body.proposals, body.issues, fragmentIds, body.scope_notes ?? []);
   if (!checked.ok) return fail(400, `Analysis output refused: ${checked.problems.slice(0, 5).join("; ")}`);
   const diagnostics = body.diagnostics && typeof body.diagnostics === "object" && !Array.isArray(body.diagnostics) && JSON.stringify(body.diagnostics).length <= 200_000 ? body.diagnostics : {};
   const modelDigest = text(body.model_digest).slice(0, 100) || null;
 
   const { data, error } = await db.rpc("complete_analysis_run", {
     p_run_id: runId, p_worker_id: worker.id, p_model_digest: modelDigest,
-    p_proposals: checked.proposals, p_issues: checked.issues, p_diagnostics: diagnostics, p_with_warnings: body.with_warnings === true,
+    p_proposals: checked.proposals, p_issues: checked.issues, p_scope_notes: checked.scopeNotes, p_diagnostics: diagnostics, p_with_warnings: body.with_warnings === true,
   });
   if (error) return mapDbError(error);
-  const row = (Array.isArray(data) ? data[0] : data) as { project_id: string; document_version_id: string; status: string; proposal_count: number; issue_count: number };
+  const row = (Array.isArray(data) ? data[0] : data) as { project_id: string; document_version_id: string; status: string; proposal_count: number; issue_count: number; scope_note_count: number };
   await audit(db, null, `Analysis worker (${worker.name})`, {
     project_id: row.project_id, entity_id: runId, entity_name: await runLabel(db, row.document_version_id), old_value: "Running",
-    new_value: `${row.status} — ${row.proposal_count} proposed requirement${row.proposal_count === 1 ? "" : "s"}, ${row.issue_count} issue${row.issue_count === 1 ? "" : "s"} (model ${r.model}, prompts ${r.prompt_version ?? "?"})`,
+    new_value: `${row.status} — ${row.proposal_count} proposed requirement${row.proposal_count === 1 ? "" : "s"}, ${row.issue_count} issue${row.issue_count === 1 ? "" : "s"}, ${row.scope_note_count ?? 0} scope note${row.scope_note_count === 1 ? "" : "s"} (model ${r.model}, prompts ${r.prompt_version ?? "?"})`,
   });
-  return { status: 200, body: { ok: true, status: row.status, proposal_count: row.proposal_count, issue_count: row.issue_count } };
+  return { status: 200, body: { ok: true, status: row.status, proposal_count: row.proposal_count, issue_count: row.issue_count, scope_note_count: row.scope_note_count ?? 0 } };
 }
 
 export async function workerAnalysisFail(db: SupabaseClient, worker: WorkerIdentity, body: Record<string, unknown>): Promise<ServiceResult> {

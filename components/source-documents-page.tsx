@@ -303,6 +303,7 @@ export function SourceDocumentsPage() {
           <>
             <span className="text-xs text-muted-foreground">
               {lastCompleted.proposal_count ?? 0} proposed requirement{lastCompleted.proposal_count === 1 ? "" : "s"} · {lastCompleted.open_issue_count} open issue{lastCompleted.open_issue_count === 1 ? "" : "s"}
+              {lastCompleted.scope_note_count ? ` · ${lastCompleted.scope_note_count} scope note${lastCompleted.scope_note_count === 1 ? "" : "s"}` : ""}
             </span>
             <Link href={review(lastCompleted)} className="inline-flex items-center gap-1 text-xs text-primary underline">
               <ListChecks className="h-3 w-3" aria-hidden="true" />Review analysis
