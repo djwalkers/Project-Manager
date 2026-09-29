@@ -84,7 +84,7 @@ const db = {
     { id: "w0", name: "old-worker", scope: "extraction", token_sha256: sha(OTHER_TOKEN), revoked_at: "2026-01-01T00:00:00Z" },
   ],
   ai_settings: [{ id: "ai1", provider: "none", model: "qwen3:8b", analysis_model: null, created_at: "2026-01-01" }],
-  analysis_runs: [], analysis_stage_results: [], requirement_proposals: [], analysis_issues: [], audit_log: [],
+  analysis_runs: [], analysis_stage_results: [], requirement_proposals: [], analysis_issues: [], analysis_scope_notes: [], audit_log: [],
   // Canonical data that analysis must never read or write.
   requirements: [{ id: "r1", project_id: P, requirement_ref: "REQ-001", title: PL10_SENTINEL }],
   acceptance_criteria: [{ id: "ac1", project_id: P }], test_cases: [{ id: "t1", project_id: P }],
@@ -174,15 +174,17 @@ function rpc(name, a) {
       const r = owned(a.p_run_id, a.p_worker_id);
       if (!r) return err("55000", "This analysis run is not running for this worker");
       const valid = new Set(db.source_fragments.filter((f) => f.extraction_job_id === r.extraction_job_id).map((f) => f.id));
-      for (const row of [...a.p_proposals, ...a.p_issues]) {
+      for (const row of [...a.p_proposals, ...a.p_issues, ...(a.p_scope_notes ?? [])]) {
         if (!row.source_fragment_ids.length) return err("23514", "cardinality");
         if (!row.source_fragment_ids.every((id) => valid.has(id))) return err("22023", "every cited source fragment must belong to the analysed extraction run");
       }
       db.requirement_proposals.push(...a.p_proposals.map((p) => ({ id: uuid(), analysis_run_id: r.id, project_id: r.project_id, proposal_type: "requirement", ...p, review_status: p.evidence_basis === "Inferred" ? "Needs Review" : "Proposed" })));
       db.analysis_issues.push(...a.p_issues.map((i) => ({ id: uuid(), analysis_run_id: r.id, project_id: r.project_id, status: "Open", ...i })));
+      db.analysis_scope_notes.push(...(a.p_scope_notes ?? []).map((n) => ({ id: uuid(), analysis_run_id: r.id, project_id: r.project_id, ...n })));
       const status = a.p_with_warnings ? "Completed with warnings" : "Completed";
-      Object.assign(r, { status, completed_at: later(), model_digest: a.p_model_digest, diagnostics: a.p_diagnostics, proposal_count: a.p_proposals.length, issue_count: a.p_issues.length });
-      return { data: [{ project_id: r.project_id, document_version_id: r.document_version_id, status, proposal_count: a.p_proposals.length, issue_count: a.p_issues.length }], error: null };
+      const notes = (a.p_scope_notes ?? []).length;
+      Object.assign(r, { status, completed_at: later(), model_digest: a.p_model_digest, diagnostics: a.p_diagnostics, proposal_count: a.p_proposals.length, issue_count: a.p_issues.length, scope_note_count: notes });
+      return { data: [{ project_id: r.project_id, document_version_id: r.document_version_id, status, proposal_count: a.p_proposals.length, issue_count: a.p_issues.length, scope_note_count: notes }], error: null };
     }
     case "fail_analysis_run": {
       const r = runOf(a.p_run_id);
@@ -317,18 +319,23 @@ await run("valid output is persisted: proposals and issues separately; Inferred 
   const res = await worker("complete", {
     run_id: runA.id, model_digest: "500a1f067a9f", with_warnings: false, diagnostics: { warnings: [] },
     proposals: [proposal(), proposal({ sequence: 2, proposed_title: "Preserve other pick types", evidence_basis: "Inferred", confidence: "Low", source_fragment_ids: [fragA(2), fragA(1)] })],
-    issues: [issue(), issue({ sequence: 2, issue_type: "Contradiction", severity: "Low", related_proposal_sequences: [] })],
+    issues: [issue({ impact: ["data_migration", "test_design"], trigger_quote: "must remain", consolidation: { merged: true, members: [{ question: "a?", source_ids: [fragA(2)] }, { question: "b?", source_ids: [fragA(2)] }] } }), issue({ sequence: 2, issue_type: "Contradiction", severity: "Low", related_proposal_sequences: [] })],
+    scope_notes: [{ sequence: 1, note_type: "No Change", area: "Other pick types", description: "Other pick types remain as they are.", source_quote: null, source_fragment_ids: [fragA(2)] }],
   });
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.deepEqual([res.body.status, res.body.proposal_count, res.body.issue_count], ["Completed", 2, 2]);
+  assert.deepEqual([res.body.status, res.body.proposal_count, res.body.issue_count, res.body.scope_note_count], ["Completed", 2, 2, 1]);
   const props = db.requirement_proposals.filter((p) => p.analysis_run_id === runA.id);
   assert.deepEqual(props.map((p) => [p.evidence_basis, p.review_status]), [["Explicit", "Proposed"], ["Inferred", "Needs Review"]]);
   assert.ok(props.every((p) => !("requirement_ref" in p)));
-  assert.equal(db.analysis_issues.filter((i) => i.analysis_run_id === runA.id).length, 2);
+  const stored = db.analysis_issues.filter((i) => i.analysis_run_id === runA.id);
+  assert.equal(stored.length, 2);
+  assert.deepEqual([stored[0].impact, stored[0].trigger_quote, stored[0].consolidation.members.length], [["data_migration", "test_design"], "must remain", 2], "impact, trigger and merge evidence kept");
+  const notes = db.analysis_scope_notes.filter((n) => n.analysis_run_id === runA.id);
+  assert.deepEqual(notes.map((n) => [n.note_type, n.area, n.source_fragment_ids]), [["No Change", "Other pick types", [fragA(2)]]], "scope notes stored separately, not as proposals");
   assert.equal(snapshot(), canonicalBefore, "canonical project data, documents and fragments untouched");
   const a = db.audit_log.at(-1);
   assert.equal(a.changed_by_name, "Analysis worker (mac-worker)");
-  assert.equal(a.new_value, "Completed — 2 proposed requirements, 2 issues (model qwen3:8b, prompts 1.0.0)");
+  assert.equal(a.new_value, "Completed — 2 proposed requirements, 2 issues, 1 scope note (model qwen3:8b, prompts 1.0.0)");
 });
 
 await run("Manager reads the run list (counts only) and the run detail with provenance fragments", async () => {
@@ -341,6 +348,7 @@ await run("Manager reads the run list (counts only) and the run detail with prov
   const detail = await call(runsRoute.GET, `/api/analysis/runs?project_id=${P}&run_id=${runA.id}`, { method: "GET" });
   assert.equal(detail.status, 200);
   assert.equal(detail.body.proposals.length, 2);
+  assert.equal(detail.body.scope_notes.length, 1, "scope notes are returned for the workspace");
   assert.equal(detail.body.fragments.length, 3);
   assert.equal(detail.body.extraction_job.id, JOB_A);
   assert.equal((await call(runsRoute.GET, `/api/analysis/runs?project_id=${OTHER_P}&run_id=${runA.id}`, { method: "GET" })).status, 404, "scoped to its project");
@@ -458,6 +466,17 @@ await run("only Admin can change the analysis model, and only to an installed mo
 
 // ── Shared validation ──────────────────────────────────────────────────────
 
+await run("shared validation: scope notes need provenance; issue impacts must be known values", () => {
+  const ids = new Set(["f1"]);
+  const note = { sequence: 1, note_type: "No Change", area: "A", description: "No change required.", source_quote: "No change required.", source_fragment_ids: ["f1"] };
+  assert.equal(shared.validateAnalysisSubmission([], [], ids, [note]).ok, true);
+  const bad = shared.validateAnalysisSubmission([], [{ sequence: 1, issue_type: "Ambiguity", severity: "Low", description: "x", source_fragment_ids: ["f1"], impact: ["vibes"] }], ids, [{ ...note, source_fragment_ids: [] }, { ...note, sequence: 1, source_fragment_ids: ["zz"] }]);
+  assert.equal(bad.ok, false);
+  assert.ok(bad.problems.some((p) => /invalid impact/.test(p)));
+  assert.ok(bad.problems.some((p) => /scope note 1: no source fragments/.test(p)));
+  assert.ok(bad.problems.some((p) => /scope note 2: .*not part of the analysed extraction run/.test(p)));
+});
+
 await run("shared validation: duplicate sequences, bad enums and dangling issue→proposal links are refused", () => {
   const ids = new Set(["f1"]);
   const p = { sequence: 1, proposed_title: "t", proposed_description: "d", source_fragment_ids: ["f1"], primary_source_fragment_id: "f1", rationale: "r", evidence_basis: "Explicit", confidence: "High" };
@@ -501,7 +520,23 @@ await run("038: nothing touches canonical data or the version's status; Manager/
   assert.match(m038, /REVOKE ALL ON public\.analysis_runs, public\.analysis_stage_results, public\.requirement_proposals, public\.analysis_issues FROM anon;/);
   assert.match(m038, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public\.analysis_runs, public\.requirement_proposals, public\.analysis_issues FROM authenticated;/);
   assert.match(m038, /EXECUTE format\('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn\);\s+EXECUTE format\('GRANT EXECUTE ON FUNCTION %s TO service_role', fn\);/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "038_requirement_analysis");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "038_requirement_analysis");
+});
+
+const m039 = code(read("supabase/migrations/039_analysis_quality_hardening.sql"));
+await run("039: scope notes are provenance-checked, immutable, Manager/Admin read only; issues gain impact/trigger/merge evidence", () => {
+  assert.match(m039, /CREATE TABLE public\.analysis_scope_notes/);
+  assert.match(m039, /source_fragment_ids uuid\[\]\s+NOT NULL CHECK \(cardinality\(source_fragment_ids\) >= 1\)/);
+  assert.match(m039, /CREATE TRIGGER analysis_scope_notes_provenance BEFORE INSERT OR UPDATE OF source_fragment_ids ON public\.analysis_scope_notes\s+FOR EACH ROW EXECUTE FUNCTION public\.analysis_output_provenance_guard\(\);/);
+  assert.match(m039, /CREATE TRIGGER analysis_scope_notes_immutable BEFORE UPDATE ON public\.analysis_scope_notes/);
+  assert.match(m039, /CREATE POLICY "analysis_scope_notes_select" ON public\.analysis_scope_notes FOR SELECT TO authenticated USING \(\(SELECT public\.can_write\(\)\)\)/);
+  assert.match(m039, /REVOKE ALL ON public\.analysis_scope_notes FROM anon;/);
+  assert.match(m039, /ADD COLUMN IF NOT EXISTS impact text\[\] NOT NULL DEFAULT '\{\}'/);
+  assert.match(m039, /CHECK \(stage IN \('classification', 'requirements', 'coverage', 'ambiguities', 'consolidation', 'source_check'\)\)/);
+  assert.match(m039, /'\[\]'::jsonb, p_diagnostics, p_with_warnings\) c;/, "the 038 signature stays as a no-notes wrapper for deployed code");
+  assert.doesNotMatch(m039, /(INSERT INTO|UPDATE|DELETE FROM)\s+public\.(requirements|acceptance_criteria|test_cases|actions|risks|decisions|discovery_questions|documents|document_versions|source_fragments|extraction_jobs)\b/, "no canonical or source data touched");
+  assert.doesNotMatch(m039, /UPDATE public\.(requirement_proposals|analysis_issues)\b|DROP TABLE|DELETE FROM public\.analysis/, "existing runs, proposals and issues are not rewritten");
+  assert.equal(req("../lib/schema.ts").latestMigration, "039_analysis_quality_hardening");
 });
 
 // ── Code-level guarantees ───────────────────────────────────────────────────
@@ -529,7 +564,9 @@ await run("UI: Source Documents shows Analyse / status / counts / Review analysi
 await run("UI: the workspace is Manager/Admin only, shows provenance, and cannot promote anything", () => {
   const ws = read("components/requirement-analysis-page.tsx");
   assert.match(ws, /if \(!mayView\) \{\n\s+return <AppShell><EmptyState title="Manager or Admin access required"/);
-  for (const tab of ["Overview", "Source", "Proposed Requirements", "Issues"]) assert.match(ws, new RegExp(`label: "${tab}"`));
+  for (const tab of ["Overview", "Source", "Proposed Requirements", "Issues", "Scope & Regression Notes"]) assert.match(ws, new RegExp(`label: "${tab}"`));
+  assert.match(ws, /Raised by: “\{i\.trigger_quote\}”/);
+  assert.match(ws, /This run used analysis schema 1\.0\.0, which did not record scope notes\./, "older runs stay readable");
   assert.match(ws, /Open original\{isPdf && focused\.page_start \? ` at page \$\{focused\.page_start\}` : ""\}/);
   assert.match(ws, /p\.evidence_basis === "Explicit" \? "ok" : "warn"/);
   assert.doesNotMatch(ws, /saveRecord|\/api\/requirements|Promote|Approve/, "no canonical writes or promotion in Phase 1C");

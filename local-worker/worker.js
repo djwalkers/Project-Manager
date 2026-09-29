@@ -32,7 +32,7 @@ import { OllamaError, assertLoopbackUrl, createOllama } from "./analysis/ollama.
 import { AnalysisError, runAnalysis } from "./analysis/pipeline.js";
 import { ANALYSIS_SCHEMA_VERSION, PROMPT_VERSION, promptFingerprint } from "./analysis/prompts.js";
 
-export const WORKER_VERSION = "0.2.0";
+export const WORKER_VERSION = "0.3.0";
 export const BATCH_MAX_FRAGMENTS = 200;
 export const BATCH_MAX_CHARS = 2_000_000; // keeps each request well under Vercel's 4.5 MB body limit
 
@@ -206,13 +206,13 @@ export async function processAnalysisRun(claim, { api, ollama, log = () => {} })
 
   try {
     await api("analysis/complete", {
-      run_id: run.id, model_digest: modelDigest, proposals: result.proposals, issues: result.issues,
+      run_id: run.id, model_digest: modelDigest, proposals: result.proposals, issues: result.issues, scope_notes: result.scope_notes,
       diagnostics: result.diagnostics, with_warnings: result.withWarnings,
     });
   } catch (error) {
     return failRun("upload_failed", `Saving the analysis failed: ${safeMessage(error)}`, result.diagnostics);
   }
-  log(`analysis ${run.id}: ${result.withWarnings ? "completed with warnings" : "completed"} — ${result.proposals.length} proposals, ${result.issues.length} issues`);
+  log(`analysis ${run.id}: ${result.withWarnings ? "completed with warnings" : "completed"} — ${result.proposals.length} proposals, ${result.issues.length} issues, ${result.scope_notes.length} scope notes`);
   return { run_id: run.id, status: "Completed", proposals: result.proposals.length, issues: result.issues.length };
 }
 

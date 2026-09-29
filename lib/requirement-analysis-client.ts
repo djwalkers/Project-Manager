@@ -5,7 +5,7 @@
 // (the analysis tables are not part of the DataStore, so Viewers never load
 // proposal content).
 
-import type { AnalysisIssue, AnalysisRun, RequirementProposal } from "@/lib/requirement-analysis";
+import type { AnalysisIssue, AnalysisRun, AnalysisScopeNote, RequirementProposal } from "@/lib/requirement-analysis";
 import type { SourceFragment } from "@/lib/types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -37,6 +37,8 @@ export type AnalysisRunDetail = {
   run: AnalysisRun;
   proposals: RequirementProposal[];
   issues: AnalysisIssue[];
+  /** Absent/empty for runs before migration 039. */
+  scope_notes?: AnalysisScopeNote[];
   fragments: AnalysisFragment[];
   version: { id: string; version_number: number; original_filename: string; content_type: string; uploaded_at: string } | null;
   document: { id: string; document_name: string; document_type: string | null; current_version_id: string } | null;

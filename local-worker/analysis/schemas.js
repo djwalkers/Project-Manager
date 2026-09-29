@@ -3,34 +3,50 @@
 // to Ollama as `format` (constrained decoding) AND checked here — Ollama's
 // constraint is a help, never the guarantee.
 
-import { CATEGORIES, CLASSIFICATIONS, ISSUE_TYPES, PRIORITIES } from "./prompts.js";
+import { CATEGORIES, CLASSIFICATIONS, ISSUE_IMPACTS, ISSUE_TYPES, PRIORITIES, STATEMENT_TYPES } from "./prompts.js";
 
 const str = (maxLength, minLength = 1) => ({ type: "string", minLength, maxLength });
 const ids = { type: "array", items: { type: "string", pattern: "^F\\d{1,5}$" }, minItems: 1, maxItems: 40 };
 const obj = (properties) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
 
+const requirementsSchema = obj({
+  requirements: { type: "array", maxItems: 60, items: obj({
+    title: str(300), description: str(4000), applies_to: str(300, 0), statement_type: { type: "string", enum: STATEMENT_TYPES },
+    source_ids: ids, primary_source_id: { type: "string", pattern: "^F\\d{1,5}$" },
+    source_quote: str(2000, 0), evidence_basis: { type: "string", enum: ["Explicit", "Inferred"] },
+    confidence: { type: "string", enum: ["High", "Medium", "Low"] },
+    category: { type: "string", enum: [...CATEGORIES, "Unknown"] }, priority: { type: "string", enum: [...PRIORITIES, "Not stated"] },
+    rationale: str(2000),
+  }) },
+});
+
 export const STAGE_SCHEMAS = {
   classification: obj({
     fragments: { type: "array", maxItems: 400, items: obj({ id: { type: "string", pattern: "^F\\d{1,5}$" }, classification: { type: "string", enum: CLASSIFICATIONS }, reason: str(300, 0) }) },
   }),
-  requirements: obj({
-    requirements: { type: "array", maxItems: 60, items: obj({
-      title: str(300), description: str(4000), source_ids: ids, primary_source_id: { type: "string", pattern: "^F\\d{1,5}$" },
-      source_quote: str(2000, 0), evidence_basis: { type: "string", enum: ["Explicit", "Inferred"] },
-      confidence: { type: "string", enum: ["High", "Medium", "Low"] },
-      category: { type: "string", enum: [...CATEGORIES, "Unknown"] }, priority: { type: "string", enum: [...PRIORITIES, "Not stated"] },
-      rationale: str(2000),
-    }) },
-  }),
+  requirements: requirementsSchema,
+  // Stage 2b: statements the first pass left uncaptured (same item shape).
+  coverage: requirementsSchema,
   ambiguities: obj({
     issues: { type: "array", maxItems: 20, items: obj({
       issue_type: { type: "string", enum: ISSUE_TYPES }, severity: { type: "string", enum: ["High", "Medium", "Low"] },
-      description: str(2000), suggested_question: str(1000), source_ids: ids,
+      impact: { type: "array", minItems: 1, maxItems: 7, items: { type: "string", enum: ISSUE_IMPACTS } },
+      trigger_quote: str(400, 0), description: str(2000), suggested_question: str(1000), source_ids: ids,
       related_requirements: { type: "array", maxItems: 40, items: { type: "string", pattern: "^R\\d{1,4}$" } },
     }) },
   }),
   consolidation: obj({
-    duplicates: { type: "array", maxItems: 200, items: obj({ members: { type: "array", minItems: 2, maxItems: 200, items: { type: "string", pattern: "^[RI]\\d{1,4}$" } }, reason: str(500, 0), title: str(300, 0) }) },
+    groups: { type: "array", maxItems: 200, items: obj({
+      kind: { type: "string", enum: ["duplicate", "parts"] },
+      members: { type: "array", minItems: 2, maxItems: 200, items: { type: "string", pattern: "^[RI]\\d{1,4}$" } },
+      reason: str(500, 0), title: str(400, 0),
+    }) },
+  }),
+  source_check: obj({
+    checks: { type: "array", maxItems: 400, items: obj({
+      key: { type: "string", pattern: "^I\\d{1,4}$" }, answered: { type: "boolean" },
+      answer_id: { type: "string", pattern: "^(F\\d{1,5})?$" }, answer_quote: str(600, 0),
+    }) },
   }),
 };
 
