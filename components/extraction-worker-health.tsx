@@ -1,14 +1,19 @@
 "use client";
 
-import { Cpu, KeyRound } from "lucide-react";
+import { Cpu, KeyRound, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { canConfigureSystem } from "@/lib/permissions";
+import { DEFAULT_ANALYSIS_MODEL } from "@/lib/requirement-analysis";
+import { saveAnalysisModel } from "@/lib/requirement-analysis-client";
 
 // System Health → Local extraction worker (Phase 1B). Shows whether the
 // worker is configured and recently seen, and the extraction queue. Admin
 // can issue (rotate) the worker token; it is displayed exactly once.
+// Phase 1C adds local AI analysis: whether the worker's Ollama is reachable,
+// the configured analysis model (Admin may change it, choosing from the
+// models the worker reports as installed) and the analysis queue.
 
 type WorkerStatus = {
   configured: boolean;
@@ -17,6 +22,13 @@ type WorkerStatus = {
   last_seen_version: string | null;
   online: boolean;
   queue: { queued: number; running: number; failed_24h: number; completed_24h: number };
+  analysis?: {
+    ollama: { reachable: boolean; version: string | null; reported_at: string | null; models: { name: string; family: string | null; parameter_size: string | null }[] } | null;
+    analysis_version: string | null;
+    configured_model: string;
+    configured_model_installed: boolean | null;
+    queue: { queued: number; running: number; failed_24h: number; completed_24h: number };
+  };
 };
 
 const when = (value: string | null) =>
@@ -38,6 +50,7 @@ export function ExtractionWorkerHealth() {
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
   const isAdmin = canConfigureSystem(user?.role);
 
   const load = () => fetch("/api/worker/status", { credentials: "same-origin" })
@@ -61,6 +74,23 @@ export function ExtractionWorkerHealth() {
       setIssuing(false);
     }
   }
+
+  async function chooseModel(model: string) {
+    setSavingModel(true);
+    setError(null);
+    try {
+      await saveAnalysisModel(model === DEFAULT_ANALYSIS_MODEL ? null : model);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save the analysis model");
+    } finally {
+      setSavingModel(false);
+    }
+  }
+
+  const analysis = status?.analysis;
+  // Chat/completion models only — embedding models cannot analyse text.
+  const modelOptions = [...new Set([analysis?.configured_model ?? DEFAULT_ANALYSIS_MODEL, ...(analysis?.ollama?.models ?? []).filter((m) => !/embed|bert/i.test(`${m.name} ${m.family ?? ""}`)).map((m) => m.name)])];
 
   return (
     <section className="mt-5 rounded-lg border bg-card p-4 shadow-operational" aria-labelledby="extraction-worker-title">
@@ -91,6 +121,35 @@ export function ExtractionWorkerHealth() {
           <Tile label="Queued" value={status.queue.queued} tone={status.queue.queued && !status.online ? "warn" : undefined} />
           <Tile label="Running" value={status.queue.running} />
           <Tile label="Failed (24h)" value={status.queue.failed_24h} tone={status.queue.failed_24h ? "bad" : undefined} />
+        </div>
+      ) : null}
+      {analysis ? (
+        <div className="mt-5 border-t pt-4" aria-labelledby="local-analysis-title">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><Sparkles className="h-4 w-4" aria-hidden="true" /></span>
+            <div>
+              <h4 id="local-analysis-title" className="font-semibold">Local AI requirement analysis</h4>
+              <p className="mt-0.5 text-sm text-muted-foreground">Runs on the same worker against Ollama on your Mac. Document content is never sent to an external AI provider.</p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <Tile label="Ollama" value={!analysis.ollama ? "Not reported" : analysis.ollama.reachable ? `Reachable${analysis.ollama.version ? ` (${analysis.ollama.version})` : ""}` : "Unreachable"} tone={!analysis.ollama ? "warn" : analysis.ollama.reachable ? "ok" : "bad"} />
+            <Tile label="Analysis model" value={`${analysis.configured_model}${analysis.configured_model_installed === false ? " (not installed)" : ""}`} tone={analysis.configured_model_installed === false ? "bad" : undefined} />
+            <Tile label="Prompt version" value={analysis.analysis_version ?? "—"} />
+            <Tile label="Analyses queued" value={analysis.queue.queued} tone={analysis.queue.queued && !status?.online ? "warn" : undefined} />
+            <Tile label="Analyses running" value={analysis.queue.running} />
+            <Tile label="Analyses failed (24h)" value={analysis.queue.failed_24h} tone={analysis.queue.failed_24h ? "bad" : undefined} />
+          </div>
+          {isAdmin ? (
+            <label className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium">Analysis model</span>
+              <select className="rounded-md border bg-background px-2 py-1 text-sm" value={analysis.configured_model} disabled={savingModel || modelOptions.length < 2}
+                onChange={(e) => void chooseModel(e.target.value)} aria-label="Analysis model">
+                {modelOptions.map((m) => <option key={m} value={m}>{m}{m === DEFAULT_ANALYSIS_MODEL ? " (default)" : ""}</option>)}
+              </select>
+              <span className="text-xs text-muted-foreground">Only models installed on the worker&apos;s Ollama are listed. Nothing is downloaded automatically.</span>
+            </label>
+          ) : null}
         </div>
       ) : null}
     </section>

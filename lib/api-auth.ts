@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canConfigureSystem, canCreateProject, canManageSourceDocuments, canReadProjectData, canSendProjectEmail, canWriteDeliveryData } from "@/lib/permissions";
+import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canConfigureSystem, canCreateProject, canManageSourceDocuments, canReadProjectData, canRunRequirementAnalysis, canSendProjectEmail, canViewRequirementAnalysis, canWriteDeliveryData } from "@/lib/permissions";
 import type { UserRole } from "@/lib/auth";
 
 /**
@@ -197,4 +197,14 @@ export async function resolveActor(db: { from: (table: string) => any }): Promis
 /** System configuration (e.g. issuing the extraction-worker token) — Admin only. */
 export function requireCanConfigureSystem(): Promise<NextResponse<{ error: string }> | null> {
   return requireRole(canConfigureSystem, "Admin access required");
+}
+
+/** Starting or retrying AI requirement analysis (Phase 1C) — Manager/Admin. */
+export function requireCanRunRequirementAnalysis(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canRunRequirementAnalysis, "Admin or Manager access required to run requirement analysis");
+}
+
+/** Viewing AI analysis runs, proposals and issues (Phase 1C) — Manager/Admin. */
+export function requireCanViewRequirementAnalysis(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canViewRequirementAnalysis, "Admin or Manager access required to view requirement analysis");
 }

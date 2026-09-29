@@ -8,7 +8,8 @@
 //     grants exactly: claim a queued job, download that job's file via a
 //     short-lived signed URL, add fragments / complete / fail THAT job, and
 //     report a heartbeat. Nothing else in the app accepts it, and the worker
-//     never receives Supabase credentials.
+//     never receives Supabase credentials. The same token also serves the
+//     Phase 1C analysis protocol (lib/requirement-analysis-server.ts).
 // All state changes go through the SECURITY-checked SQL functions from
 // migration 036 (ownership, lease, hash verification, one active job).
 // Significant events are written to the canonical audit_log.
@@ -17,6 +18,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SOURCE_DOCUMENTS_BUCKET, semverParts } from "@/lib/source-documents";
 import type { Actor, ServiceResult } from "@/lib/source-documents-server";
+import { analysisHealth, recordAnalysisHeartbeat } from "@/lib/requirement-analysis-server";
 
 export type WorkerIdentity = { id: string; name: string };
 
@@ -153,6 +155,9 @@ export async function workerStatus(db: SupabaseClient): Promise<ServiceResult> {
       extractor_version: c?.last_seen_extractor_version ?? null,
       online: lastSeen !== null && Date.now() - lastSeen < 3 * 60_000,
       queue: { queued: await count("Queued"), running: await count("Running"), failed_24h: await count("Failed", 24), completed_24h: await count("Completed", 24) },
+      // Phase 1C: local AI analysis — Ollama as last reported by the worker, model, queue.
+      // Fails soft: extraction health never depends on the analysis tables.
+      analysis: await analysisHealth(db).catch((error: unknown) => { console.error("[analysis] health unavailable:", error instanceof Error ? error.message : error); return null; }),
     },
   };
 }
@@ -168,6 +173,7 @@ async function touch(db: SupabaseClient, worker: WorkerIdentity, version: string
 
 export async function workerHeartbeat(db: SupabaseClient, worker: WorkerIdentity, body: Record<string, unknown>): Promise<ServiceResult> {
   await touch(db, worker, text(body.worker_version), text(body.extractor_version));
+  await recordAnalysisHeartbeat(db, worker, body);
   return { status: 200, body: { ok: true, worker: worker.name } };
 }
 

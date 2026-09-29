@@ -80,3 +80,16 @@ export function canManageSourceDocuments(role: UserRole | null | undefined): boo
 export function canArchiveOrDeleteSourceDocuments(role: UserRole | null | undefined): boolean {
   return role === "Admin";
 }
+
+// ── Requirement analysis (Phase 1C) ─────────────────────────────────────────
+// AI proposals are non-authoritative and, in Phase 1C, not shown to Viewers.
+// Manager/Admin start or retry analysis and view proposals/issues; the
+// database mirrors this (analysis tables readable only under can_write()).
+
+export function canRunRequirementAnalysis(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}
+
+export function canViewRequirementAnalysis(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}

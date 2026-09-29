@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "037_extractor_version_reextraction";
-export const latestMigration = "037_extractor_version_reextraction";
+export const schemaVersion = "038_requirement_analysis";
+export const latestMigration = "038_requirement_analysis";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -40,6 +40,7 @@ export const allMigrations = [
   "035_source_documents",
   "036_document_extraction",
   "037_extractor_version_reextraction",
+  "038_requirement_analysis",
 ] as const;
 
 export type SchemaColumn = {

@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileSearch, FileText, History, Loader2, MoreHorizontal, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Archive, ArchiveRestore, Download, Eye, FileSearch, FileText, History, ListChecks, Loader2, MoreHorizontal, RotateCcw, Sparkles, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { LoadErrorState, LoadingState } from "@/components/data-state";
@@ -11,12 +12,14 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
-import { canArchiveOrDeleteSourceDocuments, canManageSourceDocuments } from "@/lib/permissions";
+import { canArchiveOrDeleteSourceDocuments, canManageSourceDocuments, canRunRequirementAnalysis, canViewRequirementAnalysis } from "@/lib/permissions";
 import { scopeProjectData } from "@/lib/project-scope";
 import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, canReextract, checkUploadCandidate, currentVersionOf, fileSummary, formatBytes, jobsForVersion, latestJobFor, latestSuccessfulJobFor, versionsFor } from "@/lib/source-documents";
 import {
   deleteSourceDocument, loadAvailableExtractorVersion, openSourceDocumentVersion, queueSourceDocumentExtraction, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
 } from "@/lib/source-documents-client";
+import { ANALYSIS_ERROR_LABELS, isActiveAnalysis, isCompletedAnalysis, runsForVersion } from "@/lib/requirement-analysis";
+import { loadAnalysisRuns, queueDocumentAnalysis, retryDocumentAnalysis, type AnalysisRunSummary } from "@/lib/requirement-analysis-client";
 import type { DataStore } from "@/lib/data-store";
 import type { DocumentRecord, DocumentVersion, ExtractionJob, ExtractionStatus } from "@/lib/types";
 import { useProjectData } from "@/lib/use-project-data";
@@ -28,6 +31,10 @@ import { useProjectData } from "@/lib/use-project-data";
 // Admin: also archive/restore and permanently delete (archived only).
 // Extraction (Phase 1B): each version shows its canonical extraction_status;
 // everyone may view a completed extraction; Manager/Admin may start or retry.
+// Analysis (Phase 1C): Manager/Admin may analyse the current version's
+// newest completed extraction with the local AI model, and see its status
+// and counts here; the proposals themselves are reviewed in the dedicated
+// analysis workspace. Viewers see neither.
 
 const formatDate = (value: string | null | undefined) =>
   value ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
@@ -175,9 +182,12 @@ export function SourceDocumentsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ title: string; version: DocumentVersion } | null>(null);
   const [availableExtractor, setAvailableExtractor] = useState<string | null>(null);
+  const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunSummary[]>([]);
 
   const mayManage = canManageSourceDocuments(user?.role);
   const mayArchive = canArchiveOrDeleteSourceDocuments(user?.role);
+  const mayAnalyse = canRunRequirementAnalysis(user?.role);
+  const mayViewAnalysis = canViewRequirementAnalysis(user?.role);
 
   // The extractor version the local worker actually reports — the basis for
   // "Re-extract with newer extractor". Only Managers/Admins need (or can read) it.
@@ -188,6 +198,18 @@ export function SourceDocumentsPage() {
     return () => { active = false; };
   }, [mayManage]);
   const pageData = data && activeProject ? scopeProjectData(data, activeProject) : null;
+
+  // Analysis runs (Manager/Admin only). Polled while any run is queued/running.
+  const analysisProjectId = activeProject?.id ?? null;
+  const anyActiveAnalysis = analysisRuns.some(isActiveAnalysis);
+  useEffect(() => {
+    if (!mayViewAnalysis || !analysisProjectId) return;
+    let active = true;
+    const refresh = () => loadAnalysisRuns(analysisProjectId).then((r) => { if (active) setAnalysisRuns(r.runs); }).catch(() => undefined);
+    void refresh();
+    const timer = anyActiveAnalysis ? setInterval(refresh, 10_000) : null;
+    return () => { active = false; if (timer) clearInterval(timer); };
+  }, [mayViewAnalysis, analysisProjectId, anyActiveAnalysis]);
 
   const [active, archived] = useMemo(() => {
     const docs = [...(pageData?.documents ?? [])].sort((a, b) => a.document_name.localeCompare(b.document_name, undefined, { numeric: true }));
@@ -247,6 +269,57 @@ export function SourceDocumentsPage() {
           <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => queueExtraction(version, "upgrade")}>
             <RotateCcw className="h-3 w-3" aria-hidden="true" />Re-extract with newer extractor ({availableExtractor})
           </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  const startAnalysis = (version: DocumentVersion, retryOf?: string) => run(version.id, async () => {
+    const { run: queued } = retryOf ? await retryDocumentAnalysis(projectId, retryOf) : await queueDocumentAnalysis(projectId, version.id);
+    setAnalysisRuns((current) => [{ ...queued, open_issue_count: 0 }, ...current.filter((r) => r.id !== queued.id)]);
+  });
+
+  // Analysis state + actions for the CURRENT version (Manager/Admin only):
+  // Analyse document → Queued / Running → counts + Review analysis; Retry
+  // after a failure. Analyses the newest completed extraction; earlier runs
+  // keep pointing at the extraction they analysed.
+  function AnalysisControls({ document, version }: { document: DocumentRecord; version: DocumentVersion | null }) {
+    if (!mayViewAnalysis || !version) return <span className="text-xs text-muted-foreground">—</span>;
+    const success = latestSuccessfulJobFor(version.id, jobs);
+    const isCurrent = version.id === document.current_version_id && !document.archived_at;
+    const latest = runsForVersion(version.id, analysisRuns)[0] ?? null;
+    const lastCompleted = runsForVersion(version.id, analysisRuns).find(isCompletedAnalysis) ?? null;
+    const canStart = mayAnalyse && isCurrent && Boolean(success) && !isActiveAnalysis(latest);
+    const staleExtraction = lastCompleted && success && lastCompleted.extraction_job_id !== success.id;
+    const review = (r: AnalysisRunSummary) => `/requirement-analysis/${r.id}?project=${encodeURIComponent(projectId)}`;
+    if (!success) return <span className="text-xs text-muted-foreground">Awaiting extraction</span>;
+    return (
+      <div className="flex flex-col items-start gap-1">
+        {latest ? <StatusBadge status={latest.status} /> : null}
+        {latest?.status === "Failed" ? (
+          <span className="max-w-[14rem] text-xs text-destructive" title={latest.error_message ?? undefined}>{ANALYSIS_ERROR_LABELS[latest.error_category ?? ""] ?? "Analysis failed"}</span>
+        ) : null}
+        {lastCompleted ? (
+          <>
+            <span className="text-xs text-muted-foreground">
+              {lastCompleted.proposal_count ?? 0} proposed requirement{lastCompleted.proposal_count === 1 ? "" : "s"} · {lastCompleted.open_issue_count} open issue{lastCompleted.open_issue_count === 1 ? "" : "s"}
+            </span>
+            <Link href={review(lastCompleted)} className="inline-flex items-center gap-1 text-xs text-primary underline">
+              <ListChecks className="h-3 w-3" aria-hidden="true" />Review analysis
+            </Link>
+            {staleExtraction ? <span className="text-xs text-amber-700 dark:text-amber-300">Analysed an earlier extraction</span> : null}
+          </>
+        ) : latest?.status === "Failed" ? (
+          <Link href={review(latest)} className="text-xs text-primary underline">Details</Link>
+        ) : null}
+        {canStart && latest?.status === "Failed" ? (
+          <button type="button" className="inline-flex items-center gap-1 text-xs text-primary underline" onClick={() => startAnalysis(version, latest.id)}>
+            <RotateCcw className="h-3 w-3" aria-hidden="true" />Retry analysis
+          </button>
+        ) : canStart && (!latest || staleExtraction) ? (
+          <Button variant="outline" size="sm" className="h-7 whitespace-nowrap px-2 text-xs" onClick={() => startAnalysis(version)}>
+            <Sparkles className="h-3 w-3" aria-hidden="true" />{latest ? "Analyse latest extraction" : "Analyse document"}
+          </Button>
         ) : null}
       </div>
     );
@@ -338,7 +411,7 @@ export function SourceDocumentsPage() {
               <span className="whitespace-nowrap">{formatDate(version.uploaded_at)} · {version.uploaded_by_name}</span>
               <span className="whitespace-nowrap">{fileSummary(version)}</span>
               <span className="whitespace-nowrap font-mono" title={version.sha256}>sha256 {version.sha256.slice(0, 12)}…</span>
-              <span className="inline-flex items-center gap-1"><ExtractionControls document={document} version={version} compact /> <StatusBadge status={version.analysis_status} /></span>
+              <span className="inline-flex items-center gap-1"><ExtractionControls document={document} version={version} compact /></span>
               <span className="ml-auto inline-flex items-center gap-1 whitespace-nowrap">
                 {version.id === document.current_version_id ? (
                   <span className="mr-1 rounded bg-primary/10 px-2 py-0.5 font-semibold text-primary">Current</span>
@@ -393,7 +466,7 @@ export function SourceDocumentsPage() {
                     <td className="px-3 py-2.5"><VersionSummary document={document} current={current} /></td>
                     <td className="px-3 py-2.5"><Uploaded current={current} /></td>
                     <td className="px-3 py-2.5">{extraction(document, current)}</td>
-                    <td className="px-3 py-2.5"><StatusBadge status={current?.analysis_status} /></td>
+                    <td className="px-3 py-2.5"><AnalysisControls document={document} version={current} /></td>
                     <td className="px-3 py-2.5"><PrimaryActions document={document} current={current} busy={busy} /></td>
                   </tr>
                   {historyFor === document.id ? (
@@ -418,7 +491,7 @@ export function SourceDocumentsPage() {
                 <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Version</dt><dd className="mt-0.5"><VersionSummary document={document} current={current} /></dd></div>
                 <div className="min-w-0"><dt className="text-xs font-semibold uppercase text-muted-foreground">Uploaded</dt><dd className="mt-0.5"><Uploaded current={current} /></dd></div>
                 <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Extraction</dt><dd className="mt-0.5">{extraction(document, current)}</dd></div>
-                <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Analysis</dt><dd className="mt-0.5"><StatusBadge status={current?.analysis_status} /></dd></div>
+                <div><dt className="text-xs font-semibold uppercase text-muted-foreground">Analysis</dt><dd className="mt-0.5"><AnalysisControls document={document} version={current} /></dd></div>
               </dl>
               {historyFor === document.id ? <div className="mt-3 border-t pt-3"><VersionHistory document={document} /></div> : null}
             </li>

@@ -352,11 +352,14 @@ await run("System Health shows the worker; token issuing is Admin-only in the UI
   assert.match(card, /\{isAdmin \? \(\n\s+<Button/);
 });
 
-await run("the local worker never talks to an AI provider and holds no Supabase credentials", () => {
+await run("the local worker never talks to an external AI provider and holds no Supabase credentials; extraction uses no AI", () => {
   // Executable code only (comments legitimately say "no Supabase credentials").
   const strip = (src) => src.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*\*)/.test(line)).join("\n");
-  const worker = strip(read("local-worker/worker.js")) + strip(read("local-worker/extract.js"));
-  assert.doesNotMatch(worker, /openai|anthropic|gemini|generativelanguage|ollama|SUPABASE|service_role|supabase\.co/i);
+  // Extraction itself is deterministic: no model of any kind.
+  assert.doesNotMatch(strip(read("local-worker/extract.js")), /openai|anthropic|gemini|generativelanguage|ollama|SUPABASE|service_role|supabase\.co/i);
+  // Phase 1C: the worker may use a LOCAL Ollama (loopback-enforced in analysis/ollama.js) — never an external provider.
+  const analysis = ["worker.js", "analysis/ollama.js", "analysis/pipeline.js", "analysis/prompts.js", "analysis/chunk.js", "analysis/schemas.js"].map((f) => strip(read(`local-worker/${f}`))).join("\n");
+  assert.doesNotMatch(analysis, /openai|anthropic|gemini|generativelanguage|SUPABASE|service_role|supabase\.co/i);
   assert.match(read("local-worker/worker.js"), /\/api\/worker\/\$\{route\}/, "it only calls the /api/worker/* routes");
   const pkg = JSON.parse(read("local-worker/package.json"));
   assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["jszip", "mammoth", "pdfjs-dist"], "jszip reads DOCX outline levels / list ids (already a mammoth dependency)");
@@ -484,7 +487,7 @@ await run("037: only a semantically newer extractor may re-extract; failures kee
   assert.match(m037, /CASE WHEN u\.status = 'Failed' THEN public\.extraction_status_after_failure\(u\.document_version_id\) ELSE u\.status END/);
   assert.match(m037, /CREATE OR REPLACE FUNCTION public\.queue_extraction_job\(p_project_id uuid, p_version_id uuid, p_user_id uuid, p_user_name text\)[\s\S]*?'manual', NULL\) q;/);
   assert.doesNotMatch(m037, /DROP POLICY|CREATE POLICY|DROP TRIGGER|source_fragments_immutable|extraction_jobs_one_active_per_version/, "RLS, immutability and one-active-job untouched");
-  assert.equal(req("../lib/schema.ts").latestMigration, "037_extractor_version_reextraction");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "037_extractor_version_reextraction");
 });
 
 await run("UI: re-extract only for Manager/Admin with an eligible version; the viewer defaults to the newest success and lists run history", () => {
