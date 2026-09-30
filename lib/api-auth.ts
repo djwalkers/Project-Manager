@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/client";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canConfigureSystem, canCreateProject, canManageSourceDocuments, canReadProjectData, canRunRequirementAnalysis, canSendProjectEmail, canViewRequirementAnalysis, canWriteDeliveryData } from "@/lib/permissions";
+import { canArchiveOrDeleteSourceDocuments, canAssessManualChecks, canConfigureSystem, canCreateProject, canManageSourceDocuments, canReadProjectData, canReviewRequirementAnalysis, canRunRequirementAnalysis, canSendProjectEmail, canViewRequirementAnalysis, canWriteDeliveryData } from "@/lib/permissions";
 import type { UserRole } from "@/lib/auth";
 
 /**
@@ -207,4 +207,9 @@ export function requireCanRunRequirementAnalysis(): Promise<NextResponse<{ error
 /** Viewing AI analysis runs, proposals and issues (Phase 1C) — Manager/Admin. */
 export function requireCanViewRequirementAnalysis(): Promise<NextResponse<{ error: string }> | null> {
   return requireRole(canViewRequirementAnalysis, "Admin or Manager access required to view requirement analysis");
+}
+
+/** Reviewing / promoting AI analysis output (Phase 1D) — Manager/Admin. */
+export function requireCanReviewRequirementAnalysis(): Promise<NextResponse<{ error: string }> | null> {
+  return requireRole(canReviewRequirementAnalysis, "Admin or Manager access required to review requirement analysis");
 }

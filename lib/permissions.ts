@@ -93,3 +93,12 @@ export function canRunRequirementAnalysis(role: UserRole | null | undefined): bo
 export function canViewRequirementAnalysis(role: UserRole | null | undefined): boolean {
   return role === "Admin" || role === "Manager";
 }
+
+// ── Requirement review and promotion (Phase 1D) ─────────────────────────────
+// Reviewing AI proposals (edit / approve / reject / split / merge), promoting
+// them into canonical Requirements, and reviewing/promoting analysis issues
+// and scope notes — Manager/Admin. Viewers see only the promoted canonical
+// records (and their source provenance), never the review workspace.
+export function canReviewRequirementAnalysis(role: UserRole | null | undefined): boolean {
+  return role === "Admin" || role === "Manager";
+}

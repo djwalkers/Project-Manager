@@ -8,6 +8,7 @@ import { ArtefactLinker } from "@/components/artefact-linker";
 import { withEntityLinksRemoved, withLinkAdded, withLinkRemoved } from "@/lib/artefact-links";
 import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
+import { RequirementProvenancePanel } from "@/components/requirement-provenance";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
 import { RequirementTestCoverage } from "@/components/requirement-test-coverage";
@@ -248,6 +249,8 @@ export function ModulePageClient({ section }: { section: string }) {
         )}
         {isRequirement && pid && recordId && (
           <>
+            {/* Phase 1D: source provenance of Requirements promoted from AI analysis (renders nothing otherwise). */}
+            <RequirementProvenancePanel projectId={pid} requirementId={recordId} />
             {requirementVerification && <RequirementTestCoverage verification={requirementVerification} />}
             <RequirementReadiness criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} />
             <ReadinessGates criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} requirementStatus={requirementStatus} />

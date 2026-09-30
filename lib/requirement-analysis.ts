@@ -154,6 +154,15 @@ export function runsForVersion<T extends AnalysisRun>(versionId: string, runs: T
   return runs.filter((r) => r.document_version_id === versionId).sort((a, b) => b.queued_at.localeCompare(a.queued_at) || b.id.localeCompare(a.id));
 }
 
+/**
+ * True when any analysis run of any version of the document has a promoted
+ * proposal — migration 042 then refuses the document's permanent deletion.
+ * Advisory only (runs as the server reported them); the database decides.
+ */
+export function isProvenanceProtected(documentId: string, runs: (Pick<AnalysisRun, "document_id"> & { promoted_count?: number })[]): boolean {
+  return runs.some((r) => r.document_id === documentId && (r.promoted_count ?? 0) > 0);
+}
+
 export function latestRunForExtraction<T extends AnalysisRun>(extractionJobId: string, runs: T[]): T | null {
   return runs.filter((r) => r.extraction_job_id === extractionJobId).sort((a, b) => b.queued_at.localeCompare(a.queued_at) || b.id.localeCompare(a.id))[0] ?? null;
 }

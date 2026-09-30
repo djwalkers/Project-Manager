@@ -21,6 +21,7 @@ import {
   extensionOf,
   isIssuedPathForProject,
   typeForExtension,
+  SOURCE_DOCUMENT_PROVENANCE_DELETE_MESSAGE,
 } from "@/lib/source-documents";
 import { extractionQueuedAudit } from "@/lib/extraction-server";
 
@@ -262,7 +263,8 @@ export async function deleteDocument(db: SupabaseClient, actor: Actor, params: {
   // but unreachable — no row points at them and the bucket is private.
   const { data: deleted, error } = await db.from("documents").delete()
     .eq("id", params.documentId).eq("project_id", params.projectId).select("id");
-  if (error) return fail(500, error.message);
+  // 23001: migration 042 — promoted Requirements depend on this document's analysis provenance.
+  if (error) return error.code === "23001" ? fail(409, SOURCE_DOCUMENT_PROVENANCE_DELETE_MESSAGE) : fail(500, error.message);
   if (!deleted || deleted.length === 0) return fail(404, "Source document not found in this project");
   let storageWarning: string | null = null;
   if (paths.length) {

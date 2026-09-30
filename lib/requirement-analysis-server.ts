@@ -131,18 +131,26 @@ export async function queueAnalysis(db: SupabaseClient, actor: Actor, body: Reco
   return { status: 200, body: { run, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
 }
 
-/** Manager/Admin: every analysis run of a project, with open-issue counts (no proposal content). */
+/** Manager/Admin: every analysis run of a project, with open-issue and promoted-proposal counts (no proposal content). */
 export async function listAnalysisRuns(db: SupabaseClient, projectId: string): Promise<ServiceResult> {
   if (!UUID.test(projectId)) return fail(400, "project_id is required");
   const { data: runs, error } = await db.from("analysis_runs").select("*").eq("project_id", projectId);
   if (error) return fail(500, error.message);
   const ids = ((runs ?? []) as { id: string }[]).map((r) => r.id);
   const open: Record<string, number> = {};
+  const promoted: Record<string, number> = {};
   if (ids.length) {
-    const { data: issues } = await db.from("analysis_issues").select("analysis_run_id, status").in("analysis_run_id", ids);
+    const [{ data: issues }, { data: proposals }] = await Promise.all([
+      db.from("analysis_issues").select("analysis_run_id, status").in("analysis_run_id", ids),
+      db.from("requirement_proposals").select("analysis_run_id, review_status, promoted_record_id").in("analysis_run_id", ids),
+    ]);
     for (const i of (issues ?? []) as { analysis_run_id: string; status: string }[]) if (i.status === "Open") open[i.analysis_run_id] = (open[i.analysis_run_id] ?? 0) + 1;
+    // Same rule as migration 042's document delete guard.
+    for (const p of (proposals ?? []) as { analysis_run_id: string; review_status: string; promoted_record_id: string | null }[]) {
+      if (p.review_status === "Promoted" || p.promoted_record_id) promoted[p.analysis_run_id] = (promoted[p.analysis_run_id] ?? 0) + 1;
+    }
   }
-  return { status: 200, body: { runs: ((runs ?? []) as Record<string, unknown>[]).map((r) => ({ ...r, open_issue_count: open[r.id as string] ?? 0 })), configured_model: await configuredAnalysisModel(db) } };
+  return { status: 200, body: { runs: ((runs ?? []) as Record<string, unknown>[]).map((r) => ({ ...r, open_issue_count: open[r.id as string] ?? 0, promoted_count: promoted[r.id as string] ?? 0 })), configured_model: await configuredAnalysisModel(db) } };
 }
 
 /** Manager/Admin: one run with its proposals, issues and the analysed fragments (for provenance). */
