@@ -501,7 +501,7 @@ await run("040: promotion is locked, atomic, idempotent and uses the app's nextR
   assert.doesNotMatch(m040, /UPDATE public\.requirements\b|DELETE FROM public\.requirements\b/, "existing canonical Requirements are never modified");
   for (const fn of ["promote_requirement_proposal", "split_requirement_proposal", "promote_analysis_issue"]) assert.match(m040, new RegExp(`'public\\.${fn}\\(`), `${fn} is service-role only`);
   assert.match(m040, /EXECUTE format\('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn\);\s+EXECUTE format\('GRANT EXECUTE ON FUNCTION %s TO service_role', fn\);/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "040_requirement_review_promotion");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "040_requirement_review_promotion");
 });
 
 await run("the SQL reference numbering matches lib/utils nextRef (the canonical client rule)", () => {
@@ -536,6 +536,163 @@ await run("UI: only state-valid actions; inferred acknowledgement and bulk confi
   assert.match(read("components/app-client.tsx"), /<RequirementProvenancePanel projectId=\{pid\} requirementId=\{recordId\} \/>/);
   assert.doesNotMatch(read("components/source-documents-page.tsx"), /proposalReview|Promote/, "no review controls on Source Documents");
   for (const label of ["requirement_proposals: \"Requirement Proposal\"", "analysis_issues: \"Analysis Issue\"", "analysis_scope_notes: \"Scope Note\""]) assert.ok(read("components/audit-trail-page.tsx").includes(label));
+});
+
+// ── Migration 041: a promoted Requirement cannot be deleted ────────────────
+// The browser deletes Requirements with the RLS client (lib/supabase/
+// data-store deleteRecord). This stand-in mirrors migration 041 for that
+// client: the BEFORE DELETE guard refuses while a proposal was promoted into
+// the Requirement (and its project exists); otherwise the delete goes ahead.
+// 041 itself was validated against the live database in a rolled-back run
+// (trigger refusal, deferred-FK backstop with the trigger disabled, link and
+// status immutability, manual delete, whole-project delete) before applying.
+
+const m041 = code(read("supabase/migrations/041_promoted_requirement_delete_protection.sql"));
+const GUARD_MESSAGE = "This Requirement was created from an approved AI proposal and cannot be deleted because its promotion history must be preserved. Change its lifecycle/status instead.";
+
+await run("041: promotion FK is NO ACTION + deferred (no more SET NULL); a BEFORE DELETE guard refuses with a clear message", () => {
+  assert.match(m041, /DROP CONSTRAINT requirement_proposals_promoted_record_id_fkey;\s+ALTER TABLE public\.requirement_proposals\s+ADD CONSTRAINT requirement_proposals_promoted_record_id_fkey\s+FOREIGN KEY \(promoted_record_id\) REFERENCES public\.requirements \(id\)\s+ON DELETE NO ACTION\s+DEFERRABLE INITIALLY DEFERRED;/);
+  assert.doesNotMatch(m041, /SET NULL|ON DELETE CASCADE/);
+  assert.match(m041, /CREATE TRIGGER requirements_promoted_delete_guard BEFORE DELETE ON public\.requirements\s+FOR EACH ROW EXECUTE FUNCTION public\.requirements_promoted_delete_guard\(\);/);
+  const fn = m041.slice(m041.indexOf("FUNCTION public.requirements_promoted_delete_guard()"), m041.indexOf("$$;", m041.indexOf("FUNCTION public.requirements_promoted_delete_guard()")));
+  assert.match(fn, /SECURITY DEFINER SET search_path = ''/);
+  assert.match(fn, /EXISTS \(SELECT 1 FROM public\.requirement_proposals p WHERE p\.promoted_record_id = OLD\.id\)\s+AND EXISTS \(SELECT 1 FROM public\.projects pr WHERE pr\.id = OLD\.project_id\)/, "whole-project delete still cascades");
+  assert.ok(fn.includes(`RAISE EXCEPTION '${GUARD_MESSAGE}'`));
+  assert.match(fn, /USING ERRCODE = '23503', CONSTRAINT = 'requirement_proposals_promoted_record_id_fkey'/);
+  assert.match(m041, /REVOKE ALL ON FUNCTION public\.requirements_promoted_delete_guard\(\) FROM PUBLIC, anon, authenticated;/);
+});
+
+await run("041: the promotion link can never be cleared or re-pointed; nothing else in the proposal guard changes; no data is touched", () => {
+  assert.match(m041, /IF OLD\.promoted_record_id IS NOT NULL AND NEW\.promoted_record_id IS DISTINCT FROM OLD\.promoted_record_id THEN\s+RAISE EXCEPTION 'a promoted proposal keeps the canonical record it created';/);
+  assert.match(m041, /IF OLD\.review_status IN \('Promoted', 'Superseded'\) AND to_jsonb\(NEW\) - 'updated_at' IS DISTINCT FROM to_jsonb\(OLD\) - 'updated_at' THEN/, "no promoted_record_id exemption on a final proposal");
+  const body = (sql) => { const i = sql.indexOf("FUNCTION public.analysis_output_immutable()"); return sql.slice(i, sql.indexOf("$$;", i)); };
+  const norm = (f) => f.replace(/\s+/g, " ")
+    .replace(" IF OLD.promoted_record_id IS NOT NULL AND NEW.promoted_record_id IS DISTINCT FROM OLD.promoted_record_id THEN RAISE EXCEPTION 'a promoted proposal keeps the canonical record it created'; END IF;", "")
+    .replace("to_jsonb(NEW) - 'updated_at' - 'promoted_record_id' IS DISTINCT FROM to_jsonb(OLD) - 'updated_at' - 'promoted_record_id'", "to_jsonb(NEW) - 'updated_at' IS DISTINCT FROM to_jsonb(OLD) - 'updated_at'");
+  assert.equal(norm(body(m041)), norm(body(m040)), "040's guard reproduced exactly apart from the two tightenings");
+  assert.doesNotMatch(m041, /\b(UPDATE|DELETE FROM|INSERT INTO) public\./, "no data is modified");
+  assert.doesNotMatch(m041, /POLICY|GRANT /, "RLS and grants unchanged");
+  const schema = req("../lib/schema.ts");
+  assert.equal(schema.latestMigration, "041_promoted_requirement_delete_protection");
+  assert.equal(schema.schemaVersion, schema.latestMigration);
+  assert.equal(schema.allMigrations.at(-1), schema.latestMigration);
+});
+
+const clientModule = req("../lib/supabase/client.ts");
+const dataStore = req("../lib/supabase/data-store.ts");
+const clientAudits = [];
+globalThis.window = { dispatchEvent() {} };
+globalThis.CustomEvent = class { constructor(t, i) { this.type = t; this.detail = i?.detail; } };
+globalThis.fetch = async (url, init) => { clientAudits.push(JSON.parse(init.body)); return { ok: true, json: async () => ({}) }; };
+function rlsClient() {
+  return { from(table) {
+    const q = { op: "select", id: null, values: null };
+    const exec = () => {
+      const rows = db[table];
+      if (q.op === "delete") {
+        const row = rows.find((r) => r.id === q.id);
+        if (!row) return { data: [], error: null };
+        if (table === "requirements" && db.requirement_proposals.some((p) => p.promoted_record_id === row.id) && db.projects.some((pr) => pr.id === row.project_id)) {
+          return { data: null, error: { code: "23503", message: GUARD_MESSAGE } };
+        }
+        db[table] = rows.filter((r) => r.id !== q.id);
+        return { data: [{ id: row.id }], error: null };
+      }
+      if (q.op === "update") {
+        const row = rows.find((r) => r.id === q.id);
+        if (!row) return { data: [], error: null };
+        Object.assign(row, q.values);
+        return { data: [{ ...row }], error: null };
+      }
+      return { data: rows.filter((r) => r.id === q.id).map((r) => ({ ...r })), error: null };
+    };
+    const b = {
+      select() { return b; }, eq(k, v) { if (k === "id") q.id = v; return b; },
+      delete() { q.op = "delete"; return b; }, update(v) { q.op = "update"; q.values = v; return b; },
+      single: async () => { const r = exec(); return { data: r.data?.[0] ?? null, error: r.error }; },
+      then(resolve) { return Promise.resolve(exec()).then(resolve); },
+    };
+    return b;
+  } };
+}
+clientModule.supabase = rlsClient();
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+await run("a manually-created Requirement deletes exactly as before (and its Delete is audited)", async () => {
+  const manual = { id: uuid(), project_id: P, requirement_ref: "REP-020", title: "Manual to delete", status: "Discovery", owner: null, priority: "Low", category: "UI" };
+  db.requirements.push(manual);
+  await dataStore.deleteRecord("requirements", manual.id);
+  await settle();
+  assert.ok(!db.requirements.some((r) => r.id === manual.id));
+  assert.deepEqual([clientAudits.at(-1).entries[0].action_type, clientAudits.at(-1).entries[0].entity_id], ["Delete", manual.id]);
+});
+
+await run("a promoted Requirement delete is refused with the clear message; proposal stays Promoted, link and provenance intact, no Delete audited", async () => {
+  const before = JSON.stringify(pr(2));
+  const audits = clientAudits.length;
+  await assert.rejects(dataStore.deleteRecord("requirements", promoted.id),
+    (e) => e.message === `Failed to delete requirements: ${dataStore.PROMOTED_REQUIREMENT_DELETE_MESSAGE}`);
+  assert.match(dataStore.PROMOTED_REQUIREMENT_DELETE_MESSAGE, /created from an approved AI proposal and cannot be deleted because its promotion history must be preserved\. Change its lifecycle\/status instead\./);
+  await settle();
+  assert.equal(clientAudits.length, audits, "no Delete audit for a refused delete");
+  assert.ok(db.requirements.some((r) => r.id === promoted.id), "the Requirement is still there");
+  assert.deepEqual([pr(2).review_status, pr(2).promoted_record_id, pr(2).promoted_ref], ["Promoted", promoted.id, "REP-008"]);
+  assert.equal(JSON.stringify(pr(2)), before, "proposal not reopened, not cleared, not replaced");
+  as("Viewer");
+  const res = await call(provenanceRoute.GET, `/api/requirements/provenance?project_id=${P}&requirement_id=${promoted.id}`, { method: "GET" });
+  assert.equal(res.status, 200);
+  assert.deepEqual([res.body.provenance.proposal.sequence, res.body.provenance.document.document_name, res.body.provenance.fragments.map((f) => f.id)], [2, "PL10 Spec", [F[0]]]);
+});
+
+await run("the deferred-FK backstop error reads the same clear message", async () => {
+  clientModule.supabase = { from() { const b = { select() { return b; }, eq() { return b; }, delete() { return b; }, single: async () => ({ data: null, error: null }),
+    then(resolve) { return Promise.resolve({ data: null, error: { code: "23503", message: 'update or delete on table "requirements" violates foreign key constraint "requirement_proposals_promoted_record_id_fkey" on table "requirement_proposals"' } }).then(resolve); } }; return b; } };
+  await assert.rejects(dataStore.deleteRecord("requirements", promoted.id), new RegExp(`^Error: Failed to delete requirements: ${dataStore.PROMOTED_REQUIREMENT_DELETE_MESSAGE.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}$`));
+  clientModule.supabase = rlsClient();
+});
+
+await run("a promoted Requirement's status/lifecycle can still be changed", async () => {
+  const saved = await dataStore.updateRecord("requirements", { id: promoted.id, status: "In Progress" });
+  assert.equal(saved.status, "In Progress");
+  assert.equal(db.requirements.find((r) => r.id === promoted.id).status, "In Progress");
+  await dataStore.updateRecord("requirements", { id: promoted.id, status: "Discovery" });
+  assert.deepEqual([pr(2).review_status, pr(2).promoted_record_id], ["Promoted", promoted.id]);
+});
+
+await run("Manager/Admin cannot unpromote, reopen, re-point or replace the promoted proposal through any review route", async () => {
+  const before = JSON.stringify(pr(2));
+  const requirements = db.requirements.length, proposals = db.requirement_proposals.length;
+  for (const role of ["Manager", "Admin"]) {
+    as(role);
+    for (const body of [
+      { action: "reject", proposal_id: pr(2).id, reason: "Out of scope" },
+      { action: "needs_review", proposal_id: pr(2).id },
+      { action: "reopen", proposal_id: pr(2).id },
+      { action: "approve", proposal_id: pr(2).id },
+      { action: "edit", proposal_id: pr(2).id, title: "Changed" },
+      { action: "split", proposal_id: pr(2).id, children: [{ title: "a", description: "a", source_fragment_ids: [F[0]] }, { title: "b", description: "b", source_fragment_ids: [F[0]] }] },
+      { action: "merge", proposal_ids: [pr(2).id, pr(5).id], title: "m", description: "m", category: "UI", priority: "Low" },
+    ]) {
+      const res = await act(body);
+      assert.ok(res.status >= 400, `${role} ${body.action} refused (${res.status})`);
+    }
+    const again = await act({ action: "promote", proposal_id: pr(2).id });
+    assert.deepEqual([again.status, again.body.already_promoted, again.body.requirement.id], [200, true, promoted.id], "re-promotion is idempotent, never a replacement");
+  }
+  assert.equal(JSON.stringify(pr(2)), before);
+  assert.equal(db.requirements.length, requirements);
+  assert.equal(db.requirement_proposals.length, proposals, "no replacement proposal");
+  // No server/API code path deletes Requirements; the browser's generic delete goes through the guarded RLS client.
+  const serverFiles = fs.readdirSync(path.join(root, "app/api"), { recursive: true }).filter((f) => f.endsWith(".ts")).map((f) => `app/api/${f}`)
+    .concat(fs.readdirSync(path.join(root, "lib")).filter((f) => f.endsWith("-server.ts")).map((f) => `lib/${f}`));
+  for (const f of serverFiles) assert.doesNotMatch(read(f), /from\("requirements"\)\s*\.delete\(/, f);
+});
+
+await run("UI: the Requirement drawer explains why a promoted Requirement cannot be deleted; refused deletes surface in the table", () => {
+  const panel = read("components/requirement-provenance.tsx");
+  assert.match(panel, /created from an approved AI proposal, so it cannot be deleted — its promotion history must be preserved\. Change its lifecycle\/status instead\./);
+  assert.match(panel, /if \(!provenance\) return null;/, "only promoted Requirements show the note");
+  assert.match(read("components/data-table.tsx"), /setOperationError\(error instanceof Error \? error\.message : `Failed to delete/);
 });
 
 console.log("\nAll Phase 1D requirement-review tests passed.\n");

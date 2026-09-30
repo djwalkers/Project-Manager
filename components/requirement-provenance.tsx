@@ -56,6 +56,7 @@ export function RequirementProvenancePanel({ projectId, requirementId }: { proje
           </li>
         ))}
       </ul>
+      <p className="mt-2 text-xs text-muted-foreground">This requirement was created from an approved AI proposal, so it cannot be deleted — its promotion history must be preserved. Change its lifecycle/status instead.</p>
       {version ? <Button className="mt-2" variant="outline" size="sm" onClick={() => open(null)}><ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />Open original</Button> : null}
     </section>
   );

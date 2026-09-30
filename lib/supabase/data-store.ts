@@ -70,6 +70,9 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
   };
 }
 
+export const PROMOTED_REQUIREMENT_DELETE_MESSAGE =
+  "this requirement was created from an approved AI proposal and cannot be deleted because its promotion history must be preserved. Change its lifecycle/status instead.";
+
 function errorMessage(action: string, error: { message?: string; code?: string } | null) {
   // 42501 = refused by RLS / privileges — e.g. a Viewer (read-only) trying to write.
   if (error?.code === "42501") return new Error(`${action}: you do not have permission to make this change.`);
@@ -80,6 +83,10 @@ function errorMessage(action: string, error: { message?: string; code?: string }
   }
   if (error?.code === "23503" && /on table "requirements"/.test(message) && /requirement_sign_offs/.test(message)) {
     return new Error(`${action}: this requirement has recorded sign-offs. Formal sign-off history is kept, so a signed-off requirement cannot be deleted.`);
+  }
+  // Migration 041: a Requirement promoted from an AI proposal keeps its promotion history.
+  if (error?.code === "23503" && (/requirement_proposals_promoted_record_id_fkey/.test(message) || /created from an approved AI proposal/.test(message))) {
+    return new Error(`${action}: ${PROMOTED_REQUIREMENT_DELETE_MESSAGE}`);
   }
   if (error?.code === "23503" && /acceptance_criteria_requirement_same_project_fkey/.test(message)) {
     return new Error(`${action}: the selected requirement does not exist in this project. Choose a requirement from the current project.`);
