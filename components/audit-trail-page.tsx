@@ -27,6 +27,10 @@ const ENTITY_LABELS: Record<string, string> = {
   documents: "Source Document",
   document_versions: "Document Version",
   analysis_runs: "Analysis Run",
+  requirement_proposals: "Requirement Proposal",
+  analysis_issues: "Analysis Issue",
+  analysis_scope_notes: "Scope Note",
+  discovery_questions: "Discovery Question",
 };
 
 const ACTION_TYPES: AuditActionType[] = [

@@ -536,7 +536,7 @@ await run("039: scope notes are provenance-checked, immutable, Manager/Admin rea
   assert.match(m039, /'\[\]'::jsonb, p_diagnostics, p_with_warnings\) c;/, "the 038 signature stays as a no-notes wrapper for deployed code");
   assert.doesNotMatch(m039, /(INSERT INTO|UPDATE|DELETE FROM)\s+public\.(requirements|acceptance_criteria|test_cases|actions|risks|decisions|discovery_questions|documents|document_versions|source_fragments|extraction_jobs)\b/, "no canonical or source data touched");
   assert.doesNotMatch(m039, /UPDATE public\.(requirement_proposals|analysis_issues)\b|DROP TABLE|DELETE FROM public\.analysis/, "existing runs, proposals and issues are not rewritten");
-  assert.equal(req("../lib/schema.ts").latestMigration, "039_analysis_quality_hardening");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "039_analysis_quality_hardening");
 });
 
 // ── Code-level guarantees ───────────────────────────────────────────────────
@@ -569,7 +569,8 @@ await run("UI: the workspace is Manager/Admin only, shows provenance, and cannot
   assert.match(ws, /This run used analysis schema 1\.0\.0, which did not record scope notes\./, "older runs stay readable");
   assert.match(ws, /Open original\{isPdf && focused\.page_start \? ` at page \$\{focused\.page_start\}` : ""\}/);
   assert.match(ws, /p\.evidence_basis === "Explicit" \? "ok" : "warn"/);
-  assert.doesNotMatch(ws, /saveRecord|\/api\/requirements|Promote|Approve/, "no canonical writes or promotion in Phase 1C");
+  // Phase 1D adds review/promotion, but only through the server routes — never a direct canonical write from the workspace.
+  assert.doesNotMatch(ws, /saveRecord|createRecord|updateRecord|from\("requirements"\)/, "no direct canonical writes from the workspace");
 });
 
 await run("UI: System Health shows Ollama, the analysis model and queue; only Admin can change the model", () => {
