@@ -15,7 +15,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export type AnalysisRunSummary = AnalysisRun & { open_issue_count: number };
+export type AnalysisRunSummary = AnalysisRun & { open_issue_count: number; promoted_count: number };
 
 export function loadAnalysisRuns(projectId: string) {
   return call<{ runs: AnalysisRunSummary[]; configured_model: string }>(`/api/source-documents/analysis?project_id=${encodeURIComponent(projectId)}`);

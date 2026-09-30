@@ -14,11 +14,11 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { canArchiveOrDeleteSourceDocuments, canManageSourceDocuments, canRunRequirementAnalysis, canViewRequirementAnalysis } from "@/lib/permissions";
 import { scopeProjectData } from "@/lib/project-scope";
-import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, canQueueExtraction, canReextract, checkUploadCandidate, currentVersionOf, fileSummary, formatBytes, jobsForVersion, latestJobFor, latestSuccessfulJobFor, versionsFor } from "@/lib/source-documents";
+import { ACCEPT_ATTRIBUTE, DOCUMENT_TYPE_OPTIONS, EXTRACTION_ERROR_LABELS, MAX_SOURCE_DOCUMENT_BYTES, SOURCE_DOCUMENT_PROVENANCE_DELETE_MESSAGE, canQueueExtraction, canReextract, checkUploadCandidate, currentVersionOf, fileSummary, formatBytes, jobsForVersion, latestJobFor, latestSuccessfulJobFor, versionsFor } from "@/lib/source-documents";
 import {
   deleteSourceDocument, loadAvailableExtractorVersion, openSourceDocumentVersion, queueSourceDocumentExtraction, setCurrentSourceDocumentVersion, setSourceDocumentArchived, uploadSourceDocument,
 } from "@/lib/source-documents-client";
-import { ANALYSIS_ERROR_LABELS, isActiveAnalysis, isCompletedAnalysis, runsForVersion } from "@/lib/requirement-analysis";
+import { ANALYSIS_ERROR_LABELS, isProvenanceProtected, isActiveAnalysis, isCompletedAnalysis, runsForVersion } from "@/lib/requirement-analysis";
 import { loadAnalysisRuns, queueDocumentAnalysis, retryDocumentAnalysis, type AnalysisRunSummary } from "@/lib/requirement-analysis-client";
 import type { DataStore } from "@/lib/data-store";
 import type { DocumentRecord, DocumentVersion, ExtractionJob, ExtractionStatus } from "@/lib/types";
@@ -276,7 +276,7 @@ export function SourceDocumentsPage() {
 
   const startAnalysis = (version: DocumentVersion, retryOf?: string) => run(version.id, async () => {
     const { run: queued } = retryOf ? await retryDocumentAnalysis(projectId, retryOf) : await queueDocumentAnalysis(projectId, version.id);
-    setAnalysisRuns((current) => [{ ...queued, open_issue_count: 0 }, ...current.filter((r) => r.id !== queued.id)]);
+    setAnalysisRuns((current) => [{ ...queued, open_issue_count: 0, promoted_count: 0 }, ...current.filter((r) => r.id !== queued.id)]);
   });
 
   // Analysis state + actions for the CURRENT version (Manager/Admin only):
@@ -357,7 +357,10 @@ export function SourceDocumentsPage() {
     if (mayManage && !document.archived_at) items.push({ label: "Upload New Version", icon: Upload, onSelect: () => setUploadTarget({ mode: "version", document }) });
     items.push({ label: historyFor === document.id ? "Hide version history" : "Version history", icon: History, onSelect: () => setHistoryFor(historyFor === document.id ? null : document.id) });
     if (mayArchive) items.push({ label: document.archived_at ? "Restore" : "Archive", icon: document.archived_at ? ArchiveRestore : Archive, onSelect: () => toggleArchived(document), separated: true });
-    if (mayArchive && document.archived_at) items.push({ label: "Delete permanently", icon: Trash2, onSelect: () => remove(document), destructive: true });
+    // Requirements were promoted from this document's analysis: the database
+    // refuses its deletion (migration 042), so say why up front.
+    const provenanceLocked = isProvenanceProtected(document.id, analysisRuns);
+    if (mayArchive && document.archived_at) items.push({ label: "Delete permanently", icon: Trash2, onSelect: () => remove(document), destructive: true, disabled: provenanceLocked, hint: provenanceLocked ? SOURCE_DOCUMENT_PROVENANCE_DELETE_MESSAGE : undefined });
     return items;
   }
 
@@ -551,7 +554,7 @@ export function SourceDocumentsPage() {
   );
 }
 
-type RowMenuItem = { label: string; icon: LucideIcon; onSelect: () => void; destructive?: boolean; separated?: boolean };
+type RowMenuItem = { label: string; icon: LucideIcon; onSelect: () => void; destructive?: boolean; separated?: boolean; disabled?: boolean; hint?: string };
 
 /** "⋯" overflow menu for a row's secondary actions (closes on select, outside click or Escape). */
 function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
@@ -573,16 +576,20 @@ function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
             onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}
           >
             {items.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                role="menuitem"
-                autoFocus={item === items[0]}
-                className={`flex w-full items-center gap-2 whitespace-nowrap rounded px-2.5 py-1.5 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none ${item.separated ? "mt-1 border-t pt-2" : ""} ${item.destructive ? "text-destructive" : ""}`}
-                onClick={() => { setOpen(false); item.onSelect(); }}
-              >
-                <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />{item.label}
-              </button>
+              <div key={item.label}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  autoFocus={item === items[0]}
+                  className={`flex w-full items-center gap-2 whitespace-nowrap rounded px-2.5 py-1.5 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent ${item.separated ? "mt-1 border-t pt-2" : ""} ${item.destructive ? "text-destructive" : ""}`}
+                  disabled={item.disabled}
+                  aria-describedby={item.hint ? `${item.label}-hint` : undefined}
+                  onClick={() => { setOpen(false); item.onSelect(); }}
+                >
+                  <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />{item.label}
+                </button>
+                {item.hint ? <p id={`${item.label}-hint`} className="max-w-[16rem] px-2.5 pb-1.5 text-xs text-muted-foreground">{item.hint}</p> : null}
+              </div>
             ))}
           </div>
         </>

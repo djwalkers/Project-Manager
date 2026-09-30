@@ -573,7 +573,8 @@ await run("041: the promotion link can never be cleared or re-pointed; nothing e
   assert.doesNotMatch(m041, /\b(UPDATE|DELETE FROM|INSERT INTO) public\./, "no data is modified");
   assert.doesNotMatch(m041, /POLICY|GRANT /, "RLS and grants unchanged");
   const schema = req("../lib/schema.ts");
-  assert.equal(schema.latestMigration, "041_promoted_requirement_delete_protection");
+  assert.ok(schema.latestMigration >= "041_promoted_requirement_delete_protection");
+  assert.ok(schema.allMigrations.includes("041_promoted_requirement_delete_protection"));
   assert.equal(schema.schemaVersion, schema.latestMigration);
   assert.equal(schema.allMigrations.at(-1), schema.latestMigration);
 });

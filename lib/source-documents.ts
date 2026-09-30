@@ -9,6 +9,10 @@ import type { DocumentRecord, DocumentVersion, ExtractionJob } from "@/lib/types
 
 export const SOURCE_DOCUMENTS_BUCKET = "source-documents";
 
+/** Migration 042: why a document promoted Requirements came from cannot be permanently deleted. */
+export const SOURCE_DOCUMENT_PROVENANCE_DELETE_MESSAGE =
+  "This source document cannot be permanently deleted because one or more promoted Requirements depend on its analysis provenance. Keep it archived instead.";
+
 /**
  * 25 MB. CR / specification / design documents are typically well under
  * 10 MB even with diagrams. Files go browser → Storage directly via a
