@@ -41,7 +41,7 @@ import { ANALYSIS_SCHEMA_VERSION, PROMPT_VERSION, promptFingerprint } from "./an
 import { AcGenerationError, runAcGeneration } from "./ac-generation/pipeline.js";
 import { AC_PROMPT_VERSION, AC_SCHEMA_VERSION, acPromptFingerprint } from "./ac-generation/prompts.js";
 
-export const WORKER_VERSION = "0.4.0";
+export const WORKER_VERSION = "0.4.2";
 export const BATCH_MAX_FRAGMENTS = 200;
 export const BATCH_MAX_CHARS = 2_000_000; // keeps each request well under Vercel's 4.5 MB body limit
 

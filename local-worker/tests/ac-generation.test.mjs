@@ -26,6 +26,8 @@ async function run(name, fn) {
 // Changing any prompt wording without bumping AC_PROMPT_VERSION fails here.
 const AC_PROMPT_FINGERPRINTS = {
   "1.0.0": "823269c2e07ec9dc2411ecfacc7d686e18b3fa79dff2c90655fc082f15a4c810",
+  "1.1.0": "d602a2ae3dbbd7fe9be535b081eb02a8b2485cb7e6f7a716427aa79b87889c96",
+  "1.2.0": "d26bbe628744bcfb14b74c4fe3d9f256999745528354d4124b73ee1ce61ecad2",
 };
 
 // ── Fixture: one promoted Requirement of a change request ───────────────────
@@ -47,6 +49,7 @@ const stageOf = (messages) => {
   const u = userOf(messages);
   if (u.startsWith("TASK: list every distinct obligation")) return "obligations";
   if (u.startsWith("TASK: these OBLIGATIONS")) return "coverage";
+  if (u.startsWith("TASK: each acceptance criterion below adds")) return "repair";
   return "criteria";
 };
 /** Fake model: per-stage handlers get (messages, attempt) and return an object or a raw string. */
@@ -59,14 +62,19 @@ function fakeLlm(handlers) {
       const stage = stageOf(messages);
       attempts[stage] = (attempts[stage] ?? 0) + 1;
       calls.push({ stage, messages: messages.map((m) => ({ ...m })), schema, attempt: attempts[stage] });
-      const out = (handlers[stage] ?? (() => (stage === "coverage" ? { criteria: [], gaps: [] } : {})))(messages, attempts[stage]);
+      let out = (handlers[stage] ?? (() => (stage === "coverage" ? { criteria: [], gaps: [] } : {})))(messages, attempts[stage]);
+      // Unless a test decides them, every supplied open question is "additional_coverage".
+      if (out && typeof out === "object" && (stage === "criteria" || stage === "coverage") && !("questions" in out)) {
+        const asked = stage === "criteria" ? [...(userOf(messages).split("OPEN QUESTIONS (unanswered — not facts):\n")[1] ?? "").matchAll(/^\[(Q\d+)\]/gm)].map((m) => m[1]) : [];
+        out = { ...out, questions: asked.map((id) => ({ id, relation: "additional_coverage", reason: "r" })) };
+      }
       return { content: typeof out === "string" ? out : JSON.stringify(out), durationMs: 5 };
     },
   };
 }
 const ob = (o) => ({ statement: "s", kind: "positive", source_ids: ["F3"], scope_note_ids: [], clarification_ids: [], open_question_ids: [], source_quote: "", ...o });
 const cr = (o) => ({ obligations: ["O1"], criterion: "c", given: "", when: "", then: "", criterion_type: "Positive", basis: "Explicit", confidence: "High",
-  source_ids: ["F3"], scope_note_ids: [], clarification_ids: [], open_question_ids: [], source_quote: "", rationale: "Stated in the source.", ...o });
+  source_ids: ["F3"], scope_note_ids: [], clarification_ids: [], blocking_question_ids: [], source_quote: "", rationale: "Stated in the source.", ...o });
 const PICKER_Q = "the picker's user name must remain against the pick task";
 const standard = {
   obligations: () => ({
@@ -91,8 +99,9 @@ const standard = {
 
 await run("AC prompts are versioned separately from requirement analysis, and the text is pinned to its version", () => {
   assert.equal(acPromptFingerprint(), AC_PROMPT_FINGERPRINTS[AC_PROMPT_VERSION], "AC prompt text changed — bump AC_PROMPT_VERSION and pin the new fingerprint");
+  assert.equal(AC_PROMPT_VERSION, "1.2.0");
   assert.deepEqual(AC_IDENTITY, { ac_prompt_version: AC_PROMPT_VERSION, ac_prompt_sha256: acPromptFingerprint(), ac_schema_version: AC_SCHEMA_VERSION });
-  assert.equal(WORKER_VERSION, "0.4.0");
+  assert.equal(WORKER_VERSION, "0.4.2");
 });
 
 // ── Input / context ─────────────────────────────────────────────────────────
@@ -174,24 +183,70 @@ await run("a Negative criterion with no negative statement behind it is flagged 
 
 // ── Human clarification and open questions ─────────────────────────────────
 
-await run("a human clarification may ground a criterion and is recorded; an open question is never a fact (Needs Review + issue)", async () => {
+await run("a human clarification may ground a criterion and is recorded; a related open question attached to the obligation does not block the criterion", async () => {
   const result = await runAcGeneration({ input: inputOf(), llm: fakeLlm({
     obligations: () => ({ obligations: [
       ob({ statement: "When a task has two pickers, the first picker recorded is kept.", source_ids: [], clarification_ids: ["C1"] }),
-      ob({ statement: "The palletiser name shown after repeated palletisation.", source_quote: PICKER_Q, open_question_ids: ["Q1"] }),
+      ob({ statement: "The picker's user name must remain against the pick task.", source_quote: PICKER_Q, open_question_ids: ["Q1"] }),
     ], scope_notes: [{ id: "N1", relevant: false, reason: "n/a" }] }),
     criteria: () => ({ criteria: [
       cr({ criterion: "When a pick task has two pickers, the Admin Dashboard shows the first picker recorded against the task.", source_ids: [], clarification_ids: ["C1"] }),
       cr({ obligations: ["O2"], criterion: "After palletisation the Admin Dashboard shows the picker's user name against the pick task.", source_quote: PICKER_Q }),
-    ], gaps: [] }),
+    ], gaps: [], questions: [{ id: "Q1", relation: "additional_coverage", reason: "About repeated palletisation, which the criteria do not cover." }] }),
   }) });
-  const [byClar, byOpen] = result.proposals;
+  const [byClar, core] = result.proposals;
   assert.deepEqual([byClar.basis, byClar.clarification_issue_ids, byClar.source_fragment_ids], ["Explicit", [CLAR.id], []]);
-  assert.deepEqual(byOpen.open_issue_ids, [OPEN.id], "inherited from the obligation it covers");
-  assert.match(byOpen.needs_review_reasons.join(" "), /Depends on an open question: Which palletiser name/);
-  const unresolved = result.issues.find((i) => i.issue_type === "Unresolved Existing Analysis Issue");
-  assert.deepEqual(unresolved.analysis_issue_ids, [OPEN.id]);
-  assert.match(unresolved.description, /1 criterion relying on it is marked Needs Review/);
+  assert.deepEqual([core.open_issue_ids, core.needs_review_reasons], [[], []], "no inheritance from the obligation: the core criterion stays Proposed");
+  const q = result.issues.find((i) => i.issue_type === "Unresolved Existing Analysis Issue");
+  assert.deepEqual([q.relation, q.severity, q.analysis_issue_ids], ["Additional Coverage", "Low", [OPEN.id]]);
+  assert.match(q.description, /^Additional coverage question — does not block the proposed criteria/);
+});
+
+await run("a BLOCKING open question (the expected result needs the answer) marks only the criterion that depends on it Needs Review", async () => {
+  const SORT_Q = { id: id(201), sequence: 3, issue_type: "Missing Information", question: "Must the pick tasks be sorted ascending or descending by name?", description: "Order not stated." };
+  const result = await runAcGeneration({ input: inputOf({ open_questions: [SORT_Q], clarifications: [] }), llm: fakeLlm({
+    obligations: () => ({ obligations: [ob({ statement: "The picker's user name must remain against the pick task.", source_quote: PICKER_Q })], scope_notes: [{ id: "N1", relevant: false, reason: "n/a" }] }),
+    criteria: () => ({ criteria: [
+      cr({ criterion: "The Admin Dashboard lists pick tasks sorted by picker name.", source_quote: PICKER_Q, blocking_question_ids: ["Q1"] }),
+      cr({ criterion: "After palletisation the Admin Dashboard shows the picker's user name against the pick task.", source_quote: PICKER_Q }),
+    ], gaps: [], questions: [{ id: "Q1", relation: "blocking", reason: "The sort order is the expected result." }] }),
+  }) });
+  assert.deepEqual(result.proposals.map((p) => p.open_issue_ids), [[SORT_Q.id], []]);
+  assert.match(result.proposals[0].needs_review_reasons.join(), /Blocked by an open question: Must the pick tasks be sorted ascending or descending/);
+  assert.deepEqual(result.proposals[1].needs_review_reasons, []);
+  const q = result.issues.find((i) => i.relation);
+  assert.deepEqual([q.relation, q.severity], ["Blocking", "Medium"]);
+  assert.match(q.description, /^Blocking — this open analysis question must be answered before 1 criterion can be confirmed/);
+});
+
+await run("a question about an extra situation (multiple / repeated / existing data) never blocks a criterion that does not claim to cover it — even if the model says so", async () => {
+  const { extraSituations } = await import("../ac-generation/pipeline.js");
+  assert.deepEqual(extraSituations("What happens when a task is palletised multiple times?", "After palletisation the picker's name remains."), ["multiple"]);
+  assert.deepEqual(extraSituations("How are existing extracts handled?", "Existing extracts show the picker's name."), [], "the criterion covers it");
+  assert.deepEqual(extraSituations("Which sort order applies to the list?", "The list is sorted by name."), [], "no extra situation: may block");
+  assert.deepEqual(extraSituations("What if the task is re-palletised?", "The name remains."), ["re-palletised"]);
+  const result = await runAcGeneration({ input: inputOf({ open_questions: [{ ...OPEN, question: "What happens to the picker name when a task is palletised multiple times or by several palletisers?" }] }), llm: fakeLlm({
+    obligations: () => ({ obligations: [ob({ statement: "The picker's user name must remain against the pick task.", source_quote: PICKER_Q })], scope_notes: [{ id: "N1", relevant: false, reason: "n/a" }] }),
+    criteria: () => ({ criteria: [cr({ criterion: "After palletisation the Admin Dashboard shows the picker's user name against the pick task.", source_quote: PICKER_Q, blocking_question_ids: ["Q1"] })],
+      gaps: [], questions: [{ id: "Q1", relation: "blocking", reason: "model over-reach" }] }),
+  }) });
+  assert.deepEqual([result.proposals[0].open_issue_ids, result.proposals[0].needs_review_reasons], [[], []]);
+  const rel = result.diagnostics.question_relations[0];
+  assert.deepEqual([rel.decided, rel.relation], ["blocking", "Additional Coverage"]);
+  assert.match(rel.not_blocking_because, /^asks about multiple, Repeated, which the criterion does not claim to cover$/);
+  assert.equal(result.issues.find((i) => i.relation).relation, "Additional Coverage", "the question stays visible");
+});
+
+await run("an open question the model judges irrelevant produces no issue; an undecided question is refused and retried", async () => {
+  const llm = fakeLlm({
+    obligations: () => ({ obligations: [ob({ statement: "The picker's user name must remain against the pick task.", source_quote: PICKER_Q })], scope_notes: [{ id: "N1", relevant: false, reason: "n/a" }] }),
+    criteria: (m, attempt) => ({ criteria: [cr({ criterion: "After palletisation the Admin Dashboard shows the picker's user name against the pick task.", source_quote: PICKER_Q })],
+      gaps: [], questions: attempt === 1 ? [] : [{ id: "Q1", relation: "irrelevant", reason: "About another requirement." }] }),
+  });
+  const result = await runAcGeneration({ input: inputOf(), llm });
+  assert.match(llm.calls.filter((c) => c.stage === "criteria")[1].messages.at(-1).content, /Q1 is missing from questions/);
+  assert.equal(result.issues.filter((i) => i.relation).length, 0);
+  assert.deepEqual(result.diagnostics.question_relations.map((r) => [r.decided, r.relation]), [["irrelevant", null]]);
 });
 
 // ── No invention, vagueness ────────────────────────────────────────────────
@@ -205,7 +260,7 @@ await run("a criterion stating a value the source never gives is refused and rec
     coverage: () => ({ criteria: [], gaps: [] }),
   }) });
   assert.equal(result.proposals.length, 0);
-  assert.deepEqual(result.issues.map((i) => i.issue_type), ["Insufficient Source Support", "Missing Testable Outcome"]);
+  assert.deepEqual(result.issues.map((i) => [i.issue_type, i.relation]), [["Insufficient Source Support", null], ["Missing Testable Outcome", null], ["Unresolved Existing Analysis Issue", "Additional Coverage"]]);
   assert.match(result.issues[0].description, /stated 2 seconds, which nothing in the requirement/);
 });
 
@@ -232,6 +287,107 @@ await run("Explicit without a verbatim source quote (its own or its obligation's
   }) });
   assert.equal(result.proposals[0].basis, "Inferred");
   assert.match(result.diagnostics.warnings.join(" "), /marked Explicit but not grounded/);
+});
+
+// ── Semantic fidelity (1.2.0) ──────────────────────────────────────────────
+
+const EXTRACT_Q = "This detail would also need to be correct for any reporting extracts.";
+const extractInput = () => inputOf({ requirement: { ...requirement, title: "Reporting extracts show correct names", description: EXTRACT_Q },
+  proposal: { ...proposal, description: EXTRACT_Q, source_quote: EXTRACT_Q }, open_questions: [], clarifications: [], scope_notes: [] });
+const extractObligation = { obligations: [ob({ statement: "Reporting extracts must show the correct user names.", source_quote: EXTRACT_Q })], scope_notes: [] };
+
+await run("an unsupported comparison or source-of-truth rule is detected; ordinary testable paraphrase and source-stated rules are not", async () => {
+  const { unsupportedSemantics } = await import("../ac-generation/pipeline.js");
+  const corpus = `${F3.text} ${F8.text}`;
+  assert.deepEqual(unsupportedSemantics("The extract's user names must match the current user names in the system.", corpus).map((u) => u.kind), ["comparison", "source of truth", "currency"]);
+  assert.deepEqual(unsupportedSemantics("The names are validated against the database.", corpus).map((u) => u.kind), ["comparison", "source of truth"]);
+  assert.deepEqual(unsupportedSemantics("The picker's user name is shown immediately after palletisation.", corpus).map((u) => u.kind), ["timing"]);
+  assert.deepEqual(unsupportedSemantics("After palletisation the Admin Dashboard shows the picker's user name against the pick task and does not update with the palletiser name.", corpus), [], "plain testable paraphrase");
+  assert.deepEqual(unsupportedSemantics("The value must match the plant/user table.", `${corpus} The value must match the plant/user table.`), [], "the source states the comparison");
+  assert.deepEqual(unsupportedSemantics("Currently the user name updates.", corpus), [], "a word the source uses ('Currently') is grounded");
+});
+
+await run("vague-but-grounded is distinguished from concrete-but-invented", async () => {
+  const llm = fakeLlm({
+    obligations: () => extractObligation,
+    criteria: () => ({ criteria: [
+      cr({ criterion: "The reporting extracts show the correct user names.", source_quote: EXTRACT_Q }),
+      cr({ criterion: "The reporting extracts show user names that match the current user names in the system.", source_quote: EXTRACT_Q }),
+    ], gaps: [] }),
+    repair: () => ({ repairs: [{ key: "A1", criterion: "The reporting extracts show user names that match the system records.", given: "", when: "", then: "", unresolved: false }] }),
+  });
+  const result = await runAcGeneration({ input: extractInput(), llm });
+  const [vague, invented] = result.proposals;
+  assert.match(vague.needs_review_reasons.join(), /^Expected result is source-grounded but not sufficiently concrete to define correctness \("show the correct user names"\)\.$/);
+  assert.match(invented.needs_review_reasons.join(), /^Expected result introduces an unsupported interpretation: "match the current user names in the system"/);
+  assert.equal(result.diagnostics.semantic_repairs[0].outcome, "repair rejected", "the repair still compares against the system");
+});
+
+await run("repair removes the unsupported interpretation and invents no replacement; an unresolved definition stays Needs Review", async () => {
+  const llm = fakeLlm({
+    obligations: () => extractObligation,
+    criteria: () => ({ criteria: [cr({ criterion: "The reporting extracts show user names that match the current user names in the system.", source_quote: EXTRACT_Q })], gaps: [] }),
+    repair: (m) => {
+      const u = userOf(m);
+      assert.match(u, /A1: The reporting extracts show user names that match the current user names in the system\.\n\s+UNSUPPORTED: "match the current user names in the system" \(comparison\)/);
+      assert.match(u, /Do not invent a replacement definition/);
+      return { repairs: [{ key: "A1", criterion: "The reporting extracts show the picker's user name against the pick task.", given: "", when: "", then: "", unresolved: true }] };
+    },
+  });
+  const result = await runAcGeneration({ input: extractInput(), llm });
+  const p = result.proposals[0];
+  assert.equal(p.criterion, "The reporting extracts show the picker's user name against the pick task.");
+  assert.doesNotMatch(p.criterion, /match|system|current/);
+  assert.deepEqual(p.needs_review_reasons, ["Expected result is source-grounded but not sufficiently concrete to define correctness."], "unresolved → still Needs Review, never silently Proposed");
+  assert.deepEqual(result.diagnostics.semantic_repairs.map((r) => [r.outcome, r.unsupported[0].kind]), [["repaired", "comparison"]]);
+  assert.deepEqual(llm.calls.map((c) => c.stage), ["obligations", "criteria", "repair"], "exactly one bounded repair call");
+});
+
+await run("a repair that swaps in a different invented rule, or no repair at all, leaves the criterion Needs Review", async () => {
+  for (const repair of [
+    () => ({ repairs: [{ key: "A1", criterion: "The reporting extracts show user names taken from the payroll register.", given: "", when: "", then: "", unresolved: false }] }),
+    () => ({ repairs: [] }),
+  ]) {
+    const result = await runAcGeneration({ input: extractInput(), llm: fakeLlm({
+      obligations: () => extractObligation,
+      criteria: () => ({ criteria: [cr({ criterion: "The reporting extracts show user names that match the current user names in the system.", source_quote: EXTRACT_Q })], gaps: [] }),
+      repair,
+    }) });
+    const p = result.proposals[0];
+    assert.equal(p.criterion, "The reporting extracts show user names that match the current user names in the system.", "the original is kept, flagged");
+    assert.match(p.needs_review_reasons.join(), /introduces an unsupported interpretation/);
+    assert.ok(["repair rejected", "not repaired"].includes(result.diagnostics.semantic_repairs[0].outcome));
+  }
+  const rejected = (await runAcGeneration({ input: extractInput(), llm: fakeLlm({ obligations: () => extractObligation,
+    criteria: () => ({ criteria: [cr({ criterion: "The reporting extracts show user names that match the current user names in the system.", source_quote: EXTRACT_Q })], gaps: [] }),
+    repair: () => ({ repairs: [{ key: "A1", criterion: "The reporting extracts show user names taken from the payroll register.", given: "", when: "", then: "", unresolved: false }] }) }) })).diagnostics.semantic_repairs[0];
+  assert.match(rejected.why, /^introduces taken, payroll, register$/, "an invented replacement is caught");
+});
+
+await run("a human clarification may legitimately supply the missing semantics (no flag, no repair)", async () => {
+  const clar = { ...CLAR, question: "What does 'correct' mean for the extracts?", resolution_note: "The extract names must match the user names held in the user table." };
+  const llm = fakeLlm({
+    obligations: () => extractObligation,
+    criteria: () => ({ criteria: [cr({ criterion: "The reporting extracts show user names that match the user names held in the user table.", source_quote: EXTRACT_Q, clarification_ids: ["C1"] })], gaps: [] }),
+  });
+  const result = await runAcGeneration({ input: { ...extractInput(), clarifications: [clar] }, llm });
+  assert.deepEqual([result.proposals[0].needs_review_reasons, result.proposals[0].clarification_issue_ids], [[], [clar.id]]);
+  assert.ok(!llm.calls.some((c) => c.stage === "repair"));
+});
+
+await run("REP-003-shaped run: 'match the current user names in the system' never passes as Proposed", async () => {
+  const result = await runAcGeneration({ input: extractInput(), llm: fakeLlm({
+    obligations: () => extractObligation,
+    criteria: () => ({ criteria: [
+      cr({ criterion: "When exported pick task data into Excel is viewed, the user names displayed must match the current user names in the system.", source_quote: EXTRACT_Q }),
+      cr({ criterion: "When data extracts for reporting are viewed, the user names displayed must match the current user names in the system.", source_quote: EXTRACT_Q }),
+    ], gaps: [] }),
+    repair: () => ({ repairs: [] }),
+  }) });
+  for (const p of result.proposals) {
+    const proposed = p.basis === "Explicit" && p.confidence !== "Low" && !p.open_issue_ids.length && !p.needs_review_reasons.length;
+    assert.equal(proposed, false, p.criterion);
+  }
 });
 
 // ── Provenance and malformed output ────────────────────────────────────────

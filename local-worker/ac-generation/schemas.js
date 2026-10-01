@@ -3,7 +3,7 @@
 // helps, it is never the guarantee.
 
 import { validateSchema } from "../analysis/schemas.js";
-import { CRITERION_TYPES, GAP_TYPES, OBLIGATION_KINDS } from "./prompts.js";
+import { CRITERION_TYPES, GAP_TYPES, OBLIGATION_KINDS, QUESTION_RELATIONS } from "./prompts.js";
 
 const str = (maxLength, minLength = 1) => ({ type: "string", minLength, maxLength });
 const labels = (prefix, max = 40) => ({ type: "array", items: { type: "string", pattern: `^${prefix}\\d{1,5}$` }, maxItems: max });
@@ -19,13 +19,14 @@ const criteriaSchema = obj({
     criterion_type: { type: "string", enum: CRITERION_TYPES },
     basis: { type: "string", enum: ["Explicit", "Inferred"] },
     confidence: { type: "string", enum: ["High", "Medium", "Low"] },
-    source_ids: cites(), scope_note_ids: cites(), clarification_ids: cites(), open_question_ids: cites(),
+    source_ids: cites(), scope_note_ids: cites(), clarification_ids: cites(), blocking_question_ids: cites(),
     source_quote: str(2000, 0), rationale: str(2000),
   }) },
   gaps: { type: "array", maxItems: 20, items: obj({
     obligation: { type: "string", pattern: "^O\\d{1,4}$" }, issue_type: { type: "string", enum: GAP_TYPES },
     description: str(2000), question: str(1000, 0),
   }) },
+  questions: { type: "array", maxItems: 20, items: obj({ id: { type: "string", pattern: "^Q\\d{1,5}$" }, relation: { type: "string", enum: QUESTION_RELATIONS }, reason: str(500, 0) }) },
 });
 
 export const AC_STAGE_SCHEMAS = {
@@ -39,6 +40,11 @@ export const AC_STAGE_SCHEMAS = {
   }),
   criteria: criteriaSchema,
   coverage: criteriaSchema,
+  repair: obj({
+    repairs: { type: "array", maxItems: 40, items: obj({
+      key: { type: "string", pattern: "^A\\d{1,4}$" }, criterion: str(2000), given: str(1000, 0), when: str(1000, 0), then: str(1000, 0), unresolved: { type: "boolean" },
+    }) },
+  }),
 };
 
 export { validateSchema };

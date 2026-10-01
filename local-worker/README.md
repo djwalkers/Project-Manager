@@ -109,9 +109,18 @@ promotion come later.
   refused and retried; Explicit needs a verbatim quote, clarification or
   scope note; Regression needs an acknowledged scope note or a "no change"
   statement; invented values are refused; vague wording, dropped names and
-  open-question dependencies are flagged (Needs Review is set by the
+  blocking open questions are flagged (Needs Review is set by the
   database); every obligation and every listed application is covered or
   reported as an issue.
+* Open questions (1.1.0): each is classified against the criteria — Blocking
+  (a criterion's expected result needs the answer → Needs Review),
+  Additional Coverage (related, an extra situation such as repetition,
+  several actors or existing data; does not block) or Informational.
+  Irrelevant questions produce nothing.
+* Semantic fidelity (1.2.0): an expected result that adds a rule the input
+  never states (a comparison, a source of truth, a "current"/real-time
+  condition, timing or fallback) gets one repair attempt that must invent
+  nothing; it is re-validated, and a failed repair stays Needs Review.
 * `node tests/ac-generation.test.mjs` pins the prompt fingerprint — change
   the prompt text and you must bump `AC_PROMPT_VERSION`.
 
