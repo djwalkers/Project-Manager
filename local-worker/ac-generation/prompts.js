@@ -13,12 +13,18 @@
 // cover), informational, or irrelevant; each criterion lists only the
 // questions that block it.
 //
+// 1.2.0: a semantic-fidelity repair pass. A criterion whose expected result
+// adds a rule the input never states (a comparison, a source of truth, a
+// "current"/real-time condition, timing or fallback behaviour) gets ONE
+// repair attempt: remove the unsupported interpretation, never invent a
+// replacement; if the source cannot be more concrete, keep its wording.
+//
 // Nothing here is specific to any one project or document.
 
 import { createHash } from "node:crypto";
 
-export const AC_PROMPT_VERSION = "1.1.0";
-export const AC_SCHEMA_VERSION = "1.1.0";
+export const AC_PROMPT_VERSION = "1.2.0";
+export const AC_SCHEMA_VERSION = "1.2.0";
 export const QUESTION_RELATIONS = ["blocking", "additional_coverage", "informational", "irrelevant"];
 
 export const OBLIGATION_KINDS = ["positive", "negative", "regression"];
@@ -155,9 +161,40 @@ ${scopeNotesText || "(none)"}
 Return ${CRITERIA_SHAPE}.`;
 }
 
+export function repairPrompt({ requirementText, sourceText, referencedText, clarificationsText, scopeNotesText, itemsText }) {
+  return `TASK: each acceptance criterion below adds an interpretation that the REQUIREMENT, SOURCE, CLARIFICATIONS and SCOPE NOTES do not support (the UNSUPPORTED phrase). Repair each one.
+
+Rules:
+- Remove the unsupported interpretation. Do not invent a replacement definition, comparison, data source, timing or condition.
+- Keep the observable result the source does support, in the source's own terms (use REFERENCED CONTEXT to say concretely what "this" or "correct" refers to, when it does).
+- If the source cannot define a more concrete expected result, keep the source-supported wording (even if it says only "correct") and set unresolved = true.
+- Write the criterion about the system, in the source's terms. Never mention these instructions or their section names (REQUIREMENT, SOURCE, REFERENCED CONTEXT, CLARIFICATIONS).
+- given / when / then: the repaired parts, "" for a part the text does not support.
+
+REQUIREMENT:
+${requirementText}
+
+SOURCE (the sentences that state this requirement):
+${sourceText}
+
+REFERENCED CONTEXT (explains references in SOURCE; not obligations):
+${referencedText || "(none)"}
+
+CLARIFICATIONS (authoritative human answers):
+${clarificationsText || "(none)"}
+
+SCOPE NOTES (acknowledged — areas that must stay unchanged):
+${scopeNotesText || "(none)"}
+
+CRITERIA TO REPAIR:
+${itemsText}
+
+Return {"repairs":[{"key":"A…","criterion":"…","given":"…","when":"…","then":"…","unresolved":true|false}]} with one entry per criterion.`;
+}
+
 /** SHA-256 of every prompt template of this version — recorded on each run. */
 export function acPromptFingerprint() {
-  const sample = { requirementText: "{requirement}", sourceText: "{source}", referencedText: "{referenced}", clarificationsText: "{clarifications}", openQuestionsText: "{questions}", scopeNotesText: "{notes}", obligationsText: "{obligations}" };
-  const text = [AC_PROMPT_VERSION, AC_SCHEMA_VERSION, AC_SYSTEM_PROMPT, obligationsPrompt(sample), criteriaPrompt(sample), coveragePrompt(sample)].join("\n\u0000\n");
+  const sample = { itemsText: "{items}", requirementText: "{requirement}", sourceText: "{source}", referencedText: "{referenced}", clarificationsText: "{clarifications}", openQuestionsText: "{questions}", scopeNotesText: "{notes}", obligationsText: "{obligations}" };
+  const text = [AC_PROMPT_VERSION, AC_SCHEMA_VERSION, AC_SYSTEM_PROMPT, obligationsPrompt(sample), criteriaPrompt(sample), coveragePrompt(sample), repairPrompt(sample)].join("\n\u0000\n");
   return createHash("sha256").update(text).digest("hex");
 }

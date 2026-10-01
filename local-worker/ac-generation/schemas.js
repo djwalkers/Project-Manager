@@ -40,6 +40,11 @@ export const AC_STAGE_SCHEMAS = {
   }),
   criteria: criteriaSchema,
   coverage: criteriaSchema,
+  repair: obj({
+    repairs: { type: "array", maxItems: 40, items: obj({
+      key: { type: "string", pattern: "^A\\d{1,4}$" }, criterion: str(2000), given: str(1000, 0), when: str(1000, 0), then: str(1000, 0), unresolved: { type: "boolean" },
+    }) },
+  }),
 };
 
 export { validateSchema };

@@ -9,7 +9,7 @@
 import type { AnalysisErrorCategory } from "@/lib/requirement-analysis";
 
 export type AcGenerationStatus = "Queued" | "Running" | "Completed" | "Completed with warnings" | "Failed";
-export const AC_GENERATION_STAGES = ["obligations", "criteria", "coverage"] as const;
+export const AC_GENERATION_STAGES = ["obligations", "criteria", "coverage", "repair"] as const;
 export const CRITERION_TYPES = ["Positive", "Negative", "Regression"] as const;
 export type CriterionType = (typeof CRITERION_TYPES)[number];
 export const AC_GENERATION_ISSUE_TYPES = [

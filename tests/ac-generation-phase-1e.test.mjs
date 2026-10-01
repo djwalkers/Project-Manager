@@ -394,7 +394,7 @@ await run("044: unlinked issues and scope notes must be part of the Requirement'
   assert.doesNotMatch(m044, /\b(UPDATE|DELETE FROM|INSERT INTO) public\.(analysis_issues|analysis_scope_notes|acceptance_criteria|requirements)\b/);
   assert.doesNotMatch(m044, /DROP |ALTER TABLE public\.(ac_generation_runs|acceptance_criterion_proposals|analysis_issues|analysis_scope_notes)/);
   const schema = req("../lib/schema.ts");
-  assert.equal(schema.latestMigration, "044_ac_generation_issue_relevance");
+  assert.ok(schema.latestMigration >= "044_ac_generation_issue_relevance");
 });
 
 await run("UI: blocking vs additional-coverage questions are distinguished; a criterion is only 'Blocked by' a blocking question", () => {
@@ -403,6 +403,25 @@ await run("UI: blocking vs additional-coverage questions are distinguished; a cr
   assert.ok(page.includes('Blocking: "Blocking issue — affected criteria need review"'));
   assert.match(page, /Blocked by open question \{openById\.get\(id\)\?\.label\}/);
   assert.match(page, /\{i\.relation \? <Pill tone=\{i\.relation === "Blocking" \? "warn" : "info"\}>\{RELATION_LABEL\[i\.relation\]\}<\/Pill> : null\}/);
+});
+
+await run("045: the semantic-fidelity repair stage is persisted like every other stage; nothing else changes", async () => {
+  const m045 = code(read("supabase/migrations/045_ac_generation_repair_stage.sql"));
+  assert.deepEqual(m045.split(";").map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean), [
+    "ALTER TABLE public.ac_generation_stage_results DROP CONSTRAINT ac_generation_stage_results_stage_check",
+    "ALTER TABLE public.ac_generation_stage_results ADD CONSTRAINT ac_generation_stage_results_stage_check CHECK (stage IN ('obligations', 'criteria', 'coverage', 'repair'))",
+  ]);
+  assert.deepEqual(shared.AC_GENERATION_STAGES, ["obligations", "criteria", "coverage", "repair"]);
+  assert.equal(req("../lib/schema.ts").latestMigration, "045_ac_generation_repair_stage");
+  // The stage route accepts it for a running run (and still refuses unknown stages).
+  // The sibling Requirement's run (queued above) is the next one the worker claims.
+  const claim = await worker("claim", IDENTITY);
+  assert.equal(claim.status, 200, JSON.stringify(claim.body));
+  const runIdNow = claim.body.run.id;
+  const ok = await worker("stage", { run_id: runIdNow, stage: "repair", chunk_key: "requirement", input_hash: "d".repeat(64), attempts: 1, output: { repairs: [] } });
+  assert.deepEqual([ok.status, ok.body.stored], [200, true]);
+  assert.equal((await worker("stage", { run_id: runIdNow, stage: "rewrite", chunk_key: "requirement", input_hash: "d".repeat(64), attempts: 1, output: {} })).status, 400);
+  assert.equal(db.acceptance_criteria.length, 1, "canonical AC count unchanged");
 });
 
 // ── Migration 043 ──────────────────────────────────────────────────────────

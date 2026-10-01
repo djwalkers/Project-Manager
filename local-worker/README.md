@@ -117,6 +117,10 @@ promotion come later.
   Additional Coverage (related, an extra situation such as repetition,
   several actors or existing data; does not block) or Informational.
   Irrelevant questions produce nothing.
+* Semantic fidelity (1.2.0): an expected result that adds a rule the input
+  never states (a comparison, a source of truth, a "current"/real-time
+  condition, timing or fallback) gets one repair attempt that must invent
+  nothing; it is re-validated, and a failed repair stays Needs Review.
 * `node tests/ac-generation.test.mjs` pins the prompt fingerprint — change
   the prompt text and you must bump `AC_PROMPT_VERSION`.
 

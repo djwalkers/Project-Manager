@@ -26,7 +26,16 @@
 //     input is invention: the criterion is rejected and an "Insufficient
 //     Source Support" issue records what was missing.
 //   * Vague wording ("works correctly", "as expected" …) is flagged; a
-//     criterion that is nothing but vague wording is rejected.
+//     criterion that is nothing but vague wording is rejected. Vague wording
+//     the source itself uses ("must be correct") is source-grounded but not
+//     concrete — Needs Review, distinct from invention.
+//   * Semantic fidelity (1.2.0): an expected result that adds a rule for what
+//     success means — a comparison ("must match …"), a source of truth ("in
+//     the system", "stored in"), a currency/real-time condition, timing or
+//     fallback behaviour — whose words appear nowhere in the input is
+//     unsupported. It gets ONE repair attempt (remove it, invent nothing);
+//     the repair is re-validated, and a failed or missing repair leaves the
+//     criterion Needs Review ("introduces an unsupported interpretation").
 //   * Every supplied open question is classified against the criteria:
 //     Blocking (a criterion's expected result needs the answer → that
 //     criterion is Needs Review — the database decides), Additional
@@ -41,7 +50,7 @@
 import { createHash } from "node:crypto";
 import { aliasFor, buildChunks, fragmentBody } from "../analysis/chunk.js";
 import { components, containment, isNoChangeStatement, normaliseForQuote, similarity, wordSet } from "../analysis/pipeline.js";
-import { AC_PROMPT_VERSION, AC_SCHEMA_VERSION, AC_SYSTEM_PROMPT, coveragePrompt, criteriaPrompt, obligationsPrompt } from "./prompts.js";
+import { AC_PROMPT_VERSION, AC_SCHEMA_VERSION, AC_SYSTEM_PROMPT, coveragePrompt, criteriaPrompt, obligationsPrompt, repairPrompt } from "./prompts.js";
 import { AC_STAGE_SCHEMAS, validateSchema } from "./schemas.js";
 
 export const AC_MAX_ATTEMPTS = 3;
@@ -80,6 +89,45 @@ const SITUATIONS = [
 /** The situations a question raises that a criterion does not mention (empty → the question may block it). */
 export function extraSituations(question, criterion) {
   return SITUATIONS.filter((re) => re.test(String(question ?? "")) && !re.test(String(criterion ?? ""))).map((re) => String(question).match(re)[0]);
+}
+
+// Phrases that add a RULE for what success means. Unsupported when their
+// words are grounded nowhere in the input (requirement, source,
+// clarifications, scope notes).
+const SEMANTIC_RULES = [
+  { kind: "comparison", re: /\b(match(es|ed|ing)?|equal(s|led)?( to)?|(the )?same as|identical to|consistent with|correspond(s|ing)? (to|with)|agrees? with|reconcil\w*|compared? (to|with|against)|(verified|validated|checked) against)\b/gi },
+  { kind: "source of truth", re: /\b(in the system|(stored|held|kept|maintained|saved) in( the)? (system|database)|(the )?database|master data|source of truth|system records?|on record)\b/gi },
+  { kind: "currency", re: /\b(current(ly)?|latest|up[- ]to[- ]date|most recent|real[- ]?time|synchroni[sz]\w*|in sync)\b/gi },
+  { kind: "timing", re: /\b(immediately|instantly|at once|without delay|straight away)\b/gi },
+  { kind: "fallback", re: /\b(falls? back|fallback|by default|if (no|none)\b[^,.;]{0,40}|when (no|none)\b[^,.;]{0,40})/gi },
+];
+// Ordinary testing vocabulary — never a "new rule" by itself.
+const TEST_WORDS = wordSet("shown show displayed display visible appears appear viewed view opened open contains contain includes include present available listed list associated remains remain recorded record exported export generated generate reflects reflect produced produce extract extracts report reports data user users value values field fields screen dashboard task tasks name names after before when then given");
+
+/**
+ * Unsupported semantics in an expected result: rule phrases (comparison,
+ * source of truth, currency, timing, fallback) whose words the input never
+ * uses. Returns [{ kind, phrase }] — phrase is the rule with the clause it governs.
+ */
+export function unsupportedSemantics(text, corpus, corpusWords = wordSet(corpus)) {
+  const src = normaliseForQuote(corpus);
+  const t = String(text ?? "");
+  const found = [];
+  for (const { kind, re } of SEMANTIC_RULES) {
+    for (const m of t.matchAll(re)) {
+      const words = [...wordSet(m[0])].filter((w) => !TEST_WORDS.has(w));
+      const phrase = normaliseForQuote(m[0]).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const grounded = new RegExp(`(^|[^a-z0-9])${phrase}([^a-z0-9]|$)`).test(src) || (words.length > 0 && words.every((w) => corpusWords.has(w)));
+      if (grounded) continue;
+      const clause = t.slice(m.index).split(/[,.;]/)[0].trim().split(/\s+/).slice(0, 10).join(" ");
+      if (!found.some((f) => f.phrase === clause)) found.push({ kind, phrase: clause });
+    }
+  }
+  return found;
+}
+/** Content words of a text that the input never uses (excluding ordinary testing vocabulary). */
+export function novelWords(text, corpusWords) {
+  return new Set([...wordSet(text)].filter((w) => !corpusWords.has(w) && !TEST_WORDS.has(w)));
 }
 
 /** A vague criterion: matches vague wording. `hollow` when nothing concrete remains once it is removed. */
@@ -430,7 +478,9 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     // Vague wording.
     const vague = vagueness(text, contextWords);
     if (vague?.hollow) { rejected.push({ stage: origin, text: text.slice(0, 300), reason: `vague: "${vague.phrase}" with nothing concrete to check` }); return; }
-    if (vague) reasons.push(`Vague wording ("${vague.phrase}") — make the expected result specific.`);
+    if (vague) reasons.push(vagueReason(vague));
+    // Semantic fidelity: rules for success the input never states (repaired after all criteria are in).
+    const unsupported = unsupportedSemantics([text, then].join(" "), ctx.contextCorpus, contextWords);
     // Grounding for Explicit.
     let basis = c.basis;
     const obligationQuoted = covered.some((o) => o.source_quote && o.source_ids.some((x) => sourceIds.includes(x)));
@@ -452,9 +502,15 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
       criterion: text, given, when, then, criterion_type: type, basis, confidence: c.confidence,
       reasons, source_ids: sourceIds, scope_note_ids: noteIds, clarification_ids: clarIds, open_question_ids: openIds,
       source_quote: quoteOk ? c.source_quote.trim() : null, rationale: cleanText(c.rationale) || "Covers the obligation.",
-      obligations: covered.map((o) => o.key), origin,
+      obligations: covered.map((o) => o.key), origin, unsupported,
     });
   };
+  // Vague wording the source itself uses is grounded but not concrete; other vague wording is just vague.
+  function vagueReason(vague) {
+    return [...wordSet(vague.phrase)].some((w) => contextWords.has(w))
+      ? `Expected result is source-grounded but not sufficiently concrete to define correctness ("${vague.phrase}").`
+      : `Vague wording ("${vague.phrase}") — make the expected result specific.`;
+  }
 
   const allKeys = new Set(obligations.map((o) => o.key));
   const crit = await callStage("criteria", "requirement", criteriaPrompt({ ...base, obligationsText: obligationsText(obligations) }), checkCriteria(allKeys, true));
@@ -490,6 +546,54 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     gaps.push(...cov.gaps);
     for (const d of cov.questions ?? []) if (!questionDecisions.has(d.id)) questionDecisions.set(d.id, d);
   }
+  // ── Semantic-fidelity repair (one bounded pass) ─────────────────────────
+  const repairs = [];
+  const flagged = candidates.filter((c) => c.unsupported.length);
+  if (flagged.length) {
+    const keyOf = new Map(flagged.map((c, i) => [`A${i + 1}`, c]));
+    const itemsText = [...keyOf].map(([k, c]) => `${k}: ${c.criterion}${c.given || c.when || c.then ? ` (given: ${c.given || "—"}; when: ${c.when || "—"}; then: ${c.then || "—"})` : ""}\n   UNSUPPORTED: ${c.unsupported.map((u) => `"${u.phrase}" (${u.kind})`).join("; ")}`).join("\n");
+    const out = await callStage("repair", "requirement", repairPrompt({ ...base, itemsText }), (o) => {
+      const errors = [];
+      const seen = new Set();
+      const kept = [];
+      for (const r of o.repairs) {
+        if (!keyOf.has(r.key)) errors.push(`${r.key} is not one of the CRITERIA TO REPAIR`);
+        else if (seen.has(r.key)) errors.push(`${r.key} is repaired more than once`);
+        else { seen.add(r.key); kept.push(r); }
+      }
+      return { errors, cleaned: { repairs: kept } };
+    });
+    const repairedBy = new Map(out.repairs.map((r) => [r.key, r]));
+    for (const [k, c] of keyOf) {
+      const r = repairedBy.get(k);
+      const before = c.criterion;
+      const found = c.unsupported;
+      const record = (outcome, extra = {}) => repairs.push({ criterion: before.slice(0, 300), unsupported: found, outcome, ...extra });
+      const invented = (cand) => `Expected result introduces an unsupported interpretation: ${cand.unsupported.map((u) => `"${u.phrase}"`).join(", ")}.`;
+      if (!r) { c.reasons.push(invented(c)); record("not repaired"); continue; }
+      const next = { criterion: cleanText(r.criterion), given: cleanText(r.given), when: cleanText(r.when), then: cleanText(r.then) };
+      const all = [next.criterion, next.given, next.when, next.then].join(" ");
+      // Re-validate: no unsupported rule left, no new value, no new ungrounded words (no invented replacement).
+      const stillUnsupported = unsupportedSemantics([next.criterion, next.then].join(" "), ctx.contextCorpus, contextWords);
+      const banned = new Set(c.unsupported.flatMap((u) => [...wordSet(u.phrase)]));
+      const allowedNovel = [...novelWords([c.criterion, c.given, c.when, c.then].join(" "), contextWords)].filter((w) => !banned.has(w));
+      const added = [...novelWords(all, contextWords)].filter((w) => !allowedNovel.includes(w));
+      const hollow = vagueness(next.criterion, contextWords)?.hollow;
+      if (stillUnsupported.length || added.length || inventedValues(all, ctx.contextCorpus).length || hollow || !next.criterion) {
+        c.reasons.push(invented(c));
+        record("repair rejected", { repaired: next.criterion.slice(0, 300), why: stillUnsupported.length ? "still unsupported" : added.length ? `introduces ${added.join(", ")}` : hollow ? "nothing concrete left" : "invents a value" });
+        continue;
+      }
+      Object.assign(c, next);
+      c.reasons = c.reasons.filter((x) => !/^(Vague wording|Expected result is source-grounded)/.test(x));
+      const vague = vagueness(next.criterion, contextWords);
+      if (vague) c.reasons.push(vagueReason(vague));
+      else if (r.unresolved) c.reasons.push("Expected result is source-grounded but not sufficiently concrete to define correctness.");
+      c.unsupported = [];
+      record("repaired", { repaired: next.criterion.slice(0, 300), unresolved: r.unresolved });
+    }
+  }
+
   for (const o of obligations.filter((x) => !covered().has(x.key) && !(x.application && named(x.application)))) {
     warnings.push(`${o.key}: no acceptable criterion and no gap — recorded as Missing Testable Outcome`);
     issues.push({ issue_type: "Missing Testable Outcome", severity: "Medium", obligation: o.statement,
@@ -584,6 +688,7 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     fragment_count: ctx.fragments.length, clarification_count: ctx.clarifications.size, open_question_count: ctx.openQuestions.size, scope_note_count: ctx.scopeNotes.size,
     obligations: obligations.map((o) => ({ key: o.key, statement: o.statement, kind: o.kind, restatements: o.restatements.length,
       covered_by: proposals.filter((p) => p.obligations.some((x) => x.key === o.key)).map((p) => p.sequence), gap: gaps.some((g) => g.obligation === o.key) })),
+    semantic_repairs: repairs,
     question_relations: questionRelations,
     scope_note_decisions: noteDecisions.map((d) => ({ ...d, note: ctx.scopeNotes.get(d.note)?.id })),
     candidates_before_consolidation: candidates.length, proposal_count: proposals.length, issue_count: outIssues.length,
