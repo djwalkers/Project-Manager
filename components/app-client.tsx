@@ -8,6 +8,7 @@ import { ArtefactLinker } from "@/components/artefact-linker";
 import { withEntityLinksRemoved, withLinkAdded, withLinkRemoved } from "@/lib/artefact-links";
 import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
+import { RequirementAcGenerationPanel } from "@/components/requirement-ac-generation";
 import { RequirementProvenancePanel } from "@/components/requirement-provenance";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
@@ -20,7 +21,7 @@ import { TimelineSchedule } from "@/components/timeline-schedule";
 import { resetData, type DataStore } from "@/lib/data-store";
 import { moduleBySlug } from "@/lib/modules";
 import { useAuth } from "@/contexts/auth-context";
-import { canDeleteProject } from "@/lib/permissions";
+import { canDeleteProject, canRunRequirementAnalysis, canViewRequirementAnalysis } from "@/lib/permissions";
 import { useSelectedProject } from "@/contexts/selected-project-context";
 import { computeTestVerification, formatTestCountsLabel } from "@/lib/lifecycle/test-verification";
 import { scopeProjectData, selectTimelineItems } from "@/lib/project-scope";
@@ -251,6 +252,8 @@ export function ModulePageClient({ section }: { section: string }) {
           <>
             {/* Phase 1D: source provenance of Requirements promoted from AI analysis (renders nothing otherwise). */}
             <RequirementProvenancePanel projectId={pid} requirementId={recordId} />
+            {/* Phase 1E: AI acceptance criteria generation (Manager/Admin; promoted Requirements only — renders nothing otherwise). */}
+            {canViewRequirementAnalysis(user?.role) && <RequirementAcGenerationPanel projectId={pid} requirementId={recordId} mayRun={canRunRequirementAnalysis(user?.role)} />}
             {requirementVerification && <RequirementTestCoverage verification={requirementVerification} />}
             <RequirementReadiness criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} />
             <ReadinessGates criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} requirementStatus={requirementStatus} />
@@ -323,7 +326,7 @@ export function ModulePageClient({ section }: { section: string }) {
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config?.key, activeProject?.id, pageData, verification]);
+  }, [config?.key, activeProject?.id, pageData, verification, user?.role]);
 
   if (!config) return null;
   if (error) return <AppShell><LoadErrorState onRetry={reload} detail={error} /></AppShell>;

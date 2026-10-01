@@ -13,6 +13,13 @@
 // text only ever goes to Test Manager's own backend and to Ollama on this
 // Mac (loopback only); it is never sent to any external AI provider.
 //
+// Lowest priority (Phase 1E): Acceptance Criteria GENERATION for one
+// promoted Requirement at a time — only when neither extraction nor
+// requirement analysis is waiting. It receives exactly that Requirement's
+// fixed input (its promoted proposal's source fragments, human
+// clarifications, open questions and acknowledged scope notes) and posts
+// back non-authoritative AC proposals for human review.
+//
 // Security:
 //   * authenticates with a narrow worker token (config.json, gitignored)
 //     that is valid ONLY on /api/worker/* — extraction claim, fragments,
@@ -31,8 +38,10 @@ import { EXTRACTOR_VERSION, ExtractionError, extractSourceDocument } from "./ext
 import { OllamaError, assertLoopbackUrl, createOllama } from "./analysis/ollama.js";
 import { AnalysisError, runAnalysis } from "./analysis/pipeline.js";
 import { ANALYSIS_SCHEMA_VERSION, PROMPT_VERSION, promptFingerprint } from "./analysis/prompts.js";
+import { AcGenerationError, runAcGeneration } from "./ac-generation/pipeline.js";
+import { AC_PROMPT_VERSION, AC_SCHEMA_VERSION, acPromptFingerprint } from "./ac-generation/prompts.js";
 
-export const WORKER_VERSION = "0.3.0";
+export const WORKER_VERSION = "0.4.0";
 export const BATCH_MAX_FRAGMENTS = 200;
 export const BATCH_MAX_CHARS = 2_000_000; // keeps each request well under Vercel's 4.5 MB body limit
 
@@ -234,6 +243,81 @@ export async function runAnalysisOnce({ api, ollama, log = () => {}, state = {} 
   return processAnalysisRun(claim, { api, ollama, log });
 }
 
+// ── Acceptance Criteria generation (Phase 1E) ───────────────────────────────
+
+export const AC_IDENTITY = { ac_prompt_version: AC_PROMPT_VERSION, ac_prompt_sha256: acPromptFingerprint(), ac_schema_version: AC_SCHEMA_VERSION };
+
+/** Model digest, context window and thinking mode for one installed model; or a failure category. */
+async function prepareModel(ollama, model) {
+  const status = await ollama.status();
+  if (!status.reachable) return { fail: ["ollama_unreachable", "Ollama is not reachable on the worker's Mac. Start Ollama and retry."] };
+  const installed = status.models.find((m) => m.name === model);
+  if (!installed) return { fail: ["model_unavailable", `The model "${model}" is not installed in Ollama on the worker's Mac. Install it or choose another model in System Health.`] };
+  const digest = installed.digest ? `${installed.digest.slice(0, 12)}${status.version ? ` (ollama ${status.version})` : ""}` : null;
+  try {
+    const info = await ollama.show(model);
+    return { digest, numCtx: Math.min(16_384, info.contextLength ?? 16_384), think: info.capabilities.includes("thinking") ? false : null };
+  } catch (error) {
+    return { digest, fail: [error instanceof OllamaError ? error.category : "internal_error", safeMessage(error)] };
+  }
+}
+
+/** Processes one claimed AC-generation run end to end. Never throws; returns a summary. */
+export async function processAcGenerationRun(claim, { api, ollama, log = () => {} }) {
+  const { run } = claim;
+  let modelDigest = null;
+  const failRun = async (category, message, diagnostics = null) => {
+    try {
+      await api("ac-generation/fail", { run_id: run.id, error_category: category, error_message: message, model_digest: modelDigest, diagnostics });
+    } catch (error) {
+      log(`ac-generation ${run.id}: could not report failure (${safeMessage(error)}); the lease will expire and the server will retry`);
+    }
+    log(`ac-generation ${run.id}: failed (${category})`);
+    return { run_id: run.id, status: "Failed", category };
+  };
+  const model = await prepareModel(ollama, run.model);
+  modelDigest = model.digest ?? null;
+  if (model.fail) return failRun(...model.fail);
+
+  let result;
+  try {
+    result = await runAcGeneration({
+      input: claim, reusable: claim.reusable_stages ?? [], log: (m) => log(`ac-generation ${run.id}: ${m}`),
+      llm: { chat: ({ messages, schema }) => ollama.chat({ model: run.model, messages, schema, numCtx: model.numCtx, think: model.think }) },
+      onStage: (s) => api("ac-generation/stage", { run_id: run.id, ...s }),
+    });
+  } catch (error) {
+    if (error instanceof AcGenerationError) return failRun(error.category, safeMessage(error), error.diagnostics);
+    if (error instanceof OllamaError) return failRun(error.category, safeMessage(error));
+    return failRun(error?.status ? "upload_failed" : "internal_error", `Generation stopped: ${safeMessage(error)}`);
+  }
+  try {
+    await api("ac-generation/complete", { run_id: run.id, model_digest: modelDigest, proposals: result.proposals, issues: result.issues, diagnostics: result.diagnostics, with_warnings: result.withWarnings });
+  } catch (error) {
+    return failRun("upload_failed", `Saving the generated criteria failed: ${safeMessage(error)}`, result.diagnostics);
+  }
+  log(`ac-generation ${run.id}: ${result.withWarnings ? "completed with warnings" : "completed"} — ${result.proposals.length} criteria, ${result.issues.length} issues`);
+  return { run_id: run.id, status: "Completed", proposals: result.proposals.length, issues: result.issues.length };
+}
+
+/** Claims and processes at most one AC-generation run. Returns null when none is queued. */
+export async function runAcGenerationOnce({ api, ollama, log = () => {}, state = {} }) {
+  let claim;
+  try {
+    claim = await api("ac-generation/claim", { ...AC_IDENTITY });
+  } catch (error) {
+    // A Test Manager deployment without Phase 1E has no AC-generation routes yet.
+    if (error.status !== 404) throw error;
+    if (!state.noAcGenerationLogged) log("the server does not offer acceptance criteria generation yet — extraction and analysis continue");
+    state.noAcGenerationLogged = true;
+    return null;
+  }
+  state.noAcGenerationLogged = false;
+  if (!claim?.run) return null;
+  log(`ac-generation ${claim.run.id}: claimed (attempt ${claim.run.attempt_count}, model ${claim.run.model}, ${claim.fragments.length} fragments)`);
+  return processAcGenerationRun(claim, { api, ollama, log });
+}
+
 async function main() {
   const config = loadConfig();
   const api = createApi(config);
@@ -245,7 +329,7 @@ async function main() {
   process.on("SIGTERM", stop);
 
   const ollama = createOllama({ ollamaUrl: config.ollamaUrl, timeoutMs: config.ollamaTimeoutMs });
-  log(`Test Manager worker ${WORKER_VERSION} (extractor ${EXTRACTOR_VERSION}, analysis prompts ${PROMPT_VERSION}${config.analysisEnabled ? "" : " — disabled"}) → ${config.apiBaseUrl}`);
+  log(`Test Manager worker ${WORKER_VERSION} (extractor ${EXTRACTOR_VERSION}, analysis prompts ${PROMPT_VERSION}, AC prompts ${AC_PROMPT_VERSION}${config.analysisEnabled ? "" : " — disabled"}) → ${config.apiBaseUrl}`);
   // The heartbeat reports what this Mac's Ollama has installed (names/digests only) for System Health.
   const beat = async () => { try { await api("heartbeat", config.analysisEnabled ? { ollama: await ollama.status() } : {}); } catch (error) { log(`heartbeat failed: ${safeMessage(error)}`); } };
   await beat();
@@ -255,8 +339,9 @@ async function main() {
     try {
       const done = await runOnce({ api, log });
       if (done) continue; // look for more work straight away
-      // Extraction always goes first; analysis only when no extraction is waiting.
+      // Deterministic priority: extraction → requirement analysis → AC generation.
       if (config.analysisEnabled && await runAnalysisOnce({ api, ollama, log, state: analysisState })) continue;
+      if (config.analysisEnabled && await runAcGenerationOnce({ api, ollama, log, state: analysisState })) continue;
     } catch (error) {
       log(`poll failed: ${safeMessage(error)}${error.status === 401 ? " — the worker token is invalid or was revoked" : ""}`);
     }
