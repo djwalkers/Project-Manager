@@ -89,6 +89,32 @@ The model is chosen by an Admin in System Health (default `qwen3:8b`) from
 the models this worker reports as installed; nothing is downloaded
 automatically. `ollamaUrl` must be loopback (`127.0.0.1`/`localhost`).
 
+## Acceptance Criteria generation (Phase 1E)
+
+Lowest-priority work: when neither extraction nor requirement analysis is
+waiting, the worker claims one AC-generation run for one **promoted**
+Requirement (`/api/worker/ac-generation/*`) and generates acceptance
+criteria **proposals** with the same local Ollama model. Nothing it produces
+is canonical — no `acceptance_criteria` rows, no AC references; review and
+promotion come later.
+
+* Input is fixed by the server when the run is queued: the Requirement, its
+  promoted proposal, that proposal's own source fragments, human resolutions
+  of related analysis issues (clarifications), related issues still open
+  (questions — never treated as fact) and acknowledged scope notes. Only the
+  sentences of the cited fragments that state *this* requirement are shown.
+* Stages (`ac-generation/`, prompts `AC_PROMPT_VERSION`, separate from the
+  analysis prompts): obligations → criteria → coverage, then deterministic
+  consolidation and validation. Labels outside the supplied input are
+  refused and retried; Explicit needs a verbatim quote, clarification or
+  scope note; Regression needs an acknowledged scope note or a "no change"
+  statement; invented values are refused; vague wording, dropped names and
+  open-question dependencies are flagged (Needs Review is set by the
+  database); every obligation and every listed application is covered or
+  reported as an issue.
+* `node tests/ac-generation.test.mjs` pins the prompt fingerprint — change
+  the prompt text and you must bump `AC_PROMPT_VERSION`.
+
 ## Security model
 
 - The worker authenticates with a **worker token** (`tmw_…`) that an Admin
