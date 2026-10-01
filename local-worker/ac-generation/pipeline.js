@@ -27,7 +27,12 @@
 //     Source Support" issue records what was missing.
 //   * Vague wording ("works correctly", "as expected" …) is flagged; a
 //     criterion that is nothing but vague wording is rejected.
-//   * Depending on an open question → Needs Review (the database decides).
+//   * Every supplied open question is classified against the criteria:
+//     Blocking (a criterion's expected result needs the answer → that
+//     criterion is Needs Review — the database decides), Additional
+//     Coverage (related, does not block; a further criterion may be needed
+//     once answered), Informational, or irrelevant (dropped). A criterion is
+//     never marked Needs Review merely because a related question exists.
 //   * Duplicates merge only when they are the same check (same type,
 //     near-identical wording, no differing names or values); members are
 //     kept in `consolidation`, so nothing is lost.
@@ -61,6 +66,20 @@ const CITATIONS = /\s*\[(?:[FCQNO]\d{1,5}(?:\s*,\s*)?)+\]/g;
 
 export function cleanText(text) {
   return String(text ?? "").replace(CITATIONS, "").replace(/\s+/g, " ").trim();
+}
+
+// Words that introduce an extra SITUATION into a question: several actors or
+// records, repetition, rework, reversal, existing/historical data. A question
+// about such a situation cannot block a criterion that does not claim to
+// cover it (the criterion stays true for the situation it states).
+const SITUATIONS = [
+  /\b(multiple|several|many|more than one|two or more)\b/i, /\b(twice|again|repeat(ed|edly|s)?|repetition)\b/i,
+  /\bre-[a-z]+|\b(rework(ed|s)?|reprocess(ed|es|ing)?|redo(ne)?|retr(y|ied))\b/i, /\b(existing|historic(al)?|previous(ly)?|already|legacy)\b/i,
+  /\b(cancel(led|lation|s)?|revers(ed|al|es)?|undo(ne)?|delet(ed|ion))\b/i, /\b(another|both)\b/i,
+];
+/** The situations a question raises that a criterion does not mention (empty → the question may block it). */
+export function extraSituations(question, criterion) {
+  return SITUATIONS.filter((re) => re.test(String(question ?? "")) && !re.test(String(criterion ?? ""))).map((re) => String(question).match(re)[0]);
 }
 
 /** A vague criterion: matches vague wording. `hollow` when nothing concrete remains once it is removed. */
@@ -229,11 +248,15 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     const messages = [{ role: "system", content: AC_SYSTEM_PROMPT }, { role: "user", content: userPrompt }];
     const inputHash = sha256(JSON.stringify({ stage, prompt_version: AC_PROMPT_VERSION, schema_version: AC_SCHEMA_VERSION, model: run.model, messages }));
     const schema = AC_STAGE_SCHEMAS[stage];
+    // checkRefs normalises (re-files labels, maps field names) a COPY: the
+    // model's original response is what is stored, so a retry can reuse it.
+    const check = (output) => checkRefs(structuredClone(output));
     const prior = reusable.find((r) => r.stage === stage && r.chunk_key === chunkKey && r.input_hash === inputHash);
-    if (prior && validateSchema(schema, prior.output).length === 0 && checkRefs(prior.output).errors.length === 0) {
+    const reused = prior && validateSchema(schema, prior.output).length === 0 ? check(prior.output) : null;
+    if (reused && reused.errors.length === 0) {
       if (prior.run_id !== run.id) await onStage({ stage, chunk_key: chunkKey, input_hash: inputHash, attempts: 1, reused_from: prior.run_id, output: prior.output });
       stageCalls.push({ stage, chunk: chunkKey, attempts: 0, reused: true });
-      return prior.output;
+      return reused.cleaned;
     }
     const conversation = [...messages];
     let lastErrors = [];
@@ -243,15 +266,16 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
       let parsed = null;
       let errors;
       try { parsed = JSON.parse(content); errors = validateSchema(schema, parsed); } catch { errors = ["the response is not valid JSON"]; }
+      let checked = null;
       if (errors.length === 0) {
-        const checked = checkRefs(parsed);
+        checked = check(parsed);
         errors = checked.errors;
         fallback = checked;
       }
       if (errors.length === 0) {
         await onStage({ stage, chunk_key: chunkKey, input_hash: inputHash, attempts: attempt, reused_from: null, output: parsed });
         stageCalls.push({ stage, chunk: chunkKey, attempts: attempt, reused: false, duration_ms: durationMs });
-        return parsed;
+        return checked.cleaned;
       }
       lastErrors = errors;
       log(`${stage}: attempt ${attempt} rejected (${errors.length} problem${errors.length === 1 ? "" : "s"})`);
@@ -339,13 +363,14 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
   }
   if (!obligations.length) throw new AcGenerationError("validation_failed", "No obligation of the Requirement could be identified with provenance.", { stage_calls: stageCalls, warnings, rejected });
   const byKey = new Map(obligations.map((o) => [o.key, o]));
-  const obligationsText = (list) => list.map((o) => `${o.key} (${o.kind}): ${o.statement} [${[...o.source_ids, ...o.scope_note_ids, ...o.clarification_ids].join(", ")}]${o.open_question_ids.length ? ` — depends on open question ${o.open_question_ids.join(", ")}` : ""}`).join("\n");
+  const obligationsText = (list) => list.map((o) => `${o.key} (${o.kind}): ${o.statement} [${[...o.source_ids, ...o.scope_note_ids, ...o.clarification_ids].join(", ")}]${o.open_question_ids.length ? ` — related open question: ${o.open_question_ids.join(", ")}` : ""}`).join("\n");
 
   // ── Stage 2 / 3: criteria and coverage ─────────────────────────────────
-  const checkCriteria = (keys) => (o) => {
+  const checkCriteria = (keys, decideAll) => (o) => {
     const errors = [];
     const kept = [];
     o.criteria.forEach((c, i) => {
+      if ("blocking_question_ids" in c) { c.open_question_ids = c.blocking_question_ids; delete c.blocking_question_ids; }
       refile(c);
       const e = refErrors(c, `criteria[${i}]`);
       e.push(...c.obligations.filter((k) => !keys.has(k)).map((k) => `criteria[${i}] covers ${k}, which is not one of the OBLIGATIONS`));
@@ -354,17 +379,33 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     });
     const gaps = [];
     o.gaps.forEach((g, i) => { if (keys.has(g.obligation)) gaps.push(g); else errors.push(`gaps[${i}] is for ${g.obligation}, which is not one of the OBLIGATIONS`); });
-    return { errors, cleaned: { criteria: kept, gaps } };
+    const decided = new Set();
+    const questions = [];
+    for (const d of o.questions ?? []) {
+      if (!Q.has(d.id)) errors.push(`questions cites ${d.id}, which is not an OPEN QUESTION`);
+      else if (!decided.has(d.id)) { decided.add(d.id); questions.push(d); }
+    }
+    if (decideAll) for (const q of Q) if (!decided.has(q)) errors.push(`${q} is missing from questions — decide how it relates to the criteria`);
+    return { errors, cleaned: { criteria: kept, gaps, questions } };
   };
 
   const candidates = [];
   const gaps = [];
   const issues = [];
+  const situationOverrides = [];
   const accept = (c, origin) => {
     const covered = [...new Set(c.obligations)].map((k) => byKey.get(k));
     const inherit = (k) => [...new Set([...c[k], ...(c[k].length ? [] : covered.flatMap((o) => o[k]))])];
     const sourceIds = inherit("source_ids"), noteIds = inherit("scope_note_ids"), clarIds = [...new Set([...c.clarification_ids, ...covered.flatMap((o) => o.clarification_ids)])];
-    const openIds = [...new Set([...c.open_question_ids, ...covered.flatMap((o) => o.open_question_ids)])];
+    // Only the questions this criterion's expected result depends on (no
+    // inheritance from its obligation) — and never one about an extra
+    // situation this criterion does not claim to cover.
+    const openIds = [...new Set(c.open_question_ids)].filter((q) => {
+      const question = ctx.openQuestions.get(q);
+      const extra = extraSituations(`${question?.question ?? ""} ${question?.description ?? ""}`, [c.criterion, c.given, c.when, c.then].join(" "));
+      if (extra.length) situationOverrides.push({ question: q, criterion: cleanText(c.criterion).slice(0, 200), situations: extra });
+      return extra.length === 0;
+    });
     const text = cleanText(c.criterion);
     const given = cleanText(c.given), when = cleanText(c.when), then = cleanText(c.then);
     const reasons = [];
@@ -405,7 +446,7 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     const said = normaliseForQuote(all);
     const omitted = [...new Set(covered.flatMap((o) => (o.source_quote ? clauseTerms(o.source_quote, o.statement) : [])))].filter((t) => !said.includes(normaliseForQuote(t)));
     if (omitted.length) reasons.push(`Omits ${omitted.map((t) => `"${t}"`).join(", ")}, named in its source — check the condition is not lost.`);
-    if (openIds.length) reasons.push(`Depends on an open question: ${openIds.map((k) => ctx.openQuestions.get(k)?.question ?? k).join(" / ")}`.slice(0, 500));
+    if (openIds.length) reasons.push(`Blocked by an open question: ${openIds.map((k) => ctx.openQuestions.get(k)?.question ?? k).join(" / ")}`.slice(0, 500));
     if (!sourceIds.length && !noteIds.length && !clarIds.length) { rejected.push({ stage: origin, text: text.slice(0, 300), reason: "no provenance" }); return; }
     candidates.push({
       criterion: text, given, when, then, criterion_type: type, basis, confidence: c.confidence,
@@ -416,9 +457,10 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
   };
 
   const allKeys = new Set(obligations.map((o) => o.key));
-  const crit = await callStage("criteria", "requirement", criteriaPrompt({ ...base, obligationsText: obligationsText(obligations) }), checkCriteria(allKeys));
+  const crit = await callStage("criteria", "requirement", criteriaPrompt({ ...base, obligationsText: obligationsText(obligations) }), checkCriteria(allKeys, true));
   for (const c of crit.criteria) accept(c, "criteria");
   gaps.push(...crit.gaps);
+  const questionDecisions = new Map((crit.questions ?? []).map((d) => [d.id, d]));
 
   const covered = () => new Set([...candidates.flatMap((c) => c.obligations), ...gaps.map((g) => g.obligation)]);
   const uncovered = obligations.filter((o) => !covered().has(o.key));
@@ -443,9 +485,10 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
   if (uncovered.length || appObligations.length) {
     uncovered.push(...appObligations);
     const keys = new Set(uncovered.map((o) => o.key));
-    const cov = await callStage("coverage", "requirement", coveragePrompt({ ...base, obligationsText: obligationsText(uncovered) }), checkCriteria(keys));
+    const cov = await callStage("coverage", "requirement", coveragePrompt({ ...base, obligationsText: obligationsText(uncovered) }), checkCriteria(keys, false));
     for (const c of cov.criteria) accept(c, "coverage");
     gaps.push(...cov.gaps);
+    for (const d of cov.questions ?? []) if (!questionDecisions.has(d.id)) questionDecisions.set(d.id, d);
   }
   for (const o of obligations.filter((x) => !covered().has(x.key) && !(x.application && named(x.application)))) {
     warnings.push(`${o.key}: no acceptable criterion and no gap — recorded as Missing Testable Outcome`);
@@ -488,13 +531,31 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     issues.push({ issue_type: g.issue_type, severity: g.issue_type === "Conflicting Source/Resolution" ? "High" : "Medium", obligation: o.statement,
       description: cleanText(g.description), suggested_question: cleanText(g.question) || null, source_ids: o.source_ids, open_question_ids: o.open_question_ids });
   }
-  const dependedOn = [...new Set([...merged.flatMap((c) => c.open_question_ids), ...obligations.flatMap((o) => o.open_question_ids)])];
-  for (const q of dependedOn) {
-    const question = ctx.openQuestions.get(q);
+  // Every open question, classified against the criteria actually proposed.
+  // Blocking = some criterion's expected result depends on it (that is what
+  // makes the criterion Needs Review). A question the model called blocking
+  // that no criterion depends on blocks nothing proposed → Additional Coverage.
+  const questionRelations = [];
+  for (const [q, question] of ctx.openQuestions) {
+    const decision = questionDecisions.get(q);
     const affected = merged.filter((c) => c.open_question_ids.includes(q)).length;
-    issues.push({ issue_type: "Unresolved Existing Analysis Issue", severity: "Medium", obligation: obligations.filter((o) => o.open_question_ids.includes(q)).map((o) => o.statement).join(" / ").slice(0, 1000) || null,
-      description: `Acceptance coverage depends on an analysis question that is still open: "${question.question ?? question.description}". ${affected ? `${affected} ${affected === 1 ? "criterion" : "criteria"} relying on it ${affected === 1 ? "is" : "are"} marked Needs Review.` : "No criterion assumes an answer."} Resolve it in the analysis review to make the criteria final.`.slice(0, 2000),
-      suggested_question: question.question ?? null, source_ids: [], open_question_ids: [q] });
+    // A question the model judged irrelevant but that it still cited on a criterion is kept (not dropped).
+    const cited = situationOverrides.some((o) => o.question === q);
+    const RELATION_OF = { blocking: "Additional Coverage", additional_coverage: "Additional Coverage", informational: "Informational", irrelevant: cited ? "Additional Coverage" : null };
+    const relation = affected ? "Blocking" : decision && decision.relation in RELATION_OF ? RELATION_OF[decision.relation] : "Additional Coverage";
+    if (!decision && !affected) warnings.push(`${q}: not classified by the model — recorded as Additional Coverage`);
+    const overridden = situationOverrides.filter((o) => o.question === q);
+    questionRelations.push({ question: question.id, decided: decision?.relation ?? null, relation, reason: cleanText(decision?.reason).slice(0, 300),
+      ...(overridden.length ? { not_blocking_because: `asks about ${[...new Set(overridden.flatMap((o) => o.situations))].join(", ")}, which the criterion does not claim to cover` } : {}) });
+    if (!relation) continue;
+    const text = question.question ?? question.description;
+    const description = relation === "Blocking"
+      ? `Blocking — this open analysis question must be answered before ${affected === 1 ? "1 criterion" : `${affected} criteria`} can be confirmed: "${text}". ${affected === 1 ? "It is" : "They are"} marked Needs Review.`
+      : relation === "Additional Coverage"
+        ? `Additional coverage question — does not block the proposed criteria: "${text}". A further acceptance criterion may be required once it is answered in the analysis review.`
+        : `Related question — informational, it changes no proposed criterion: "${text}".`;
+    issues.push({ issue_type: "Unresolved Existing Analysis Issue", severity: relation === "Blocking" ? "Medium" : "Low", relation,
+      obligation: null, description: description.slice(0, 2000), suggested_question: text ?? null, source_ids: [], open_question_ids: [q] });
   }
 
   // ── Stage 5: id mapping and deterministic validation ───────────────────
@@ -509,7 +570,7 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     consolidation: c.consolidation.merged ? { ...c.consolidation, members: c.consolidation.members.map((m) => ({ ...m, source_ids: m.source_ids.map(id.F) })) } : {},
   }));
   const outIssues = issues.map((x, i) => ({
-    sequence: i + 1, issue_type: x.issue_type, severity: x.severity, description: x.description.slice(0, 2000) || "Needs review.",
+    sequence: i + 1, issue_type: x.issue_type, severity: x.severity, relation: x.relation ?? null, description: x.description.slice(0, 2000) || "Needs review.",
     obligation: x.obligation ? x.obligation.slice(0, 1000) : null, suggested_question: x.suggested_question ? x.suggested_question.slice(0, 1000) : null,
     source_fragment_ids: x.source_ids.map(id.F), analysis_issue_ids: x.open_question_ids.map(id.Q), related_proposal_sequences: [],
   }));
@@ -523,6 +584,7 @@ export async function runAcGeneration({ input, llm, reusable = [], onStage = asy
     fragment_count: ctx.fragments.length, clarification_count: ctx.clarifications.size, open_question_count: ctx.openQuestions.size, scope_note_count: ctx.scopeNotes.size,
     obligations: obligations.map((o) => ({ key: o.key, statement: o.statement, kind: o.kind, restatements: o.restatements.length,
       covered_by: proposals.filter((p) => p.obligations.some((x) => x.key === o.key)).map((p) => p.sequence), gap: gaps.some((g) => g.obligation === o.key) })),
+    question_relations: questionRelations,
     scope_note_decisions: noteDecisions.map((d) => ({ ...d, note: ctx.scopeNotes.get(d.note)?.id })),
     candidates_before_consolidation: candidates.length, proposal_count: proposals.length, issue_count: outIssues.length,
     needs_review_count: proposals.filter((p) => p.basis === "Inferred" || p.confidence === "Low" || p.open_issue_ids.length || p.needs_review_reasons.length).length,
@@ -564,6 +626,7 @@ export function validateAcGenerationOutput({ proposals, issues }, allowed) {
     iseq.add(x.sequence);
     if (!ENUMS.issue_type.includes(x.issue_type)) problems.push(`${where}: invalid issue_type`);
     if (!ENUMS.severity.includes(x.severity)) problems.push(`${where}: invalid severity`);
+    if (x.relation != null && !["Blocking", "Additional Coverage", "Informational"].includes(x.relation)) problems.push(`${where}: invalid relation`);
     if (!String(x.description ?? "").trim()) problems.push(`${where}: description is required`);
     if (!subset(x.source_fragment_ids, allowed.fragments)) problems.push(`${where}: cites a fragment outside the Requirement's provenance`);
     if (!subset(x.analysis_issue_ids, new Set([...allowed.openQuestions, ...allowed.clarifications]))) problems.push(`${where}: cites an analysis issue that was not supplied`);

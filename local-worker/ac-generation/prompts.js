@@ -6,12 +6,20 @@
 // fingerprint of each released version and fails if the text changes
 // without a new version.
 //
+// 1.1.0: an open question no longer attaches to every criterion of the
+// requirement. The criteria stage decides, for every open question, whether
+// it BLOCKS a criterion (its expected result needs the answer), is related
+// ADDITIONAL COVERAGE (an extra situation the criteria do not claim to
+// cover), informational, or irrelevant; each criterion lists only the
+// questions that block it.
+//
 // Nothing here is specific to any one project or document.
 
 import { createHash } from "node:crypto";
 
-export const AC_PROMPT_VERSION = "1.0.0";
-export const AC_SCHEMA_VERSION = "1.0.0";
+export const AC_PROMPT_VERSION = "1.1.0";
+export const AC_SCHEMA_VERSION = "1.1.0";
+export const QUESTION_RELATIONS = ["blocking", "additional_coverage", "informational", "irrelevant"];
 
 export const OBLIGATION_KINDS = ["positive", "negative", "regression"];
 export const CRITERION_TYPES = ["Positive", "Negative", "Regression"];
@@ -22,7 +30,7 @@ export const AC_SYSTEM_PROMPT = `You are a careful test analyst. You write ACCEP
 Rules — follow them exactly:
 1. Use only the REQUIREMENT, SOURCE, CLARIFICATIONS, OPEN QUESTIONS and SCOPE NOTES you are given. Never use outside knowledge about the company, system, project or people.
 2. NO INVENTION. Never add screens, fields, statuses, workflows, error messages, roles, thresholds, timings, numbers, integrations, database behaviour or exception handling that the text does not state. If a criterion cannot be made testable without such a detail, report a gap instead. Example: the requirement says "The approver's name must be shown on the invoice." Correct criterion: "When an approved invoice is viewed, the approver's name is shown on it." Wrong: "The approver's name is shown within 2 seconds in bold at the top of the invoice."
-3. An OPEN QUESTION is not a fact. Never write a criterion that assumes its answer. A CLARIFICATION is a human answer to an earlier question: it is authoritative and may be used.
+3. An OPEN QUESTION is not a fact. Never write a criterion that assumes its answer, and never write a criterion for the unanswered situation itself. A CLARIFICATION is a human answer to an earlier question: it is authoritative and may be used.
 4. Every item is labelled with an ID in square brackets — SOURCE fragments [F3], CLARIFICATIONS [C1], OPEN QUESTIONS [Q1], SCOPE NOTES [N1]. Cite only IDs that appear in the text you are given, exactly as written. Never make up an ID. Never assign acceptance criterion references such as AC-001.
 5. Keep the source's own terms (screen names, field names, roles, record names). Do not rename things.
 6. Respond with JSON only, matching the requested schema. No prose outside the JSON.`;
@@ -42,7 +50,7 @@ Guidance:
 - REFERENCED CONTEXT (when present) only explains what words such as "this" or "it" in SOURCE refer to. Use it to understand the requirement; never add an obligation that comes only from it.
 - ${KIND_GUIDE.replace(/\n/g, "\n  ")}
 - statement: the obligation in one sentence, in the source's own terms.
-- source_ids: the SOURCE fragments that state it. scope_note_ids / clarification_ids: SCOPE NOTES or CLARIFICATIONS it relies on. open_question_ids: OPEN QUESTIONS whose answer it depends on ([] if none).
+- source_ids: the SOURCE fragments that state it. scope_note_ids / clarification_ids: SCOPE NOTES or CLARIFICATIONS it relies on. open_question_ids: OPEN QUESTIONS about this obligation ([] if none) — for information only.
 - source_quote: the words from SOURCE (copied word-for-word, at most 300 characters) that state it, or "" if it comes only from a SCOPE NOTE or CLARIFICATION.
 
 REQUIREMENT:
@@ -77,11 +85,17 @@ const CRITERIA_GUIDANCE = `Guidance:
 - criterion_type: "Positive" for a positive obligation, "Negative" for a negative one, "Regression" for a regression one.
 - basis: "Explicit" when the SOURCE, a CLARIFICATION or a SCOPE NOTE directly states the expected result (source_quote copied word-for-word from SOURCE, or "" when it rests on a CLARIFICATION or SCOPE NOTE); "Inferred" when you interpreted the text to make it testable.
 - confidence: High (directly stated), Medium (clear intent, some interpretation), Low (uncertain).
-- obligations: the OBLIGATION keys it covers (e.g. ["O1"]). source_ids / scope_note_ids / clarification_ids / open_question_ids: what it relies on.
+- obligations: the OBLIGATION keys it covers (e.g. ["O1"]). source_ids / scope_note_ids / clarification_ids: what it relies on.
+- blocking_question_ids: ONLY the OPEN QUESTIONS without whose answer THIS criterion's expected result cannot be stated correctly ([] almost always). A question about a different or additional situation does not block a criterion that does not claim to cover that situation.
+- questions: decide for EVERY OPEN QUESTION how it relates to the criteria, with a one-sentence reason:
+  - "blocking": a criterion's expected result depends on the answer (e.g. the text says a list must be sorted but not in which order — the expected order cannot be stated). List it in that criterion's blocking_question_ids.
+  - "additional_coverage": related, but about an extra situation the criteria do not claim to cover (e.g. what happens when the process is repeated, reversed, or involves several people or records). The proposed criteria stay correct; a further criterion may be needed once it is answered.
+  - "informational": related background that changes no expected result.
+  - "irrelevant": not about this requirement.
 - rationale: one sentence on why this proves the obligation, citing the wording.
 - gaps: for an obligation that cannot be made testable from the text — issue_type one of: ${GAP_TYPES.join(", ")}; description of what is missing; question: ONE specific question naming the screen, record or rule concerned, ending with "?".`;
 
-const CRITERIA_SHAPE = `{"criteria":[{"obligations":["O…"],"criterion":"…","given":"…","when":"…","then":"…","criterion_type":"Positive|Negative|Regression","basis":"Explicit|Inferred","confidence":"High|Medium|Low","source_ids":["F…"],"scope_note_ids":["N…"],"clarification_ids":["C…"],"open_question_ids":["Q…"],"source_quote":"…","rationale":"…"}],"gaps":[{"obligation":"O…","issue_type":"…","description":"…","question":"…?"}]}`;
+const CRITERIA_SHAPE = `{"criteria":[{"obligations":["O…"],"criterion":"…","given":"…","when":"…","then":"…","criterion_type":"Positive|Negative|Regression","basis":"Explicit|Inferred","confidence":"High|Medium|Low","source_ids":["F…"],"scope_note_ids":["N…"],"clarification_ids":["C…"],"blocking_question_ids":["Q…"],"source_quote":"…","rationale":"…"}],"gaps":[{"obligation":"O…","issue_type":"…","description":"…","question":"…?"}],"questions":[{"id":"Q…","relation":"blocking|additional_coverage|informational|irrelevant","reason":"…"}]}`;
 
 export function criteriaPrompt({ requirementText, obligationsText, sourceText, referencedText, clarificationsText, openQuestionsText, scopeNotesText }) {
   return `TASK: write the acceptance criteria for this REQUIREMENT, covering every OBLIGATION.

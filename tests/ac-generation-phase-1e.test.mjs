@@ -55,8 +55,9 @@ const [ARUN, JOB] = [uuid(), uuid()];
 const [F1, F2, F_OTHER] = [uuid(), uuid(), uuid()];
 const [REQ_PROMOTED, REQ_MANUAL, REQ_SIGNED, REQ_BROKEN] = [uuid(), uuid(), uuid(), uuid()];
 const [PROP, PROP_SIGNED, PROP_BROKEN, PROP_APPROVED] = [uuid(), uuid(), uuid(), uuid()];
-const [I_RESOLVED, I_OPEN, I_UNRELATED, I_ADMIN] = [uuid(), uuid(), uuid(), uuid()];
-const [N_ACK, N_UNACK, N_OTHER] = [uuid(), uuid(), uuid()];
+const [I_RESOLVED, I_OPEN, I_UNRELATED, I_ADMIN, I_SHARED] = [uuid(), uuid(), uuid(), uuid(), uuid()];
+const [N_ACK, N_UNACK, N_OTHER, N_CHANGE] = [uuid(), uuid(), uuid(), uuid()];
+const REQ_SIBLING = uuid(), PROP_SIBLING = uuid(), I_SIBLING = uuid();
 
 // ── In-memory service-role stand-in (mirrors migration 043) ────────────────
 let session = null;
@@ -69,19 +70,24 @@ const db = {
   extraction_jobs: [{ id: JOB, project_id: P, document_version_id: "ver1", extractor_version: "1.2.0" }],
   analysis_runs: [{ id: ARUN, project_id: P, document_id: "doc1", document_version_id: "ver1", extraction_job_id: JOB }],
   source_fragments: [
-    { id: F1, extraction_job_id: JOB, sequence: 3, fragment_type: "text", section_heading: "Rules", section_number: null, section_path: ["Spec", "Rules"], page_start: 1, page_end: 1, text: "The picker name must remain against the pick task.", metadata: {} },
+    { id: F1, extraction_job_id: JOB, sequence: 3, fragment_type: "text", section_heading: "Rules", section_number: null, section_path: ["Spec", "Rules"], page_start: 1, page_end: 1, text: "The picker name must remain against the pick task. MONO picks remain as they are. The palletiser name stays on the palletised task. FULL PALLET picks remain as they are.", metadata: {} },
     { id: F2, extraction_job_id: JOB, sequence: 8, fragment_type: "text", section_heading: "Change", section_number: null, section_path: ["Spec", "Change"], page_start: 2, page_end: 2, text: "We require the picker name to remain.", metadata: {} },
     { id: F_OTHER, extraction_job_id: JOB, sequence: 9, fragment_type: "text", section_heading: "Other", section_number: null, section_path: ["Spec", "Other"], page_start: 3, page_end: 3, text: "Unrelated requirement about colour.", metadata: {} },
   ],
   requirement_proposals: [
-    { id: PROP, analysis_run_id: ARUN, project_id: P, sequence: 1, origin: "ai", parent_proposal_ids: [], proposed_title: "Picker name remains", proposed_description: "The picker name must remain against the pick task.", reviewed_title: null, reviewed_description: null, source_quote: "The picker name must remain against the pick task.", consolidation: {}, evidence_basis: "Explicit", source_fragment_ids: [F1, F2], review_status: "Promoted", promoted_record_id: REQ_PROMOTED },
+    { id: PROP, analysis_run_id: ARUN, project_id: P, sequence: 1, origin: "ai", parent_proposal_ids: [], proposed_title: "Picker name remains", proposed_description: "The picker name must remain against the pick task.", reviewed_title: null, reviewed_description: "The picker name must remain against the pick task. MONO picks remain as they are.", source_quote: "The picker name must remain against the pick task.", consolidation: {}, evidence_basis: "Explicit", source_fragment_ids: [F1, F2], review_status: "Promoted", promoted_record_id: REQ_PROMOTED },
     { id: PROP_SIGNED, analysis_run_id: ARUN, project_id: P, sequence: 2, origin: "ai", parent_proposal_ids: [], proposed_title: "Signed", proposed_description: "d", source_fragment_ids: [F1], review_status: "Promoted", promoted_record_id: REQ_SIGNED, consolidation: {} },
     { id: PROP_BROKEN, analysis_run_id: ARUN, project_id: P, sequence: 3, origin: "ai", parent_proposal_ids: [], proposed_title: "Broken", proposed_description: "d", source_fragment_ids: [uuid()], review_status: "Promoted", promoted_record_id: REQ_BROKEN, consolidation: {} },
+    { id: PROP_SIBLING, analysis_run_id: ARUN, project_id: P, sequence: 5, origin: "ai", parent_proposal_ids: [], proposed_title: "Palletiser name stays", proposed_description: "The palletiser name stays on the palletised task.", source_quote: "The palletiser name stays on the palletised task.", source_fragment_ids: [F1], review_status: "Promoted", promoted_record_id: REQ_SIBLING, consolidation: {} },
     { id: PROP_APPROVED, analysis_run_id: ARUN, project_id: P, sequence: 4, origin: "ai", parent_proposal_ids: [], proposed_title: "Approved, not promoted", proposed_description: "d", source_fragment_ids: [F1], review_status: "Approved", promoted_record_id: null, consolidation: {} },
   ],
   analysis_issues: [
     { id: I_RESOLVED, analysis_run_id: ARUN, sequence: 1, issue_type: "Ambiguity", suggested_question: "Which picker is kept?", description: "d", status: "Resolved", resolution_note: "Keep the first picker.", related_proposal_sequences: [1], source_fragment_ids: [F1], reviewed_by_name: "Manager User" },
-    { id: I_OPEN, analysis_run_id: ARUN, sequence: 2, issue_type: "Missing Information", suggested_question: "What about repeated palletisation?", description: "d", status: "Open", resolution_note: null, related_proposal_sequences: [], source_fragment_ids: [F2] },
+    { id: I_OPEN, analysis_run_id: ARUN, sequence: 2, issue_type: "Missing Information", suggested_question: "What about repeated palletisation?", description: "d", status: "Open", resolution_note: null, related_proposal_sequences: [], source_fragment_ids: [F2], trigger_quote: "The picker name must remain against the pick task." },
+    // Tied to no proposal; shares fragment F1 but its trigger is another requirement's sentence.
+    { id: I_SHARED, analysis_run_id: ARUN, sequence: 5, issue_type: "Missing Information", suggested_question: "What are FULL PALLET picks?", description: "d", status: "Open", resolution_note: null, related_proposal_sequences: [], source_fragment_ids: [F1], trigger_quote: "FULL PALLET picks remain as they are." },
+    // Tied to the sibling proposal only.
+    { id: I_SIBLING, analysis_run_id: ARUN, sequence: 6, issue_type: "Ambiguity", suggested_question: "Which palletised task keeps the palletiser name?", description: "d", status: "Open", resolution_note: null, related_proposal_sequences: [5], source_fragment_ids: [F1] },
     { id: I_UNRELATED, analysis_run_id: ARUN, sequence: 3, issue_type: "Missing Information", suggested_question: "Which colours?", description: "d", status: "Open", resolution_note: null, related_proposal_sequences: [4], source_fragment_ids: [F1] },
     { id: I_ADMIN, analysis_run_id: ARUN, sequence: 4, issue_type: "Out of Scope / Administrative Content", suggested_question: "x", description: "d", status: "Open", resolution_note: null, related_proposal_sequences: [], source_fragment_ids: [F1] },
   ],
@@ -89,12 +95,15 @@ const db = {
     { id: N_ACK, analysis_run_id: ARUN, sequence: 1, note_type: "No Change", area: "MONO picks", description: "MONO picks remain as they are.", source_quote: "MONO picks remain as they are.", source_fragment_ids: [F1], acknowledged_at: "2026-09-30", acknowledgement_note: null, acknowledged_by_name: "Manager User" },
     { id: N_UNACK, analysis_run_id: ARUN, sequence: 2, note_type: "No Change", area: "FULL PALLET", description: "FULL PALLET picks remain as they are.", source_fragment_ids: [F1], acknowledged_at: null },
     { id: N_OTHER, analysis_run_id: ARUN, sequence: 3, note_type: "No Change", area: "Goods In", description: "Goods In remains.", source_fragment_ids: [F_OTHER], acknowledged_at: "2026-09-30" },
+    // Change-level: acknowledged, shares the fragment, but part of no Requirement's own statement.
+    { id: N_CHANGE, analysis_run_id: ARUN, sequence: 4, note_type: "No Change", area: "FULL PALLET picks", description: "FULL PALLET picks remain as they are.", source_quote: "FULL PALLET picks remain as they are.", source_fragment_ids: [F1], acknowledged_at: "2026-09-30" },
   ],
   requirements: [
     { id: REQ_PROMOTED, project_id: P, requirement_ref: "REP-008", title: "Picker name remains", description: "The picker name must remain against the pick task.", category: "Business Rule", priority: "High", status: "Discovery" },
     { id: REQ_MANUAL, project_id: P, requirement_ref: "REP-001", title: "Manual", description: "Manual requirement", category: "UI", priority: "Low", status: "Open" },
     { id: REQ_SIGNED, project_id: P, requirement_ref: "REP-009", title: "Signed", description: "d", status: "Approved" },
     { id: REQ_BROKEN, project_id: P, requirement_ref: "REP-010", title: "Broken", description: "d", status: "Discovery" },
+    { id: REQ_SIBLING, project_id: P, requirement_ref: "REP-011", title: "Palletiser name stays", description: "The palletiser name stays on the palletised task.", status: "Discovery" },
   ],
   // Canonical ACs: Phase 1E must never touch them.
   acceptance_criteria: [{ id: uuid(), project_id: P, requirement_id: REQ_MANUAL, ac_ref: "AC-001", criterion: "Existing manual AC", status: "Met" }],
@@ -135,11 +144,15 @@ function acInput(projectId, requirementId) {
   const found = db.source_fragments.filter((f) => p.source_fragment_ids.includes(f.id) && f.extraction_job_id === run?.extraction_job_id);
   if (!run || found.length !== new Set(p.source_fragment_ids).size) return { ...out, reason: "The promoted proposal's source provenance is incomplete, so acceptance criteria cannot be generated safely." };
   const lineage = [p.sequence];
+  // Migration 044: lineage, or (no proposal) a trigger sentence that is part of THIS Requirement's own statement.
+  const norm = (t) => String(t ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  const own = norm([p.source_quote, p.reviewed_description ?? p.proposed_description].filter(Boolean).join(" ¦ "));
+  const partOfOwn = (t) => norm(t).length >= 8 && own.includes(norm(t));
   const related = (i) => i.analysis_run_id === p.analysis_run_id && i.issue_type !== "Out of Scope / Administrative Content"
-    && (overlap(i.related_proposal_sequences, lineage) || (i.related_proposal_sequences.length === 0 && overlap(i.source_fragment_ids, p.source_fragment_ids)));
+    && (overlap(i.related_proposal_sequences, lineage) || (i.related_proposal_sequences.length === 0 && partOfOwn(i.trigger_quote)));
   const clar = db.analysis_issues.filter((i) => related(i) && ["Resolved", "Accepted"].includes(i.status) && String(i.resolution_note ?? "").trim());
   const open = db.analysis_issues.filter((i) => related(i) && (i.status === "Open" || (i.status === "Accepted" && !String(i.resolution_note ?? "").trim())));
-  const notes = db.analysis_scope_notes.filter((n) => n.analysis_run_id === p.analysis_run_id && n.acknowledged_at && overlap(n.source_fragment_ids, p.source_fragment_ids));
+  const notes = db.analysis_scope_notes.filter((n) => n.analysis_run_id === p.analysis_run_id && n.acknowledged_at && overlap(n.source_fragment_ids, p.source_fragment_ids) && partOfOwn(n.source_quote ?? n.description));
   const snapshot = {
     requirement: { id: r.id, ref: r.requirement_ref, title: r.title, description: r.description, category: r.category, priority: r.priority, status: r.status },
     proposal: { id: p.id, sequence: p.sequence, origin: p.origin, title: p.reviewed_title ?? p.proposed_title, description: p.reviewed_description ?? p.proposed_description, original_title: p.proposed_title, original_description: p.proposed_description, edited: false, source_quote: p.source_quote, source_quotes: [p.source_quote].filter(Boolean) },
@@ -288,14 +301,17 @@ await run("the worker receives exactly the Requirement's provenance: its own fra
   assert.equal(c.run.id, runId);
   assert.deepEqual(c.fragments.map((f) => f.id).sort(), [F1, F2].sort(), "the unrelated fragment of the same extraction is excluded");
   assert.deepEqual(c.clarifications.map((x) => [x.id, x.resolution_note]), [[I_RESOLVED, "Keep the first picker."]]);
-  assert.deepEqual(c.open_questions.map((x) => x.id), [I_OPEN], "tied to no proposal + shares a fragment → open question; another proposal's issue and admin content are excluded");
-  assert.deepEqual(c.scope_notes.map((x) => x.id), [N_ACK], "unacknowledged and unrelated notes are excluded");
+  assert.deepEqual(c.open_questions.map((x) => x.id), [I_OPEN], "tied to no proposal and raised by its own sentence → included; sharing a fragment only, another proposal's issue, admin content → excluded");
+  assert.deepEqual(c.scope_notes.map((x) => x.id), [N_ACK], "a note that is part of its statement is supplied; unacknowledged, unrelated and change-level notes are not");
   assert.equal(c.requirement.ref, "REP-008");
   assert.ok(!JSON.stringify(c).includes("Existing manual AC"), "canonical ACs are never sent to the model");
   assert.equal((await worker("claim", IDENTITY)).body.run, null, "nothing else queued");
 });
 
 await run("completion is re-validated on the server: fabricated ids, missing provenance and model-chosen status are refused, nothing stored", async () => {
+  const badRelation = await worker("complete", { run_id: runId, proposals: [proposalOf()], issues: [{ sequence: 1, issue_type: "Unresolved Existing Analysis Issue", severity: "Low", relation: "Maybe", description: "d", source_fragment_ids: [], analysis_issue_ids: [] }], diagnostics: {} });
+  assert.equal(badRelation.status, 400);
+  assert.match(badRelation.body.error, /relation must be Blocking, Additional Coverage or Informational/);
   for (const bad of [proposalOf({ source_fragment_ids: [F_OTHER] }), proposalOf({ source_fragment_ids: [] }), proposalOf({ review_status: "Approved" }), proposalOf({ ac_ref: "AC-002" }), proposalOf({ open_issue_ids: [I_UNRELATED] })]) {
     const res = await worker("complete", { run_id: runId, proposals: [bad], issues: [], diagnostics: {}, with_warnings: false });
     assert.equal(res.status, 400, JSON.stringify(bad));
@@ -311,11 +327,12 @@ await run("a valid completion stores proposals (the database sets Needs Review),
     proposalOf({ sequence: 3, criterion: "Depends on the open question.", open_issue_ids: [I_OPEN], needs_review_reasons: ["Depends on an open question."] }),
     proposalOf({ sequence: 4, criterion: "Relies on the clarification.", source_fragment_ids: [], clarification_issue_ids: [I_RESOLVED], source_quote: null }),
   ];
-  const issues = [{ sequence: 1, issue_type: "Unresolved Existing Analysis Issue", severity: "Medium", description: "Open question.", obligation: null, suggested_question: null, source_fragment_ids: [], analysis_issue_ids: [I_OPEN] }];
+  const issues = [{ sequence: 1, issue_type: "Unresolved Existing Analysis Issue", severity: "Medium", relation: "Blocking", description: "Open question.", obligation: null, suggested_question: null, source_fragment_ids: [], analysis_issue_ids: [I_OPEN] }];
   const res = await worker("complete", { run_id: runId, model_digest: "500a1f067a9f", proposals, issues, diagnostics: { warnings: [] }, with_warnings: false });
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(db.acceptance_criterion_proposals.map((p) => p.review_status), ["Proposed", "Proposed", "Needs Review", "Proposed"]);
   assert.ok(db.acceptance_criterion_proposals.every((p) => !("ac_ref" in p)));
+  assert.equal(db.ac_generation_issues[0].relation, "Blocking");
   assert.equal(lastAudit().new_value, "Completed — 4 proposed acceptance criteria, 1 needing review, 1 generation issue (model qwen3:8b, AC prompts 1.0.0)");
   assert.equal(JSON.stringify({ ac: db.acceptance_criteria, requirements: db.requirements, proposals: db.requirement_proposals, issues: db.analysis_issues, notes: db.analysis_scope_notes }), canonicalSnapshot,
     "canonical ACs, Requirements and Phase 1C/1D history unchanged");
@@ -344,6 +361,48 @@ await run("failure and retry: a failed run is retried as a NEW run with the same
   assert.equal(claim.body.run, null);
   assert.deepEqual([db.ac_generation_runs.find((r) => r.id === retry.body.run.id).status, db.ac_generation_runs.find((r) => r.id === retry.body.run.id).error_category], ["Failed", "validation_failed"]);
   assert.equal(db.acceptance_criteria.length, 1);
+});
+
+// ── Requirement-specific relevance (migration 044) ──────────────────────────
+
+await run("sibling Requirements of one source never inherit one another's issues or change-level scope notes", async () => {
+  as("Manager");
+  const res = await queue(REQ_SIBLING);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const r = db.ac_generation_runs.find((x) => x.id === res.body.run.id);
+  assert.deepEqual(r.open_issue_ids, [I_SIBLING], "only the issue tied to its own proposal");
+  assert.deepEqual(r.clarification_issue_ids, [], "the other Requirement's clarification does not leak");
+  assert.deepEqual(r.scope_note_ids, [], "MONO / FULL PALLET notes are not part of its statement");
+  const first = db.ac_generation_runs.find((x) => x.id === runId);
+  assert.ok(!first.open_issue_ids.includes(I_SIBLING) && !first.open_issue_ids.includes(I_SHARED));
+  assert.ok(!first.scope_note_ids.includes(N_CHANGE) && !r.scope_note_ids.includes(N_CHANGE), "a change-level note stays unassigned");
+  // It stays preserved in the analysis run for later regression-test generation.
+  assert.ok(db.analysis_scope_notes.some((n) => n.id === N_CHANGE && n.acknowledged_at));
+  assert.equal(db.acceptance_criteria.length, 1, "canonical AC count unchanged");
+});
+
+const m044 = code(read("supabase/migrations/044_ac_generation_issue_relevance.sql"));
+await run("044: unlinked issues and scope notes must be part of the Requirement's own statement; issue relation recorded; nothing rewritten", () => {
+  assert.equal((m044.match(/OR \(cardinality\(i\.related_proposal_sequences\) = 0 AND length\(public\.ac_generation_norm\(i\.trigger_quote\)\) >= 8\s+AND strpos\(v_own, public\.ac_generation_norm\(i\.trigger_quote\)\) > 0\)\)/g) ?? []).length, 2, "clarifications and open questions");
+  assert.doesNotMatch(m044, /i\.source_fragment_ids && v_p\.source_fragment_ids/, "sharing a fragment alone no longer relates an issue");
+  assert.match(m044, /AND strpos\(v_own, public\.ac_generation_norm\(coalesce\(n\.source_quote, n\.description\)\)\) > 0/);
+  assert.match(m044, /v_own := public\.ac_generation_norm\(array_to_string\(v_quotes \|\| coalesce\(v_p\.reviewed_description, v_p\.proposed_description\), ' ¦ '\)\);/);
+  assert.match(m044, /ADD COLUMN relation text CHECK \(relation IS NULL OR relation IN \('Blocking', 'Additional Coverage', 'Informational'\)\);/);
+  assert.match(m044, /nullif\(i\.v->>'relation', ''\)/);
+  const topLevel = m044.replace(/\$\$[\s\S]*?\$\$/g, "");
+  assert.doesNotMatch(topLevel, /\b(UPDATE|DELETE FROM|INSERT INTO)\b/, "the migration itself changes no data: no existing run, Phase 1C issue or canonical record is rewritten");
+  assert.doesNotMatch(m044, /\b(UPDATE|DELETE FROM|INSERT INTO) public\.(analysis_issues|analysis_scope_notes|acceptance_criteria|requirements)\b/);
+  assert.doesNotMatch(m044, /DROP |ALTER TABLE public\.(ac_generation_runs|acceptance_criterion_proposals|analysis_issues|analysis_scope_notes)/);
+  const schema = req("../lib/schema.ts");
+  assert.equal(schema.latestMigration, "044_ac_generation_issue_relevance");
+});
+
+await run("UI: blocking vs additional-coverage questions are distinguished; a criterion is only 'Blocked by' a blocking question", () => {
+  const page = read("components/ac-generation-review-page.tsx");
+  assert.ok(page.includes('"Additional Coverage": "Additional coverage question — does not block this criterion"'));
+  assert.ok(page.includes('Blocking: "Blocking issue — affected criteria need review"'));
+  assert.match(page, /Blocked by open question \{openById\.get\(id\)\?\.label\}/);
+  assert.match(page, /\{i\.relation \? <Pill tone=\{i\.relation === "Blocking" \? "warn" : "info"\}>\{RELATION_LABEL\[i\.relation\]\}<\/Pill> : null\}/);
 });
 
 // ── Migration 043 ──────────────────────────────────────────────────────────
@@ -377,7 +436,7 @@ await run("043: output and runs are immutable history; reads Manager/Admin only;
   assert.doesNotMatch(m043, /ALTER TABLE public\.(requirement_proposals|analysis_runs|analysis_issues|analysis_scope_notes|acceptance_criteria|requirements)\b/);
   assert.doesNotMatch(m043, /FUNCTION public\.(analysis_|queue_analysis|claim_analysis|complete_analysis|promote_|review_|edit_|split_|merge_|acknowledge_|requirements_promoted|documents_promoted)/, "no Phase 1C/1D function is replaced");
   const schema = req("../lib/schema.ts");
-  assert.equal(schema.latestMigration, "043_ac_generation");
+  assert.ok(schema.latestMigration >= "043_ac_generation");
   assert.equal(schema.schemaVersion, schema.latestMigration);
 });
 
@@ -400,7 +459,7 @@ await run("UI: the drawer panel is Manager/Admin only, silent for manual Require
   const page = read("components/ac-generation-review-page.tsx");
   assert.match(page, /if \(!mayView\) return <AppShell><EmptyState title="Manager or Admin access required"/);
   assert.doesNotMatch(page + panel, /saveRecord|createRecord|acceptance_criteria"|Promote/, "no canonical AC write and no promotion");
-  for (const s of ["Positive", "Needs Review", "Depends on open question", "Relies on human clarification", "Scope note"]) assert.ok(page.includes(s), s);
+  for (const s of ["Positive", "Needs Review", "Blocked by open question", "Relies on human clarification", "Scope note"]) assert.ok(page.includes(s), s);
   assert.ok(read("components/audit-trail-page.tsx").includes('ac_generation_runs: "AC Generation Run"'));
 });
 

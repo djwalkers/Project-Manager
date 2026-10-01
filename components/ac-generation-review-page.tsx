@@ -41,6 +41,12 @@ function Pill({ children, tone = "muted", title }: { children: React.ReactNode; 
   return <span title={title} className={`inline-block whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>{children}</span>;
 }
 
+const RELATION_LABEL: Record<string, string> = {
+  Blocking: "Blocking issue — affected criteria need review",
+  "Additional Coverage": "Additional coverage question — does not block this criterion",
+  Informational: "Related question — informational",
+};
+
 const typeTone = (t: string) => (t === "Regression" ? "info" : t === "Negative" ? "warn" : "ok");
 
 export function AcGenerationReviewPage({ runId }: { runId: string }) {
@@ -84,7 +90,7 @@ export function AcGenerationReviewPage({ runId }: { runId: string }) {
       })}
       {p.scope_note_ids.map((id) => <li key={id}><ShieldCheck className="mr-1 inline h-3 w-3" aria-hidden="true" />Scope note {noteById.get(id)?.label}: {noteById.get(id)?.description}</li>)}
       {p.clarification_issue_ids.map((id) => <li key={id}><HelpCircle className="mr-1 inline h-3 w-3" aria-hidden="true" />Relies on human clarification {clarById.get(id)?.label}: {clarById.get(id)?.resolution_note}</li>)}
-      {p.open_issue_ids.map((id) => <li key={id} className="text-amber-800 dark:text-amber-200"><AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden="true" />Depends on open question {openById.get(id)?.label}: {openById.get(id)?.question}</li>)}
+      {p.open_issue_ids.map((id) => <li key={id} className="text-amber-800 dark:text-amber-200"><AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden="true" />Blocked by open question {openById.get(id)?.label}: {openById.get(id)?.question}</li>)}
     </ul>
   );
 
@@ -150,8 +156,12 @@ export function AcGenerationReviewPage({ runId }: { runId: string }) {
             <h2 className="text-base font-semibold">Generation issues ({issues.length})</h2>
             <ul className="mt-3 space-y-2">
               {issues.map((i) => (
-                <li key={i.id} className="rounded-lg border bg-card p-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-1.5"><Pill tone={i.severity === "High" ? "bad" : i.severity === "Medium" ? "warn" : "muted"}>{i.severity}</Pill><span className="font-medium">{i.issue_type}</span></div>
+                <li key={i.id} className={`rounded-lg border bg-card p-3 text-sm ${i.relation === "Blocking" ? "border-amber-300 dark:border-amber-700" : ""}`}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Pill tone={i.severity === "High" ? "bad" : i.severity === "Medium" ? "warn" : "muted"}>{i.severity}</Pill>
+                    {i.relation ? <Pill tone={i.relation === "Blocking" ? "warn" : "info"}>{RELATION_LABEL[i.relation]}</Pill> : null}
+                    <span className="font-medium">{i.issue_type}</span>
+                  </div>
                   <p className="mt-1">{i.description}</p>
                   {i.obligation ? <p className="mt-1 text-xs text-muted-foreground">Obligation: {i.obligation}</p> : null}
                   {i.suggested_question ? <p className="mt-1 text-xs">Question: {i.suggested_question}</p> : null}
@@ -166,7 +176,7 @@ export function AcGenerationReviewPage({ runId }: { runId: string }) {
           <p className="mt-1 text-xs text-muted-foreground">The Requirement, its promoted proposal&apos;s own {input.fragment_ids.length} source fragment{input.fragment_ids.length === 1 ? "" : "s"}, and:</p>
           <h3 className="mt-3 text-xs font-semibold uppercase text-muted-foreground">Human clarifications ({input.clarifications.length})</h3>
           {input.clarifications.length ? <ul className="mt-1 space-y-1">{input.clarifications.map((c, i) => <li key={c.id}><span className="font-medium">C{i + 1}</span> {c.question} — <span className="italic">{c.resolution_note}</span>{c.reviewed_by_name ? ` (${c.reviewed_by_name})` : ""}</li>)}</ul> : <p className="text-xs text-muted-foreground">None.</p>}
-          <h3 className="mt-3 text-xs font-semibold uppercase text-muted-foreground">Open questions — not treated as fact ({input.open_questions.length})</h3>
+          <h3 className="mt-3 text-xs font-semibold uppercase text-muted-foreground">Open questions about this Requirement — not treated as fact ({input.open_questions.length})</h3>
           {input.open_questions.length ? <ul className="mt-1 space-y-1">{input.open_questions.map((q, i) => <li key={q.id}><span className="font-medium">Q{i + 1}</span> {q.question ?? q.description}</li>)}</ul> : <p className="text-xs text-muted-foreground">None.</p>}
           <h3 className="mt-3 text-xs font-semibold uppercase text-muted-foreground">Acknowledged scope notes ({input.scope_notes.length})</h3>
           {input.scope_notes.length ? <ul className="mt-1 space-y-1">{input.scope_notes.map((n, i) => <li key={n.id}><span className="font-medium">N{i + 1}</span> {n.area}: {n.description}</li>)}</ul> : <p className="text-xs text-muted-foreground">None.</p>}

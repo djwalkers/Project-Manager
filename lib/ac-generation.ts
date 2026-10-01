@@ -53,7 +53,12 @@ export type AcceptanceCriterionProposal = {
 export type AcGenerationIssue = {
   id: string; generation_run_id: string; sequence: number; issue_type: (typeof AC_GENERATION_ISSUE_TYPES)[number]; severity: "High" | "Medium" | "Low";
   description: string; obligation: string | null; suggested_question: string | null; source_fragment_ids: string[]; analysis_issue_ids: string[]; status: string;
+  relation: AcIssueRelation | null;
 };
+
+/** How an open analysis question relates to the generated criteria (migration 044; null on earlier runs). */
+export const AC_ISSUE_RELATIONS = ["Blocking", "Additional Coverage", "Informational"] as const;
+export type AcIssueRelation = (typeof AC_ISSUE_RELATIONS)[number];
 
 export type AcGenerationEligibility = { eligible: boolean; reason: string | null; promoted: boolean };
 
@@ -81,7 +86,7 @@ export type CriterionInput = {
 };
 export type GenerationIssueInput = {
   sequence: number; issue_type: string; severity: string; description: string; obligation: string | null; suggested_question: string | null;
-  source_fragment_ids: string[]; analysis_issue_ids: string[]; related_proposal_sequences: number[];
+  source_fragment_ids: string[]; analysis_issue_ids: string[]; related_proposal_sequences: number[]; relation: string | null;
 };
 export type AllowedAcInput = { fragments: Set<string>; scopeNotes: Set<string>; clarifications: Set<string>; openQuestions: Set<string> };
 
@@ -135,6 +140,7 @@ export function validateAcGenerationSubmission(proposalsRaw: unknown, issuesRaw:
     issueSeen.add(seq);
     if (!oneOf(AC_GENERATION_ISSUE_TYPES, x.issue_type)) problems.push(`${where}: invalid issue_type`);
     if (!oneOf(["High", "Medium", "Low"], x.severity)) problems.push(`${where}: invalid severity`);
+    if (x.relation != null && !oneOf(AC_ISSUE_RELATIONS, x.relation)) problems.push(`${where}: relation must be Blocking, Additional Coverage or Informational`);
     const description = str(x.description);
     if (!description || description.length > 2000) problems.push(`${where}: description is required (≤ 2000 characters)`);
     const fragments = idList(x.source_fragment_ids), linked = idList(x.analysis_issue_ids);
@@ -143,7 +149,7 @@ export function validateAcGenerationSubmission(proposalsRaw: unknown, issuesRaw:
     issues.push({
       sequence: seq, issue_type: x.issue_type as string, severity: x.severity as string, description,
       obligation: optional(x.obligation, 1000), suggested_question: optional(x.suggested_question, 1000),
-      source_fragment_ids: fragments, analysis_issue_ids: linked, related_proposal_sequences: [],
+      source_fragment_ids: fragments, analysis_issue_ids: linked, related_proposal_sequences: [], relation: (x.relation as string | null | undefined) ?? null,
     });
   });
   return problems.length ? { ok: false, problems } : { ok: true, proposals, issues };

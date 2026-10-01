@@ -1,6 +1,6 @@
 {
   "name": "local-extraction-worker",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "Standalone local worker on this Mac: deterministic (non-AI) text extraction of Test Manager source documents, and (Phase 1C) requirement analysis with a LOCAL Ollama model. Not part of the Next.js/Vercel build.",
