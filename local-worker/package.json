@@ -1,15 +1,16 @@
 {
   "name": "local-extraction-worker",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Standalone local worker on this Mac: deterministic (non-AI) text extraction of Test Manager source documents, and (Phase 1C) requirement analysis with a LOCAL Ollama model. Not part of the Next.js/Vercel build.",
   "scripts": {
     "start": "node worker.js",
-    "test": "node tests/extract.test.mjs && node tests/worker.test.mjs && node tests/analysis.test.mjs && node tests/ac-generation.test.mjs && node tests/real-documents.test.mjs",
+    "test": "node tests/extract.test.mjs && node tests/worker.test.mjs && node tests/analysis.test.mjs && node tests/ac-generation.test.mjs && node tests/test-generation.test.mjs && node tests/real-documents.test.mjs",
     "test:real": "node tests/real-documents.test.mjs",
     "test:analysis": "node tests/analysis.test.mjs",
-    "test:ac-generation": "node tests/ac-generation.test.mjs"
+    "test:ac-generation": "node tests/ac-generation.test.mjs",
+    "test:test-generation": "node tests/test-generation.test.mjs"
   },
   "engines": {
     "node": ">=20"

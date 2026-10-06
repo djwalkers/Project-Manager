@@ -31,6 +31,7 @@ const ENTITY_LABELS: Record<string, string> = {
   requirement_proposals: "Requirement Proposal",
   analysis_issues: "Analysis Issue",
   ac_generation_runs: "AC Generation Run",
+  test_generation_runs: "Test Generation Run",
   acceptance_criterion_proposals: "AC Proposal",
   ac_generation_issues: "AC Generation Issue",
   ac_human_clarifications: "Human Clarification",

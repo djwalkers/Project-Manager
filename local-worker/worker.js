@@ -20,6 +20,13 @@
 // clarifications, open questions and acknowledged scope notes) and posts
 // back non-authoritative AC proposals for human review.
 //
+// Lowest of all (Phase 1G): TEST CASE design for one Requirement's
+// canonical Acceptance Criteria — only when nothing above is waiting. It
+// receives exactly that run's fixed input (the ACs, and for AI-promoted ACs
+// their source fragments, Human Clarifications, resolved questions and
+// scope notes; open questions as non-facts) and posts back
+// non-authoritative test-case proposals. It never sees existing test cases.
+//
 // Security:
 //   * authenticates with a narrow worker token (config.json, gitignored)
 //     that is valid ONLY on /api/worker/* — extraction claim, fragments,
@@ -40,8 +47,10 @@ import { AnalysisError, runAnalysis } from "./analysis/pipeline.js";
 import { ANALYSIS_SCHEMA_VERSION, PROMPT_VERSION, promptFingerprint } from "./analysis/prompts.js";
 import { AcGenerationError, runAcGeneration } from "./ac-generation/pipeline.js";
 import { AC_PROMPT_VERSION, AC_SCHEMA_VERSION, acPromptFingerprint } from "./ac-generation/prompts.js";
+import { TestGenerationError, runTestGeneration } from "./test-generation/pipeline.js";
+import { TEST_PROMPT_VERSION, TEST_SCHEMA_VERSION, testPromptFingerprint } from "./test-generation/prompts.js";
 
-export const WORKER_VERSION = "0.4.2";
+export const WORKER_VERSION = "0.5.0";
 export const BATCH_MAX_FRAGMENTS = 200;
 export const BATCH_MAX_CHARS = 2_000_000; // keeps each request well under Vercel's 4.5 MB body limit
 
@@ -318,6 +327,66 @@ export async function runAcGenerationOnce({ api, ollama, log = () => {}, state =
   return processAcGenerationRun(claim, { api, ollama, log });
 }
 
+// ── Test case generation (Phase 1G) ──────────────────────────────────────────
+
+export const TEST_IDENTITY = { test_prompt_version: TEST_PROMPT_VERSION, test_prompt_sha256: testPromptFingerprint(), test_schema_version: TEST_SCHEMA_VERSION };
+
+/** Processes one claimed test-generation run end to end. Never throws; returns a summary. */
+export async function processTestGenerationRun(claim, { api, ollama, log = () => {} }) {
+  const { run } = claim;
+  let modelDigest = null;
+  const failRun = async (category, message, diagnostics = null) => {
+    try {
+      await api("test-generation/fail", { run_id: run.id, error_category: category, error_message: message, model_digest: modelDigest, diagnostics });
+    } catch (error) {
+      log(`test-generation ${run.id}: could not report failure (${safeMessage(error)}); the lease will expire and the server will retry`);
+    }
+    log(`test-generation ${run.id}: failed (${category})`);
+    return { run_id: run.id, status: "Failed", category };
+  };
+  const model = await prepareModel(ollama, run.model);
+  modelDigest = model.digest ?? null;
+  if (model.fail) return failRun(...model.fail);
+
+  let result;
+  try {
+    result = await runTestGeneration({
+      input: claim, reusable: claim.reusable_stages ?? [], log: (m) => log(`test-generation ${run.id}: ${m}`),
+      llm: { chat: ({ messages, schema }) => ollama.chat({ model: run.model, messages, schema, numCtx: model.numCtx, think: model.think }) },
+      onStage: (s) => api("test-generation/stage", { run_id: run.id, ...s }),
+    });
+  } catch (error) {
+    if (error instanceof TestGenerationError) return failRun(error.category, safeMessage(error), error.diagnostics);
+    if (error instanceof OllamaError) return failRun(error.category, safeMessage(error));
+    return failRun(error?.status ? "upload_failed" : "internal_error", `Generation stopped: ${safeMessage(error)}`);
+  }
+  try {
+    await api("test-generation/complete", { run_id: run.id, model_digest: modelDigest, proposals: result.proposals, issues: result.issues, diagnostics: result.diagnostics, with_warnings: result.withWarnings });
+  } catch (error) {
+    return failRun("upload_failed", `Saving the proposed tests failed: ${safeMessage(error)}`, result.diagnostics);
+  }
+  log(`test-generation ${run.id}: ${result.withWarnings ? "completed with warnings" : "completed"} — ${result.proposals.length} tests, ${result.issues.length} issues`);
+  return { run_id: run.id, status: "Completed", proposals: result.proposals.length, issues: result.issues.length };
+}
+
+/** Claims and processes at most one test-generation run. Returns null when none is queued. */
+export async function runTestGenerationOnce({ api, ollama, log = () => {}, state = {} }) {
+  let claim;
+  try {
+    claim = await api("test-generation/claim", { ...TEST_IDENTITY });
+  } catch (error) {
+    // A Test Manager deployment without Phase 1G has no test-generation routes yet.
+    if (error.status !== 404) throw error;
+    if (!state.noTestGenerationLogged) log("the server does not offer test generation yet — everything else continues");
+    state.noTestGenerationLogged = true;
+    return null;
+  }
+  state.noTestGenerationLogged = false;
+  if (!claim?.run) return null;
+  log(`test-generation ${claim.run.id}: claimed (attempt ${claim.run.attempt_count}, model ${claim.run.model}, ${claim.acceptance_criteria.length} acceptance criteria)`);
+  return processTestGenerationRun(claim, { api, ollama, log });
+}
+
 async function main() {
   const config = loadConfig();
   const api = createApi(config);
@@ -329,7 +398,7 @@ async function main() {
   process.on("SIGTERM", stop);
 
   const ollama = createOllama({ ollamaUrl: config.ollamaUrl, timeoutMs: config.ollamaTimeoutMs });
-  log(`Test Manager worker ${WORKER_VERSION} (extractor ${EXTRACTOR_VERSION}, analysis prompts ${PROMPT_VERSION}, AC prompts ${AC_PROMPT_VERSION}${config.analysisEnabled ? "" : " — disabled"}) → ${config.apiBaseUrl}`);
+  log(`Test Manager worker ${WORKER_VERSION} (extractor ${EXTRACTOR_VERSION}, analysis prompts ${PROMPT_VERSION}, AC prompts ${AC_PROMPT_VERSION}, test prompts ${TEST_PROMPT_VERSION}${config.analysisEnabled ? "" : " — disabled"}) → ${config.apiBaseUrl}`);
   // The heartbeat reports what this Mac's Ollama has installed (names/digests only) for System Health.
   const beat = async () => { try { await api("heartbeat", config.analysisEnabled ? { ollama: await ollama.status() } : {}); } catch (error) { log(`heartbeat failed: ${safeMessage(error)}`); } };
   await beat();
@@ -339,9 +408,10 @@ async function main() {
     try {
       const done = await runOnce({ api, log });
       if (done) continue; // look for more work straight away
-      // Deterministic priority: extraction → requirement analysis → AC generation.
+      // Deterministic priority: extraction → requirement analysis → AC generation → test generation.
       if (config.analysisEnabled && await runAnalysisOnce({ api, ollama, log, state: analysisState })) continue;
       if (config.analysisEnabled && await runAcGenerationOnce({ api, ollama, log, state: analysisState })) continue;
+      if (config.analysisEnabled && await runTestGenerationOnce({ api, ollama, log, state: analysisState })) continue;
     } catch (error) {
       log(`poll failed: ${safeMessage(error)}${error.status === 401 ? " — the worker token is invalid or was revoked" : ""}`);
     }

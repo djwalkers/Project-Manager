@@ -101,7 +101,7 @@ await run("AC prompts are versioned separately from requirement analysis, and th
   assert.equal(acPromptFingerprint(), AC_PROMPT_FINGERPRINTS[AC_PROMPT_VERSION], "AC prompt text changed — bump AC_PROMPT_VERSION and pin the new fingerprint");
   assert.equal(AC_PROMPT_VERSION, "1.2.0");
   assert.deepEqual(AC_IDENTITY, { ac_prompt_version: AC_PROMPT_VERSION, ac_prompt_sha256: acPromptFingerprint(), ac_schema_version: AC_SCHEMA_VERSION });
-  assert.equal(WORKER_VERSION, "0.4.2");
+  assert.equal(WORKER_VERSION, "0.5.0");
 });
 
 // ── Input / context ─────────────────────────────────────────────────────────

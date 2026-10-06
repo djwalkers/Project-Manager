@@ -9,6 +9,7 @@ import { withEntityLinksRemoved, withLinkAdded, withLinkRemoved } from "@/lib/ar
 import { EmptyState } from "@/components/empty-state";
 import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementAcGenerationPanel } from "@/components/requirement-ac-generation";
+import { RequirementTestGenerationPanel } from "@/components/requirement-test-generation";
 import { RequirementProvenancePanel } from "@/components/requirement-provenance";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
@@ -254,6 +255,8 @@ export function ModulePageClient({ section }: { section: string }) {
             <RequirementProvenancePanel projectId={pid} requirementId={recordId} />
             {/* Phase 1E: AI acceptance criteria generation (Manager/Admin; promoted Requirements only — renders nothing otherwise). */}
             {canViewRequirementAnalysis(user?.role) && <RequirementAcGenerationPanel projectId={pid} requirementId={recordId} mayRun={canRunRequirementAnalysis(user?.role)} />}
+            {/* Phase 1G: AI test case design from this Requirement's canonical ACs (Manager/Admin; any AC, manual or promoted). */}
+            {canViewRequirementAnalysis(user?.role) && <RequirementTestGenerationPanel projectId={pid} requirementId={recordId} mayRun={canRunRequirementAnalysis(user?.role)} />}
             {requirementVerification && <RequirementTestCoverage verification={requirementVerification} />}
             <RequirementReadiness criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} />
             <ReadinessGates criteria={criteria} evidence={reqEvidence} signOffs={signOffs} testCases={linkedTestCases} requirementStatus={requirementStatus} />

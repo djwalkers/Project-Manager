@@ -643,7 +643,7 @@ await run("046: DB-enforced transitions, final states, atomic idempotent promoti
   assert.match(m046, /CREATE TABLE public\.ac_human_clarifications \(/);
   assert.match(m046, /CREATE TABLE public\.ac_scope_note_requirements \(/);
   assert.match(m046, /'Open', 'Resolved', 'Accepted', 'Not Applicable'/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "046_ac_review_promotion");
+  assert.ok(req("../lib/schema.ts").allMigrations.includes("046_ac_review_promotion"));
 });
 
 await run("UI and calculations: no direct canonical write from the workspace; ProjectState / Go-Live / test status do not read proposals", () => {
