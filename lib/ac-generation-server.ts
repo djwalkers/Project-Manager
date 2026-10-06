@@ -102,18 +102,65 @@ export async function queueAcGeneration(db: SupabaseClient, actor: Actor, body: 
   return { status: 200, body: { run, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
 }
 
-/** Manager/Admin: one run with its generated criteria, generation issues and the exact fragments it was given. */
+/**
+ * Manager/Admin: one run with its criteria, generation issues and the exact
+ * fragments it was given — plus the Phase 1F review context: Human
+ * Clarifications, approval blockers per open proposal, the analysis run's
+ * acknowledged scope notes with their Requirement associations, sibling runs
+ * of the same Requirement (latest vs older) and the Requirement's canonical
+ * ACs (references and wording only, for duplicate checks).
+ */
 export async function getAcGenerationRun(db: SupabaseClient, projectId: string, runId: string): Promise<ServiceResult> {
   if (!UUID.test(projectId) || !UUID.test(runId)) return fail(400, "project_id and run_id are required");
   const { data: run } = await db.from("ac_generation_runs").select("*").eq("id", runId).eq("project_id", projectId).maybeSingle();
   if (!run) return fail(404, "Generation run not found in this project");
-  const r = run as RunRow;
-  const [proposals, issues, fragments] = await Promise.all([
+  const r = run as RunRow & { analysis_run_id: string };
+  const [proposals, issues, fragments, clarifications, scopeNotes, associations, siblings, requirement, canonical] = await Promise.all([
     db.from("acceptance_criterion_proposals").select("*").eq("generation_run_id", runId).order("sequence", { ascending: true }),
     db.from("ac_generation_issues").select("*").eq("generation_run_id", runId).order("sequence", { ascending: true }),
     db.from("source_fragments").select(FRAGMENT_COLUMNS).in("id", r.allowed_fragment_ids).eq("extraction_job_id", r.extraction_job_id).order("sequence", { ascending: true }),
+    db.from("ac_human_clarifications").select("*").eq("generation_run_id", runId).order("created_at", { ascending: true }),
+    db.from("analysis_scope_notes").select("id, sequence, area, description, source_quote, source_fragment_ids, acknowledged_at, acknowledged_by_name, acknowledgement_note")
+      .eq("analysis_run_id", r.analysis_run_id).eq("project_id", projectId).order("sequence", { ascending: true }),
+    db.from("ac_scope_note_requirements").select("*").eq("project_id", projectId),
+    db.from("ac_generation_runs").select("id, status, queued_at, completed_at, prompt_version, proposal_count").eq("project_id", projectId).eq("requirement_id", r.requirement_id).order("queued_at", { ascending: false }).limit(20),
+    db.from("requirements").select("id, requirement_ref, title, status").eq("id", r.requirement_id).maybeSingle(),
+    db.from("acceptance_criteria").select("id, ac_ref, criterion, status, criterion_type").eq("project_id", projectId).eq("requirement_id", r.requirement_id).order("ac_ref", { ascending: true }),
   ]);
-  return { status: 200, body: { run, proposals: proposals.data ?? [], issues: issues.data ?? [], fragments: fragments.data ?? [] } };
+  const props = (proposals.data ?? []) as { id: string; review_status: string }[];
+  const blockers: Record<string, string[]> = {};
+  await Promise.all(props.filter((p) => ["Proposed", "Needs Review", "Approved"].includes(p.review_status)).map(async (p) => {
+    const { data } = await db.rpc("ac_approval_blockers", { p_proposal_id: p.id, p_confirmed: true });
+    blockers[p.id] = (data ?? []) as string[];
+  }));
+  // Requirements a scope note may be associated with: those promoted from the same analysis run.
+  const { data: promotedReqs } = await db.from("requirement_proposals").select("promoted_record_id").eq("analysis_run_id", r.analysis_run_id).eq("review_status", "Promoted");
+  const reqIds = [...new Set(((promotedReqs ?? []) as { promoted_record_id: string | null }[]).map((x) => x.promoted_record_id).filter((x): x is string => Boolean(x)))];
+  const { data: analysisRequirements } = reqIds.length ? await db.from("requirements").select("id, requirement_ref, title").in("id", reqIds).order("requirement_ref") : { data: [] };
+  // Only acknowledged notes can be associated or used for Regression criteria.
+  const acknowledgedNotes = ((scopeNotes.data ?? []) as { id: string; acknowledged_at: string | null }[]).filter((n) => n.acknowledged_at);
+  const noteIds = new Set(acknowledgedNotes.map((n) => n.id));
+  // Adopting this run would supersede the open proposals of OLDER runs (never Promoted ones).
+  const older = ((siblings.data ?? []) as { id: string; queued_at: string }[]).filter((x) => x.id !== runId && x.queued_at < (r as unknown as { queued_at: string }).queued_at).map((x) => x.id);
+  const { data: olderOpenRows } = older.length
+    ? await db.from("acceptance_criterion_proposals").select("id").in("generation_run_id", older).in("review_status", ["Proposed", "Needs Review", "Approved"])
+    : { data: [] };
+  // Review history: audit rows for the run, its proposals, issues and clarifications.
+  const entityIds = [runId, ...props.map((p) => p.id), ...((proposals.data ?? []) as { promoted_ac_id: string | null }[]).map((p) => p.promoted_ac_id).filter((x): x is string => Boolean(x)), ...((issues.data ?? []) as { id: string }[]).map((i) => i.id), ...((clarifications.data ?? []) as { id: string }[]).map((c) => c.id), ...noteIds];
+  const { data: history } = await db.from("audit_log").select("id, entity_type, entity_name, action_type, field_name, old_value, new_value, changed_by_name, changed_at")
+    .eq("project_id", projectId).in("entity_id", entityIds).order("changed_at", { ascending: false }).limit(300);
+  return {
+    status: 200,
+    body: {
+      run, proposals: proposals.data ?? [], issues: issues.data ?? [], fragments: fragments.data ?? [],
+      clarifications: clarifications.data ?? [], approval_blockers: blockers,
+      scope_notes: acknowledgedNotes, scope_note_associations: ((associations.data ?? []) as { scope_note_id: string }[]).filter((a) => noteIds.has(a.scope_note_id)),
+      analysis_requirements: analysisRequirements ?? [],
+      sibling_runs: siblings.data ?? [], latest_run_id: (siblings.data?.[0] as { id?: string } | undefined)?.id ?? runId,
+      requirement: requirement.data, canonical_acceptance_criteria: canonical.data ?? [],
+      older_open_proposals: olderOpenRows?.length ?? 0, history: history ?? [],
+    },
+  };
 }
 
 // ── Worker protocol ─────────────────────────────────────────────────────────

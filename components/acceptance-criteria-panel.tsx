@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Circle, Clock, Loader2, Plus, Shield, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
+import { AcProvenancePanel } from "@/components/ac-provenance";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { EvidencePanel } from "@/components/evidence-panel";
@@ -97,6 +98,7 @@ export function AcceptanceCriteriaPanel({
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [provenanceId, setProvenanceId] = useState<string | null>(null);
 
   function updateForm(key: keyof EditForm, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -250,6 +252,7 @@ export function AcceptanceCriteriaPanel({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-semibold text-muted-foreground">{ac.ac_ref}</span>
                     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(ac.status)}`}>{ac.status}</span>
+                    {ac.criterion_type && <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground">{ac.criterion_type}</span>}
                     {verificationByAcId?.[ac.id] && (
                       <span
                         className="inline-flex items-center gap-1"
@@ -274,6 +277,19 @@ export function AcceptanceCriteriaPanel({
                   </div>
                   <p className="mt-1 text-sm font-medium">{ac.criterion}</p>
                   {ac.description && <p className="mt-0.5 text-xs text-muted-foreground">{ac.description}</p>}
+                  {ac.given_text || ac.when_text || ac.then_text ? (
+                    <dl className="mt-1 grid gap-x-2 text-xs sm:grid-cols-[auto_1fr]">
+                      {ac.given_text ? <><dt className="font-semibold text-muted-foreground">Given</dt><dd>{ac.given_text}</dd></> : null}
+                      {ac.when_text ? <><dt className="font-semibold text-muted-foreground">When</dt><dd>{ac.when_text}</dd></> : null}
+                      {ac.then_text ? <><dt className="font-semibold text-muted-foreground">Then</dt><dd>{ac.then_text}</dd></> : null}
+                    </dl>
+                  ) : null}
+                  {ac.criterion_type ? (
+                    <button type="button" className="mt-1 text-xs text-primary hover:underline" onClick={() => setProvenanceId(provenanceId === ac.id ? null : ac.id)}>
+                      {provenanceId === ac.id ? "Hide source provenance" : "Source provenance"}
+                    </button>
+                  ) : null}
+                  {provenanceId === ac.id ? <div className="mt-2"><AcProvenancePanel projectId={projectId} acId={ac.id} /></div> : null}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {ac.status !== "Met" && (

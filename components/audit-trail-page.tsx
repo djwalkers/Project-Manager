@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 const ENTITY_LABELS: Record<string, string> = {
   projects: "Project",
   requirements: "Requirement",
+  acceptance_criteria: "Acceptance Criterion",
   risks: "Risk",
   decisions: "Decision",
   actions: "Action",
@@ -30,6 +31,9 @@ const ENTITY_LABELS: Record<string, string> = {
   requirement_proposals: "Requirement Proposal",
   analysis_issues: "Analysis Issue",
   ac_generation_runs: "AC Generation Run",
+  acceptance_criterion_proposals: "AC Proposal",
+  ac_generation_issues: "AC Generation Issue",
+  ac_human_clarifications: "Human Clarification",
   analysis_scope_notes: "Scope Note",
   discovery_questions: "Discovery Question",
 };
