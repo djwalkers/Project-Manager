@@ -548,6 +548,11 @@ export type AcceptanceCriteria = {
   owner: string | null;
   evidence: string | null;
   notes: string | null;
+  /** Migration 046 — set when promoted from an AI proposal; NULL on manually created / older ACs. */
+  criterion_type?: "Positive" | "Negative" | "Regression" | null;
+  given_text?: string | null;
+  when_text?: string | null;
+  then_text?: string | null;
   created_at: string;
   updated_at: string;
 };

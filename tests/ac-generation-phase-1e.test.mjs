@@ -108,6 +108,8 @@ const db = {
   // Canonical ACs: Phase 1E must never touch them.
   acceptance_criteria: [{ id: uuid(), project_id: P, requirement_id: REQ_MANUAL, ac_ref: "AC-001", criterion: "Existing manual AC", status: "Met" }],
   ac_generation_runs: [], ac_generation_stage_results: [], acceptance_criterion_proposals: [], ac_generation_issues: [], ai_settings: [], audit_log: [],
+  // Phase 1F review tables (empty here; Phase 1E never writes them).
+  ac_human_clarifications: [], ac_scope_note_requirements: [],
 };
 const canonicalSnapshot = JSON.stringify({ ac: db.acceptance_criteria, requirements: db.requirements, proposals: db.requirement_proposals, issues: db.analysis_issues, notes: db.analysis_scope_notes });
 
@@ -412,7 +414,7 @@ await run("045: the semantic-fidelity repair stage is persisted like every other
     "ALTER TABLE public.ac_generation_stage_results ADD CONSTRAINT ac_generation_stage_results_stage_check CHECK (stage IN ('obligations', 'criteria', 'coverage', 'repair'))",
   ]);
   assert.deepEqual(shared.AC_GENERATION_STAGES, ["obligations", "criteria", "coverage", "repair"]);
-  assert.equal(req("../lib/schema.ts").latestMigration, "045_ac_generation_repair_stage");
+  assert.ok(req("../lib/schema.ts").allMigrations.includes("045_ac_generation_repair_stage"));
   // The stage route accepts it for a running run (and still refuses unknown stages).
   // The sibling Requirement's run (queued above) is the next one the worker claims.
   const claim = await worker("claim", IDENTITY);
@@ -477,7 +479,9 @@ await run("UI: the drawer panel is Manager/Admin only, silent for manual Require
   assert.match(panel, /AI proposals only — no canonical Acceptance Criteria are created\./);
   const page = read("components/ac-generation-review-page.tsx");
   assert.match(page, /if \(!mayView\) return <AppShell><EmptyState title="Manager or Admin access required"/);
-  assert.doesNotMatch(page + panel, /saveRecord|createRecord|acceptance_criteria"|Promote/, "no canonical AC write and no promotion");
+  assert.doesNotMatch(panel, /saveRecord|createRecord|acceptance_criteria"|Promote/, "the drawer panel never writes or promotes");
+  // Phase 1F added human review and promotion to the page — only through the role-guarded server route, never a direct canonical write.
+  assert.doesNotMatch(page, /saveRecord|createRecord|acceptance_criteria"/, "no direct canonical AC write");
   for (const s of ["Positive", "Needs Review", "Blocked by open question", "Relies on human clarification", "Scope note"]) assert.ok(page.includes(s), s);
   assert.ok(read("components/audit-trail-page.tsx").includes('ac_generation_runs: "AC Generation Run"'));
 });

@@ -70,6 +70,9 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
   };
 }
 
+export const PROMOTED_AC_DELETE_MESSAGE =
+  "this acceptance criterion was created from an approved AI proposal and cannot be deleted because its promotion history must be preserved. Change its status instead.";
+
 export const PROMOTED_REQUIREMENT_DELETE_MESSAGE =
   "this requirement was created from an approved AI proposal and cannot be deleted because its promotion history must be preserved. Change its lifecycle/status instead.";
 
@@ -83,6 +86,10 @@ function errorMessage(action: string, error: { message?: string; code?: string }
   }
   if (error?.code === "23503" && /on table "requirements"/.test(message) && /requirement_sign_offs/.test(message)) {
     return new Error(`${action}: this requirement has recorded sign-offs. Formal sign-off history is kept, so a signed-off requirement cannot be deleted.`);
+  }
+  // Migration 046: an Acceptance Criterion promoted from an AI proposal keeps its promotion history.
+  if (error?.code === "23503" && (/_promoted_ac_fkey/.test(message) || /Acceptance Criterion was created from an approved AI proposal/.test(message))) {
+    return new Error(`${action}: ${PROMOTED_AC_DELETE_MESSAGE}`);
   }
   // Migration 041: a Requirement promoted from an AI proposal keeps its promotion history.
   if (error?.code === "23503" && (/requirement_proposals_promoted_record_id_fkey/.test(message) || /created from an approved AI proposal/.test(message))) {

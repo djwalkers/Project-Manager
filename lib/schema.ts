@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "045_ac_generation_repair_stage";
-export const latestMigration = "045_ac_generation_repair_stage";
+export const schemaVersion = "046_ac_review_promotion";
+export const latestMigration = "046_ac_review_promotion";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -48,6 +48,7 @@ export const allMigrations = [
   "043_ac_generation",
   "044_ac_generation_issue_relevance",
   "045_ac_generation_repair_stage",
+  "046_ac_review_promotion",
 ] as const;
 
 export type SchemaColumn = {
@@ -481,6 +482,11 @@ export const schemaTables: SchemaTable[] = [
       { name: "owner", type: "text", required: false },
       { name: "evidence", type: "text", required: false },
       { name: "notes", type: "text", required: false },
+      // Migration 046: optional structure (set on promotion from an AI proposal; NULL on older ACs).
+      { name: "criterion_type", type: "text", required: false },
+      { name: "given_text", type: "text", required: false },
+      { name: "when_text", type: "text", required: false },
+      { name: "then_text", type: "text", required: false },
       createdAt,
       updatedAt,
     ],
