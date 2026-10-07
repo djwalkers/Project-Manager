@@ -124,6 +124,34 @@ promotion come later.
 * `node tests/ac-generation.test.mjs` pins the prompt fingerprint — change
   the prompt text and you must bump `AC_PROMPT_VERSION`.
 
+## Test case generation (Phase 1G)
+
+Lowest priority of all (extraction → requirement analysis → AC generation →
+test generation): the worker claims one test-generation run
+(`/api/worker/test-generation/*`) for one Requirement and a chosen set of
+its **canonical** Acceptance Criteria — manually written or AI-promoted —
+and designs manual test case **proposals** with the same local Ollama model.
+Nothing it produces is canonical: no `test_cases` rows, no test references,
+no links; review and promotion come later.
+
+* Input is fixed by the server when the run is queued: the Requirement and
+  its ACs; for AI-promoted ACs also their source fragments, Human
+  Clarifications, analysis clarifications, resolved questions and cited
+  scope notes; scope notes explicitly associated with the Requirement; and
+  questions still open (never treated as fact). Existing test cases are
+  never part of the input.
+* Stages (`test-generation/`, prompts `TEST_PROMPT_VERSION`): behaviours →
+  tests → coverage, then deterministic dedup and validation. Every test
+  traces to at least one AC; labels outside the input are refused and
+  retried; invented values are rejected; UI controls and names the input
+  never uses, vague or unsupported expected results, dropped conditions and
+  combined variations are flagged (Needs Review is set by the database).
+  Open questions never become placeholder tests — each is reported as an
+  uncovered test-design issue. Every behaviour and every AC is tested or
+  reported.
+* `node tests/test-generation.test.mjs` pins the prompt fingerprint — change
+  the prompt text and you must bump `TEST_PROMPT_VERSION`.
+
 ## Security model
 
 - The worker authenticates with a **worker token** (`tmw_…`) that an Admin
