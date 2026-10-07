@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "047_test_generation";
-export const latestMigration = "047_test_generation";
+export const schemaVersion = "048_test_review_promotion";
+export const latestMigration = "048_test_review_promotion";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -50,6 +50,7 @@ export const allMigrations = [
   "045_ac_generation_repair_stage",
   "046_ac_review_promotion",
   "047_test_generation",
+  "048_test_review_promotion",
 ] as const;
 
 export type SchemaColumn = {
@@ -284,6 +285,13 @@ export const schemaTables: SchemaTable[] = [
       { name: "actual_result", type: "text", required: false },
       { name: "status", type: "text", required: true },
       { name: "owner", type: "text", required: false },
+      // Migration 048: optional structure, set only when promoted from a reviewed AI proposal (NULL on manual tests).
+      // Managed: never written by the generic record form; the AC snapshot is fixed by the database.
+      { name: "objective", type: "text", required: false, managed: true },
+      { name: "preconditions", type: "text", required: false, managed: true },
+      { name: "steps", type: "text", required: false, managed: true },
+      { name: "test_type", type: "text", required: false, managed: true },
+      { name: "source_ac_snapshot", type: "text", required: false, managed: true },
       createdAt, updatedAt,
     ],
   },

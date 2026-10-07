@@ -364,18 +364,19 @@ await run("047: eligibility from any canonical AC; never reads test_cases / arte
   const topLevel = m047.replace(/(AS|DO) \$\$[\s\S]*?\n\$\$;/g, "");
   assert.doesNotMatch(topLevel, /^\s*(UPDATE|DELETE FROM|INSERT INTO)\b/m, "the migration itself changes no data");
   assert.doesNotMatch(m047, /\b(UPDATE|DELETE FROM|INSERT INTO) public\.(test_cases|artefact_links|acceptance_criteria|requirements)\b/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "047_test_generation");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "047_test_generation");
 });
 
 // ── UI and unaffected calculations ──────────────────────────────────────────
 
-await run("UI: drawer panel and review page are Manager/Admin only, read-only, and never write canonical tests", () => {
+await run("UI: drawer panel and review page are Manager/Admin only and never write canonical tests directly", () => {
   const appClient = read("components/app-client.tsx");
   assert.match(appClient, /\{canViewRequirementAnalysis\(user\?\.role\) && <RequirementTestGenerationPanel projectId=\{pid\} requirementId=\{recordId\} mayRun=\{canRunRequirementAnalysis\(user\?\.role\)\} \/>\}/);
   const panel = read("components/requirement-test-generation.tsx"), page = read("components/test-generation-review-page.tsx");
   for (const s of ['"Generate Tests"', "Generate Tests (", "Retry", "Review generated tests"]) assert.ok(panel.includes(s.replace(/"/g, "")) || panel.includes(s), s);
   assert.match(page, /if \(!mayView\) return <AppShell><EmptyState title="Manager or Admin access required"/);
-  assert.doesNotMatch(panel + page, /saveRecord|createRecord|deleteRecord|"test_cases"|Promote/, "no canonical write, no promotion");
+  assert.doesNotMatch(panel + page, /saveRecord|createRecord|deleteRecord|"test_cases"/, "no generic canonical write");
+  assert.doesNotMatch(panel, /Promote/, "the drawer panel never promotes (Phase 1H promotion lives in the review workspace)");
   for (const s of ["Coverage by acceptance criterion", "Proposed test cases", "Test-design issues", "Expected result:", "Preconditions", "What the generation was given"]) assert.ok(page.includes(s), s);
   assert.ok(read("components/audit-trail-page.tsx").includes('test_generation_runs: "Test Generation Run"'));
   for (const f of ["lib/project-state.ts", "lib/go-live-readiness.ts", "lib/lifecycle/test-verification.ts", "lib/lifecycle/requirement.ts", "lib/test-report-format.ts", "lib/supabase/data-store.ts"]) {

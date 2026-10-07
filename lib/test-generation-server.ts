@@ -9,15 +9,19 @@
 //     claim a queued run, receive THAT run's fixed input, record validated
 //     stage results, and complete / fail THAT run.
 // Eligibility and the exact input are decided in SQL (test_generation_input,
-// migration 047). Nothing here reads or writes canonical test_cases,
-// artefact_links, acceptance_criteria, requirements, evidence, sign-offs,
-// ProjectState or Go-Live Readiness.
+// migration 047). Nothing here writes canonical test_cases, artefact_links,
+// acceptance_criteria, requirements, evidence, sign-offs, ProjectState or
+// Go-Live Readiness, and the worker never receives existing tests. The
+// reviewer's run read (Phase 1H) adds advisory similarity against existing
+// canonical tests, computed on the server (lib/test-review-server.ts).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkerIdentity } from "@/lib/extraction-server";
 import { configuredAnalysisModel } from "@/lib/requirement-analysis-server";
 import type { Actor, ServiceResult } from "@/lib/source-documents-server";
 import { TEST_GENERATION_STAGES, validateTestGenerationSubmission, type TestGenerationInput } from "@/lib/test-generation";
+import type { ReviewedTestProposal } from "@/lib/test-review";
+import { similarExistingTests } from "@/lib/test-review-server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VERSION = /^\d{1,6}(\.\d{1,6}){0,2}$/;
@@ -102,21 +106,44 @@ export async function queueTestGeneration(db: SupabaseClient, actor: Actor, body
   return { status: 200, body: { run, ...(auditWarning ? { audit_warning: auditWarning } : {}) } };
 }
 
-/** Manager/Admin: one run with its proposed tests, issues, the exact fragments it was given and its ACs' current canonical state. */
+/**
+ * Manager/Admin: one run with its proposed tests, issues, the exact fragments
+ * it was given — plus the Phase 1H review context: what still blocks each
+ * open proposal, similar existing canonical tests (advisory), the source
+ * ACs' current canonical state (to show changes since generation), sibling
+ * runs and the review history.
+ */
 export async function getTestGenerationRun(db: SupabaseClient, projectId: string, runId: string): Promise<ServiceResult> {
   if (!UUID.test(projectId) || !UUID.test(runId)) return fail(400, "project_id and run_id are required");
   const { data: run } = await db.from("test_generation_runs").select("*").eq("id", runId).eq("project_id", projectId).maybeSingle();
   if (!run) return fail(404, "Test generation run not found in this project");
   const r = run as RunRow;
-  const [proposals, issues, fragments, siblings] = await Promise.all([
+  const [proposals, issues, fragments, siblings, requirement, currentAcs] = await Promise.all([
     db.from("test_case_proposals").select("*").eq("generation_run_id", runId).order("sequence", { ascending: true }),
     db.from("test_generation_issues").select("*").eq("generation_run_id", runId).order("sequence", { ascending: true }),
     r.allowed_fragment_ids.length ? db.from("source_fragments").select(FRAGMENT_COLUMNS).in("id", r.allowed_fragment_ids).order("sequence", { ascending: true }) : Promise.resolve({ data: [] }),
     db.from("test_generation_runs").select("id, status, queued_at, prompt_version, proposal_count").eq("project_id", projectId).eq("requirement_id", r.requirement_id).order("queued_at", { ascending: false }).limit(20),
+    db.from("requirements").select("id, requirement_ref, title, status").eq("id", r.requirement_id).maybeSingle(),
+    db.from("acceptance_criteria").select("id, ac_ref, criterion, description, criterion_type, given_text, when_text, then_text, status").eq("project_id", projectId).in("id", r.ac_ids),
   ]);
+  const props = (proposals.data ?? []) as ReviewedTestProposal[];
+  const open = props.filter((p) => ["Proposed", "Needs Review", "Approved"].includes(p.review_status));
+  const blockers: Record<string, string[]> = {};
+  await Promise.all(open.map(async (p) => {
+    const { data } = await db.rpc("test_approval_blockers", { p_proposal_id: p.id, p_confirmed: true, p_accept: false });
+    blockers[p.id] = (data ?? []) as string[];
+  }));
+  const similar = Object.fromEntries(await similarExistingTests(db, projectId, open));
+  const entityIds = [runId, ...props.map((p) => p.id), ...props.map((p) => p.promoted_test_id).filter((x): x is string => Boolean(x))];
+  const { data: history } = await db.from("audit_log").select("id, entity_type, entity_name, action_type, field_name, old_value, new_value, changed_by_name, changed_at")
+    .eq("project_id", projectId).in("entity_id", entityIds).order("changed_at", { ascending: false }).limit(300);
   return {
     status: 200,
-    body: { run, proposals: proposals.data ?? [], issues: issues.data ?? [], fragments: fragments.data ?? [], sibling_runs: siblings.data ?? [], latest_run_id: (siblings.data?.[0] as { id?: string } | undefined)?.id ?? runId },
+    body: {
+      run, proposals: props, issues: issues.data ?? [], fragments: fragments.data ?? [], sibling_runs: siblings.data ?? [],
+      latest_run_id: (siblings.data?.[0] as { id?: string } | undefined)?.id ?? runId,
+      requirement: requirement.data, current_acceptance_criteria: currentAcs.data ?? [], approval_blockers: blockers, similar_tests: similar, history: history ?? [],
+    },
   };
 }
 

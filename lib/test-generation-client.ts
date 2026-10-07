@@ -3,8 +3,11 @@
 // ── Test Case generation (Phase 1G) — browser helpers ──────────────────────
 // Manager/Admin only: every call goes through a role-guarded server route.
 // Proposed test cases are not part of the DataStore, so Viewers never load them.
+// The canonical test provenance read (Phase 1H) is available to every role.
 
-import type { TestCaseProposal, TestGenerationEligibility, TestGenerationIssue, TestGenerationRun } from "@/lib/test-generation";
+import type { TestGenerationEligibility, TestGenerationIssue, TestGenerationRun, TestStep } from "@/lib/test-generation";
+import type { AcSnapshot, ReviewedTestProposal, SimilarTest } from "@/lib/test-review";
+import type { AcProvenance } from "@/lib/ac-generation-client";
 import type { AnalysisFragment } from "@/lib/requirement-analysis-client";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -36,11 +39,43 @@ export function queueTestGeneration(projectId: string, requirementId: string, op
   });
 }
 
+export type CurrentAc = { id: string; ac_ref: string; criterion: string; description: string | null; criterion_type: string | null; given_text: string | null; when_text: string | null; then_text: string | null; status: string | null };
+export type TestReviewHistoryRow = { id: string; entity_type: string; entity_name: string; action_type: string; field_name: string | null; old_value: string | null; new_value: string | null; changed_by_name: string | null; changed_at: string };
 export type TestGenerationRunDetail = {
-  run: TestGenerationRun; proposals: TestCaseProposal[]; issues: TestGenerationIssue[]; fragments: AnalysisFragment[];
+  run: TestGenerationRun; proposals: ReviewedTestProposal[]; issues: TestGenerationIssue[]; fragments: AnalysisFragment[];
   sibling_runs: { id: string; status: string; queued_at: string; prompt_version: string | null; proposal_count: number | null }[]; latest_run_id: string;
+  requirement: { id: string; requirement_ref: string | null; title: string; status: string | null } | null;
+  current_acceptance_criteria: CurrentAc[];
+  approval_blockers: Record<string, string[]>;
+  similar_tests: Record<string, SimilarTest[]>;
+  history: TestReviewHistoryRow[];
 };
 
 export function loadTestGenerationRun(projectId: string, runId: string) {
   return call<TestGenerationRunDetail>(`/api/requirements/test-generation?project_id=${encodeURIComponent(projectId)}&run_id=${encodeURIComponent(runId)}`);
+}
+
+// ── Review and promotion (Phase 1H) ─────────────────────────────────────────
+
+type Result = Record<string, unknown> & { audit_warning?: string };
+export const testProposalAction = (projectId: string, action: string, body: Record<string, unknown>) =>
+  call<Result>("/api/test-cases/proposals", { method: "POST", body: JSON.stringify({ project_id: projectId, action, ...body }) });
+
+export type TestSourceChange = { test_id: string; test_ref: string; ac_id: string; ac_ref: string; change: "Changed" | "Deleted"; approved_criterion: string | null; current_criterion: string | null };
+export type TestCaseProvenance = {
+  structure: { objective: string | null; preconditions: string[] | null; steps: TestStep[] | null; test_type: string | null };
+  provenance: {
+    proposal: { sequence: number; origin: string; human_authored: boolean; basis: string; promoted_at: string; promoted_by_name: string | null; confirmed_by_name: string | null };
+    accepted_inferences: string[]; inference_reason: string | null;
+    generation_run: { id: string; model: string; prompt_version: string | null; completed_at: string | null } | null;
+    requirement: { id: string; requirement_ref: string | null; title: string } | null;
+    approved_acceptance_criteria: AcSnapshot[];
+    ac_provenance: Record<string, AcProvenance | null>;
+    fragments: { id: string; sequence: number; section_heading: string | null; section_path: string[] | null; page_start: number | null; page_end: number | null; text: string }[];
+    requirement_provenance: { document?: { document_name: string } | null; version?: { id: string; version_number: number; original_filename: string; content_type: string | null } | null } | null;
+  } | null;
+  source_changes: TestSourceChange[];
+};
+export function loadTestCaseProvenance(projectId: string, testId: string) {
+  return call<TestCaseProvenance>(`/api/test-cases/provenance?project_id=${encodeURIComponent(projectId)}&test_id=${encodeURIComponent(testId)}`);
 }

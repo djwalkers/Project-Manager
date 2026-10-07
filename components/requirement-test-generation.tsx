@@ -12,7 +12,8 @@ import { loadRequirementTestGeneration, queueTestGeneration, type RequirementTes
 // (Phase 1G). Manager/Admin only (the caller gates rendering; the routes
 // enforce it). Generation only: the result is a set of TEST CASE PROPOSALS
 // for later human review — nothing here creates or changes canonical Test
-// Cases, Acceptance Criteria or links. Works for manually-created ACs too.
+// Cases, Acceptance Criteria or links (review and promotion happen in the
+// Phase 1H workspace). Works for manually-created ACs too.
 
 const when = (value: string | null | undefined) =>
   value ? new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
@@ -108,7 +109,7 @@ export function RequirementTestGenerationPanel({ projectId, requirementId, mayRu
             {choosing ? <Button variant="ghost" size="sm" onClick={() => setChoosing(false)}>Cancel</Button> : null}
             {active ? <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />{status} on the local worker…</span> : null}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">AI proposals only — no canonical Test Cases are created, and existing tests are never shown to the model.</p>
+          <p className="mt-2 text-xs text-muted-foreground">AI proposals for review — approved tests are promoted one at a time from the review workspace. Existing tests are never shown to the model.</p>
         </>
       ) : null}
     </section>
