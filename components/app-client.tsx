@@ -11,6 +11,7 @@ import { ReadinessGates } from "@/components/readiness-gates";
 import { RequirementAcGenerationPanel } from "@/components/requirement-ac-generation";
 import { RequirementTestGenerationPanel } from "@/components/requirement-test-generation";
 import { RequirementProvenancePanel } from "@/components/requirement-provenance";
+import { TestCaseProvenancePanel } from "@/components/test-case-provenance";
 import { RequirementReadiness } from "@/components/requirement-readiness";
 import { RequirementSignOffPanel } from "@/components/requirement-sign-off-panel";
 import { RequirementTestCoverage } from "@/components/requirement-test-coverage";
@@ -244,6 +245,8 @@ export function ModulePageClient({ section }: { section: string }) {
       <div className="space-y-4">
         {isDeliverable && <DeliverableReadiness row={row} />}
         {isDeliverable && <DeliverableACReadiness row={row} data={pageData} />}
+        {/* Phase 1H: structured steps, source provenance and stale-AC warning (any role; manual tests show structure only when present). */}
+        {isTestCase && pid && recordId && <TestCaseProvenancePanel projectId={pid} testId={recordId} />}
         {isTestCase && testStatus === "Passed" && (
           <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
             This test has Passed. If it validates linked Acceptance Criteria, consider marking those criteria as Met.

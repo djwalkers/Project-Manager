@@ -70,6 +70,9 @@ function prepareLocalRecord(table: EntityName, record: RecordValue, existing?: R
   };
 }
 
+export const PROMOTED_TEST_DELETE_MESSAGE =
+  "this test case was created from an approved AI proposal and cannot be deleted because its promotion history must be preserved. Change its status instead.";
+
 export const PROMOTED_AC_DELETE_MESSAGE =
   "this acceptance criterion was created from an approved AI proposal and cannot be deleted because its promotion history must be preserved. Change its status instead.";
 
@@ -86,6 +89,10 @@ function errorMessage(action: string, error: { message?: string; code?: string }
   }
   if (error?.code === "23503" && /on table "requirements"/.test(message) && /requirement_sign_offs/.test(message)) {
     return new Error(`${action}: this requirement has recorded sign-offs. Formal sign-off history is kept, so a signed-off requirement cannot be deleted.`);
+  }
+  // Migration 048: a Test Case promoted from an AI proposal keeps its promotion history.
+  if (error?.code === "23503" && (/_promoted_test_fkey/.test(message) || /Test Case was created from an approved AI proposal/.test(message))) {
+    return new Error(`${action}: ${PROMOTED_TEST_DELETE_MESSAGE}`);
   }
   // Migration 046: an Acceptance Criterion promoted from an AI proposal keeps its promotion history.
   if (error?.code === "23503" && (/_promoted_ac_fkey/.test(message) || /Acceptance Criterion was created from an approved AI proposal/.test(message))) {

@@ -1,9 +1,9 @@
 "use client";
 
-import { Link2, Loader2, Plus, X } from "lucide-react";
+import { Link2, Loader2, Lock, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { addLink, groupLinksByEntity, removeLink } from "@/lib/artefact-links";
+import { addLink, groupLinksByEntity, isPromotionLink, removeLink } from "@/lib/artefact-links";
 import { moduleByKey } from "@/lib/modules";
 import type { ArtefactLink } from "@/lib/types";
 import type { DataStore } from "@/lib/data-store";
@@ -68,12 +68,15 @@ function RecordChip({
   id,
   data,
   linkId,
+  locked,
   onRemove,
 }: {
   entity: string;
   id: string;
   data: DataStore;
   linkId: string;
+  /** Promotion provenance (migration 049): the database refuses removal; no unlink action is offered. */
+  locked: boolean;
   onRemove: (linkId: string) => void;
 }) {
   const record = resolveRecord(data, entity, id);
@@ -83,14 +86,20 @@ function RecordChip({
     <div className="flex items-center gap-1.5 rounded-md border bg-muted/60 px-2 py-1 text-xs">
       <span className="font-semibold text-primary">{ref}</span>
       {label && <span className="truncate max-w-[180px] text-muted-foreground">{label}</span>}
-      <button
-        type="button"
-        aria-label={`Remove link to ${ref}`}
-        onClick={() => onRemove(linkId)}
-        className="ml-auto text-muted-foreground hover:text-destructive"
-      >
-        <X className="h-3 w-3" />
-      </button>
+      {locked ? (
+        <span className="ml-auto text-muted-foreground" title="Created through approved test promotion — part of the test's provenance, so it cannot be removed." aria-label={`Link to ${ref} is part of test promotion provenance`}>
+          <Lock className="h-3 w-3" />
+        </span>
+      ) : (
+        <button
+          type="button"
+          aria-label={`Remove link to ${ref}`}
+          onClick={() => onRemove(linkId)}
+          className="ml-auto text-muted-foreground hover:text-destructive"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -215,6 +224,7 @@ export function ArtefactLinker({
   );
 
   const groups = useMemo(() => groupLinksByEntity(links, entity, recordId), [links, entity, recordId]);
+  const linkById = useMemo(() => new Map(links.map((l) => [l.id, l] as const)), [links]);
 
   const existingPartnerIds = useMemo(() => new Set(links.map((l) => l.source_id === recordId ? l.target_id : l.source_id)), [links, recordId]);
 
@@ -261,6 +271,7 @@ export function ArtefactLinker({
                     id={partnerId}
                     data={data}
                     linkId={linkId}
+                    locked={Boolean(linkById.get(linkId) && isPromotionLink(linkById.get(linkId)!, data.test_cases ?? [], links))}
                     onRemove={(id) => void handleRemove(id)}
                   />
                 ))}

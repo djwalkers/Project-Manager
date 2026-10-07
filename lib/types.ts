@@ -282,6 +282,12 @@ export type TestCase = {
   actual_result: string | null;
   status: TestStatus;
   owner: string | null;
+  /** Migration 048 — set when promoted from a reviewed AI proposal; NULL on manually created tests. */
+  objective?: string | null;
+  preconditions?: string[] | null;
+  steps?: { step: number; action: string; expected: string | null }[] | null;
+  test_type?: "Positive" | "Negative" | "Regression" | null;
+  source_ac_snapshot?: { id: string; ref: string; criterion: string; fingerprint: string }[] | null;
   created_at: string;
   updated_at: string;
 };
