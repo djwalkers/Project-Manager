@@ -1,7 +1,7 @@
 import type { EntityName } from "@/lib/types";
 
-export const schemaVersion = "048_test_review_promotion";
-export const latestMigration = "048_test_review_promotion";
+export const schemaVersion = "049_test_promotion_link_protection";
+export const latestMigration = "049_test_promotion_link_protection";
 export const allMigrations = [
   "001_initial_schema",
   "002_schema_alignment",
@@ -51,6 +51,7 @@ export const allMigrations = [
   "046_ac_review_promotion",
   "047_test_generation",
   "048_test_review_promotion",
+  "049_test_promotion_link_protection",
 ] as const;
 
 export type SchemaColumn = {

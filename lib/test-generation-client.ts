@@ -61,6 +61,9 @@ type Result = Record<string, unknown> & { audit_warning?: string };
 export const testProposalAction = (projectId: string, action: string, body: Record<string, unknown>) =>
   call<Result>("/api/test-cases/proposals", { method: "POST", body: JSON.stringify({ project_id: projectId, action, ...body }) });
 
+export const reviewTestIssue = (projectId: string, issueId: string, status: string, note: string | null) =>
+  call<Result>("/api/test-cases/generation-issues", { method: "POST", body: JSON.stringify({ project_id: projectId, issue_id: issueId, status, note }) });
+
 export type TestSourceChange = { test_id: string; test_ref: string; ac_id: string; ac_ref: string; change: "Changed" | "Deleted"; approved_criterion: string | null; current_criterion: string | null };
 export type TestCaseProvenance = {
   structure: { objective: string | null; preconditions: string[] | null; steps: TestStep[] | null; test_type: string | null };

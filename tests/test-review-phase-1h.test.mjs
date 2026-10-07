@@ -38,11 +38,14 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 const req = Module.createRequire(import.meta.url);
 const serverModule = req("../lib/supabase/server.ts");
 const serviceRoleModule = req("../lib/supabase/service-role.ts");
+const browserClientModule = req("../lib/supabase/client.ts");
+const linkLib = req("../lib/artefact-links.ts");
 const rules = req("../lib/test-review.ts");
 const { computeTestVerification } = req("../lib/lifecycle/test-verification.ts");
 const proposalsRoute = req("../app/api/test-cases/proposals/route.ts");
 const provenanceRoute = req("../app/api/test-cases/provenance/route.ts");
 const runRoute = req("../app/api/requirements/test-generation/route.ts");
+const issuesRoute = req("../app/api/test-cases/generation-issues/route.ts");
 const { NextRequest } = req("next/server");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 const code = (sql) => sql.replace(/--[^\n]*/g, "");
@@ -102,6 +105,8 @@ const T_M2 = proposal({ sequence: 6, title: "MONO palletising unchanged", object
 const T_VAGUE = proposal({ sequence: 7, title: "Dashboard ok", objective: "o", steps: steps(step("Open dashboard")), expected_result: "The dashboard works correctly.", review_status: "Needs Review", needs_review_reasons: ['Vague expected result ("works correctly") — make it specific.'], source_ac_ids: [AC3] });
 const T_AC3 = proposal({ sequence: 8, title: "Dashboard lists the pick", objective: "Verify the dashboard lists the pick task.", steps: steps(step("Open the dashboard", "The pick task is listed")), expected_result: "The pick task is listed.", source_ac_ids: [AC3] });
 db.test_case_proposals.push(T_PLAIN, T_LOGS, T_MONO, T_COMBO, T_M1, T_M2, T_VAGUE, T_AC3);
+const ISSUE = uuid();
+db.test_generation_issues.push({ id: ISSUE, generation_run_id: RUN, project_id: P, requirement_id: REQ, sequence: 1, issue_type: "Uncovered Behaviour", severity: "Medium", description: "No test for a second picker.", behaviour: null, suggested_question: null, ac_ids: [AC1], source_fragment_ids: [], source_issue_ids: [], status: "Open", resolution_note: null, reviewed_by_name: null, reviewed_at: null });
 const aiOriginals = () => JSON.stringify(db.test_case_proposals.filter((p) => p.origin === "ai").map((p) => [p.title, p.objective, p.preconditions, p.steps, p.expected_result, p.test_type, p.basis, p.source_ac_ids]));
 const aiSnapshot = aiOriginals();
 const manualSnapshot = JSON.stringify(db.test_cases);
@@ -254,6 +259,13 @@ function rpc(name, a) {
         for (const acId of v.source_ac_ids) db.artefact_links.push({ id: uuid(), project_id: a.p_project_id, source_entity: "test_cases", source_id: test.id, target_entity: "acceptance_criteria", target_id: acId });
         Object.assign(v, { review_status: "Promoted", promoted_test_id: test.id, promoted_test_ref: ref, promoted_at: "now", promoted_by_name: a.p_user_name });
         return { data: [{ test_id: test.id, test_ref: ref, already_promoted: false, link_count: v.source_ac_ids.length }], error: null };
+      }
+      case "review_test_generation_issue": {
+        if (!["Open", "Resolved", "Accepted", "Not Applicable"].includes(a.p_status)) raise("22023", `Unknown issue status ${a.p_status}`);
+        const v = db.test_generation_issues.find((i) => i.id === a.p_issue_id && i.project_id === a.p_project_id) ?? raise("P0002", "Test-design issue not found in this project");
+        if (["Resolved", "Not Applicable"].includes(a.p_status) && !String(a.p_note ?? v.resolution_note ?? "").trim()) raise("22023", "Record how the issue was resolved (or why it does not apply)");
+        Object.assign(v, { status: a.p_status, resolution_note: a.p_note ?? v.resolution_note, reviewed_by_name: a.p_user_name, reviewed_at: "now" });
+        return { data: { ...v }, error: null };
       }
       case "test_case_source_changes": {
         const out = [];
@@ -497,7 +509,7 @@ await run("048: additive nullable test structure; DB-enforced review; atomic ide
   assert.match(m048, /AND EXISTS \(SELECT 1 FROM public\.projects pr WHERE pr\.id = OLD\.project_id\) THEN/, "whole-project delete still cascades");
   assert.match(m048, /a test case''s approved acceptance criteria snapshot is fixed when it is promoted/);
   assert.match(m048, /REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated/);
-  assert.equal(req("../lib/schema.ts").latestMigration, "048_test_review_promotion");
+  assert.ok(req("../lib/schema.ts").latestMigration >= "048_test_review_promotion");
   const cols = req("../lib/schema.ts").writableColumns.test_cases;
   for (const c of ["objective", "preconditions", "steps", "test_type", "source_ac_snapshot"]) assert.ok(!cols.includes(c), `${c} is not written by the generic form`);
 });
@@ -524,6 +536,91 @@ await run("UI: review workspace actions, similar-test advice, unsupported detail
   assert.match(read("lib/supabase/data-store.ts"), /_promoted_test_fkey/);
   assert.ok(read("components/audit-trail-page.tsx").includes('test_case_proposals: "Test Proposal"'));
   for (const f of ["lib/project-state.ts", "lib/go-live-readiness.ts", "lib/lifecycle/test-verification.ts", "lib/test-report-format.ts"]) assert.doesNotMatch(read(f), /test_case_proposals|test-review/, f);
+});
+
+// ── Migration 049: protected promotion links; test-design issue review ─────
+
+// Mirrors test_promotion_link_guard for the browser (RLS) client the generic link editor uses.
+const linkGuard = (link) => {
+  const pair = link.source_entity === "test_cases" && link.target_entity === "acceptance_criteria" ? [link.source_id, link.target_id]
+    : link.source_entity === "acceptance_criteria" && link.target_entity === "test_cases" ? [link.target_id, link.source_id] : null;
+  if (!pair) return null;
+  const test = db.test_cases.find((t) => t.id === pair[0]), acRow = db.acceptance_criteria.find((x) => x.id === pair[1]);
+  const governed = test && acRow && db.test_case_proposals.some((p) => p.promoted_test_id === pair[0] && p.source_ac_ids.includes(pair[1]));
+  const other = db.artefact_links.some((l) => l.id !== link.id && ((l.source_id === pair[0] && l.target_id === pair[1]) || (l.source_id === pair[1] && l.target_id === pair[0])));
+  return governed && !other ? `The link between ${test.test_ref} and ${acRow.ac_ref} was created through approved test promotion and forms part of the test's provenance, so it cannot be removed.` : null;
+};
+browserClientModule.supabase = {
+  from: () => ({ delete: () => ({ eq: (_k, id) => ({ select: async () => {
+    const link = db.artefact_links.find((l) => l.id === id);
+    if (!link) return { data: [], error: null };
+    const refused = linkGuard(link);
+    if (refused) return { data: null, error: { code: "23503", message: refused } };
+    db.artefact_links = db.artefact_links.filter((l) => l.id !== id);
+    return { data: [{ id }], error: null };
+  } }) }) }),
+};
+
+await run("049: a promoted test's originating AC link cannot be removed; link, snapshot and verification stay intact", async () => {
+  const testId = get(T_PLAIN.id).promoted_test_id;
+  const origin = db.artefact_links.find((l) => l.source_id === testId && l.target_id === AC1);
+  const snapshot = JSON.stringify(db.test_cases.find((t) => t.id === testId).source_ac_snapshot);
+  const before = JSON.stringify(verification());
+  assert.equal(linkLib.isPromotionLink(origin, db.test_cases, db.artefact_links), true, "the linker hides unlink for it");
+  await assert.rejects(linkLib.removeLink(origin.id), /created through approved test promotion and forms part of the test's provenance/);
+  assert.ok(db.artefact_links.some((l) => l.id === origin.id), "link remains after the refused unlink");
+  assert.equal(JSON.stringify(db.test_cases.find((t) => t.id === testId).source_ac_snapshot), snapshot, "source AC snapshot unchanged");
+  assert.equal(JSON.stringify(verification()), before, "verification / Test Status unchanged");
+  assert.equal(get(T_PLAIN.id).review_status, "Promoted", "the proposal is not demoted");
+  // Manual and non-origin links keep their existing behaviour.
+  const manual = db.artefact_links.find((l) => l.source_id === MANUAL_PASSED);
+  assert.equal(linkLib.isPromotionLink(manual, db.test_cases, db.artefact_links), false);
+  const extra = { id: uuid(), project_id: P, source_entity: "test_cases", source_id: testId, target_entity: "acceptance_criteria", target_id: AC2 };
+  db.artefact_links.push(extra);
+  assert.equal(linkLib.isPromotionLink(extra, db.test_cases, db.artefact_links), false, "a non-origin link on a promoted test is normal");
+  await linkLib.removeLink(extra.id);
+  await linkLib.removeLink(manual.id);
+  assert.ok(!db.artefact_links.some((l) => l.id === extra.id || l.id === manual.id));
+  // A duplicate row of the governed pair may go while the relationship survives.
+  const dup = { id: uuid(), project_id: P, source_entity: "acceptance_criteria", source_id: AC1, target_entity: "test_cases", target_id: testId };
+  db.artefact_links.push(dup);
+  assert.equal(linkLib.isPromotionLink(dup, db.test_cases, db.artefact_links), false);
+  await linkLib.removeLink(dup.id);
+  assert.equal(linkLib.isPromotionLink(origin, db.test_cases, db.artefact_links), true);
+  // Viewer provenance still readable.
+  as("Viewer");
+  const pv = await provenance(testId);
+  assert.equal(pv.status, 200);
+  assert.deepEqual(pv.body.provenance.approved_acceptance_criteria.map((a) => a.ref), ["AC-001"]);
+});
+
+await run("049: test-design issues are reviewable (Open / Resolved / Accepted / Not Applicable) by Manager/Admin only, audited", async () => {
+  const review = (status, note) => call(issuesRoute.POST, "/api/test-cases/generation-issues", { body: { project_id: P, issue_id: ISSUE, status, note } });
+  for (const [role, code] of [[null, 401], ["Viewer", 403]]) { as(role); assert.equal((await review("Accepted")).status, code); }
+  as("Manager");
+  assert.equal((await review("Done")).status, 400);
+  assert.equal((await review("Resolved")).status, 400, "a resolution note is required");
+  const ok = await review("Resolved", "Covered by the manual test for a second picker.");
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const i = db.test_generation_issues[0];
+  assert.deepEqual([i.status, i.resolution_note, i.reviewed_by_name], ["Resolved", "Covered by the manual test for a second picker.", "Manager User"]);
+  assert.ok(db.audit_log.some((x) => x.entity_type === "test_generation_issues" && x.old_value === "Open" && /^Resolved — Covered/.test(x.new_value)));
+  assert.equal((await review("Open")).status, 200, "reopen");
+});
+
+await run("049 SQL: database-enforced link guard for every path; cascades still work; issue review fields only", () => {
+  const m = code(read("supabase/migrations/049_test_promotion_link_protection.sql"));
+  assert.match(m, /CREATE TRIGGER artefact_links_test_promotion_guard BEFORE UPDATE OR DELETE ON public\.artefact_links/);
+  assert.match(m, /RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''/);
+  assert.match(m, /p\.promoted_test_id = v_test AND v_ac = ANY \(p\.source_ac_ids\)/, "only origin links of a promoted test");
+  assert.match(m, /EXISTS \(SELECT 1 FROM public\.projects pr WHERE pr\.id = t\.project_id\)/, "whole-project delete still cascades");
+  assert.match(m, /created through approved test promotion and forms part of the test''s provenance/);
+  assert.doesNotMatch(m, /UPDATE public\.(test_cases|test_case_proposals)|DELETE FROM public\.(test_cases|artefact_links)/, "no snapshot, proposal or test change");
+  assert.match(m, /v_cols := ARRAY\['status', 'resolution_note', 'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'updated_at'\]/);
+  assert.equal(req("../lib/schema.ts").latestMigration, "049_test_promotion_link_protection");
+  const linker = read("components/artefact-linker.tsx");
+  assert.match(linker, /locked=\{Boolean\(linkById\.get\(linkId\) && isPromotionLink\(/);
+  assert.ok(read("components/audit-trail-page.tsx").includes('test_generation_issues: "Test-Design Issue"'));
 });
 
 console.log("\nAll Phase 1H test review and promotion tests passed.\n");

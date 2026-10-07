@@ -57,6 +57,8 @@ export type TestCaseProposal = {
 export type TestGenerationIssue = {
   id: string; generation_run_id: string; sequence: number; issue_type: (typeof TEST_GENERATION_ISSUE_TYPES)[number]; severity: "High" | "Medium" | "Low";
   description: string; behaviour: string | null; suggested_question: string | null; ac_ids: string[]; source_fragment_ids: string[]; source_issue_ids: string[]; status: string;
+  /** Migration 049 review fields. */
+  resolution_note?: string | null; reviewed_by_name?: string | null; reviewed_at?: string | null;
 };
 
 export type TestGenerationEligibility = { eligible: boolean; reason: string | null };

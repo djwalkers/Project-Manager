@@ -4,7 +4,7 @@ import { Loader2, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { TEST_TYPES, type TestStep } from "@/lib/test-generation";
+import { TEST_TYPES, type TestGenerationIssue, type TestStep } from "@/lib/test-generation";
 import {
   PROMOTED_TEST_STATUS, TEST_REASON_GUIDANCE, TEST_REJECTION_REASONS, effectiveTest, testReasonKind, unsupportedTerms,
   type ReviewedTestProposal, type SimilarTest,
@@ -21,7 +21,8 @@ export type TestDialogState =
   | { kind: "split"; proposal: ReviewedTestProposal }
   | { kind: "merge"; proposals: ReviewedTestProposal[] }
   | { kind: "promote"; proposal: ReviewedTestProposal; requirementRef: string; similar: SimilarTest[] }
-  | { kind: "manual" };
+  | { kind: "manual" }
+  | { kind: "issue-review"; issue: TestGenerationIssue; status: "Open" | "Resolved" | "Accepted" | "Not Applicable" };
 
 type Submit = (payload: Record<string, unknown>) => Promise<void>;
 export type TestDialogContext = { acs: { id: string; ref: string; criterion: string }[] };
@@ -142,6 +143,7 @@ export function TestReviewDialog({ state, context, onSubmit, onClose }: { state:
     case "merge": title = `Merge ${state.proposals.length} test proposals`; body = <MergeForm proposals={state.proposals} busy={busy} onSave={run} />; break;
     case "promote": title = `Promote test proposal #${state.proposal.sequence}`; body = <PromoteForm proposal={state.proposal} requirementRef={state.requirementRef} similar={state.similar} context={context} busy={busy} onSave={run} />; break;
     case "manual": title = "Add a manual test"; body = <ManualForm context={context} busy={busy} onSave={run} />; break;
+    case "issue-review": title = `${state.status === "Open" ? "Reopen" : `Mark ${state.status}`} — test-design issue #${state.issue.sequence}`; body = <IssueForm issue={state.issue} status={state.status} busy={busy} onSave={run} />; break;
   }
 
   return (
@@ -329,6 +331,21 @@ function ManualForm({ context, busy, onSave }: { context: TestDialogContext; bus
       <AcChoice acs={context.acs} chosen={acIds} onChange={setAcIds} />
       <Field label="Rationale (optional)"><Textarea rows={2} value={rationale} onChange={(e) => setRationale(e.target.value)} maxLength={2000} /></Field>
       <SubmitRow busy={busy} label="Add test" disabled={!draftValid(d) || !acIds.length} />
+    </form>
+  );
+}
+
+function IssueForm({ issue, status, busy, onSave }: { issue: TestGenerationIssue; status: "Open" | "Resolved" | "Accepted" | "Not Applicable"; busy: boolean; onSave: Submit }) {
+  const [note, setNote] = useState(issue.resolution_note ?? "");
+  const required = status === "Resolved" || status === "Not Applicable";
+  return (
+    <form className="space-y-4" onSubmit={(ev) => { ev.preventDefault(); void onSave({ note: note || null }); }}>
+      <div className="rounded-md border bg-card p-3 text-sm"><p className="font-semibold">{issue.issue_type}</p><p className="mt-1">{issue.description}</p></div>
+      <p className="text-xs text-muted-foreground">
+        {status === "Resolved" ? "Record how the gap was addressed (for example, the manual test that now covers it)." : status === "Not Applicable" ? "Record why this does not apply." : status === "Accepted" ? "Accept the gap knowingly; it stays visible in the review history." : "Return the issue to Open."} Test-design issues never change canonical tests.
+      </p>
+      <Field label={required ? "Resolution note (required)" : "Note (optional)"}><Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} required={required} /></Field>
+      <SubmitRow busy={busy} label={status === "Open" ? "Reopen" : `Mark ${status}`} disabled={required && !note.trim()} />
     </form>
   );
 }

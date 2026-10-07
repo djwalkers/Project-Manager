@@ -73,6 +73,22 @@ export function withEntityLinksRemoved<T extends WithLinks>(data: T, entity: str
   };
 }
 
+/**
+ * Mirrors migration 049's guard: a link between a promoted test and one of
+ * the ACs it was approved against (its source_ac_snapshot) is promotion
+ * provenance and cannot be removed — unless another link for the same pair
+ * remains. The database is authoritative; this only hides the unlink action.
+ */
+export function isPromotionLink(link: ArtefactLink, testCases: { id: string; source_ac_snapshot?: { id: string }[] | null }[], links: ArtefactLink[] = []): boolean {
+  const pair = (l: ArtefactLink) => (l.source_entity === "test_cases" && l.target_entity === "acceptance_criteria" ? [l.source_id, l.target_id]
+    : l.source_entity === "acceptance_criteria" && l.target_entity === "test_cases" ? [l.target_id, l.source_id] : null);
+  const p = pair(link);
+  if (!p) return false;
+  const test = testCases.find((t) => t.id === p[0]);
+  if (!test?.source_ac_snapshot?.some((a) => a.id === p[1])) return false;
+  return !links.some((l) => l.id !== link.id && pair(l)?.[0] === p[0] && pair(l)?.[1] === p[1]);
+}
+
 /** Given a flat list of links for a record, group them by the partner entity. */
 export function groupLinksByEntity(
   links: ArtefactLink[],

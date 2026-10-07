@@ -248,6 +248,27 @@ async function promoteTest(db: SupabaseClient, actor: Actor, projectId: string, 
   return { status: 200, body: withWarning({ test_case: test, links: links ?? [], already_promoted: false }, warning) };
 }
 
+// ── Test-design issue review (migration 049; 046 pattern) ──────────────────
+
+export const TEST_ISSUE_REVIEW_STATUSES = ["Open", "Resolved", "Accepted", "Not Applicable"] as const;
+
+export async function testIssueAction(db: SupabaseClient, actor: Actor, body: Record<string, unknown>): Promise<ServiceResult> {
+  const projectId = text(body.project_id), id = text(body.issue_id), status = text(body.status);
+  if (!UUID.test(projectId) || !UUID.test(id)) return fail(400, "project_id and issue_id are required");
+  if (!(TEST_ISSUE_REVIEW_STATUSES as readonly string[]).includes(status)) return fail(400, `status must be one of ${TEST_ISSUE_REVIEW_STATUSES.join(", ")}`);
+  const note = optional(body.note);
+  if (note && note.length > 2000) return fail(400, "The note must be at most 2000 characters");
+  const { data: before } = await db.from("test_generation_issues").select("*").eq("id", id).eq("project_id", projectId).maybeSingle();
+  if (!before) return fail(404, "Test-design issue not found in this project");
+  const { data, error } = await db.rpc("review_test_generation_issue", { p_issue_id: id, p_project_id: projectId, p_status: status, p_note: note, p_user_id: actor.userId, p_user_name: actor.displayName });
+  if (error) return mapDbError(error);
+  const after = one<{ id: string; status: string; sequence: number; issue_type: string; requirement_id: string }>(data);
+  const b = before as { status: string };
+  const warning = b.status !== after.status ? await audit(db, actor, [{ project_id: projectId, entity_type: "test_generation_issues", entity_id: id, entity_name: `${await requirementRefOf(db, after.requirement_id)} — test-design issue #${after.sequence} (${after.issue_type})`,
+    action_type: "Status Change", field_name: "status", old_value: b.status, new_value: [after.status, note ? `— ${note}` : null].filter(Boolean).join(" ").slice(0, 1000) }]) : null;
+  return { status: 200, body: withWarning({ issue: after }, warning) };
+}
+
 // ── Similar existing tests (server-side; never part of any model input) ────
 
 export async function similarExistingTests(db: SupabaseClient, projectId: string, proposals: ReviewedTestProposal[]): Promise<Map<string, SimilarTest[]>> {

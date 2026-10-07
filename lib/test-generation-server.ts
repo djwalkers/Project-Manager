@@ -134,7 +134,7 @@ export async function getTestGenerationRun(db: SupabaseClient, projectId: string
     blockers[p.id] = (data ?? []) as string[];
   }));
   const similar = Object.fromEntries(await similarExistingTests(db, projectId, open));
-  const entityIds = [runId, ...props.map((p) => p.id), ...props.map((p) => p.promoted_test_id).filter((x): x is string => Boolean(x))];
+  const entityIds = [runId, ...props.map((p) => p.id), ...props.map((p) => p.promoted_test_id).filter((x): x is string => Boolean(x)), ...((issues.data ?? []) as { id: string }[]).map((i) => i.id)];
   const { data: history } = await db.from("audit_log").select("id, entity_type, entity_name, action_type, field_name, old_value, new_value, changed_by_name, changed_at")
     .eq("project_id", projectId).in("entity_id", entityIds).order("changed_at", { ascending: false }).limit(300);
   return {

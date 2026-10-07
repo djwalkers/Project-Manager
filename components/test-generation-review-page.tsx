@@ -14,7 +14,7 @@ import { canReviewRequirementAnalysis, canViewRequirementAnalysis } from "@/lib/
 import { ANALYSIS_ERROR_LABELS } from "@/lib/requirement-analysis";
 import type { AnalysisFragment } from "@/lib/requirement-analysis-client";
 import { isActiveTestGeneration, isCompletedTestGeneration, testGenerationSummary, type TestGenerationAc } from "@/lib/test-generation";
-import { loadTestGenerationRun, testProposalAction, type CurrentAc, type TestGenerationRunDetail } from "@/lib/test-generation-client";
+import { loadTestGenerationRun, reviewTestIssue, testProposalAction, type CurrentAc, type TestGenerationRunDetail } from "@/lib/test-generation-client";
 import { allowedTestActions, effectiveTest, isEditedTest, unsupportedTerms, type ReviewedTestProposal } from "@/lib/test-review";
 
 // ── Test case review workspace (Phase 1G generation, Phase 1H review) ──────
@@ -116,6 +116,12 @@ export function TestGenerationReviewPage({ runId }: { runId: string }) {
       case "merge": return submit("merge", payload);
       case "promote": return submit("promote", { proposal_id: dialog.proposal.id });
       case "manual": return submit("create_manual", { run_id: run.id, ...payload });
+      case "issue-review": {
+        const res = await reviewTestIssue(projectId, dialog.issue.id, dialog.status, (payload.note as string | null) ?? null);
+        setNotice(res.audit_warning ? `Saved, but the audit entry failed: ${res.audit_warning}` : null);
+        setReloadKey((k) => k + 1);
+        return;
+      }
     }
   };
   const open = (p: ReviewedTestProposal, action: string) => {
@@ -272,12 +278,21 @@ export function TestGenerationReviewPage({ runId }: { runId: string }) {
                 <li key={i.id} className={`rounded-lg border bg-card p-3 text-sm ${i.severity === "High" ? "border-amber-300 dark:border-amber-700" : ""}`}>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Pill tone={i.severity === "High" ? "bad" : i.severity === "Medium" ? "warn" : "muted"}>{i.severity}</Pill>
+                    <Pill tone={i.status === "Open" ? "warn" : "ok"}>{i.status}</Pill>
                     <span className="font-medium">{i.issue_type}</span>
                     {i.ac_ids.map((id) => <Pill key={id}>{acById.get(id)?.ref ?? "AC"}</Pill>)}
                   </div>
                   <p className="mt-1">{i.description}</p>
                   {i.behaviour ? <p className="mt-1 text-xs text-muted-foreground">Behaviour: {i.behaviour}</p> : null}
                   {i.suggested_question ? <p className="mt-1 text-xs">Question: {i.suggested_question}</p> : null}
+                  {i.resolution_note || i.reviewed_by_name ? <p className="mt-1 text-xs text-muted-foreground">{i.reviewed_by_name ? `${i.reviewed_by_name}, ${when(i.reviewed_at)}` : ""}{i.resolution_note ? ` — ${i.resolution_note}` : ""}</p> : null}
+                  {mayReview ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(i.status === "Open" ? (["Resolved", "Accepted", "Not Applicable"] as const) : (["Open"] as const)).map((s) => (
+                        <Button key={s} size="sm" variant="outline" onClick={() => setDialog({ kind: "issue-review", issue: i, status: s })}>{s === "Open" ? "Reopen" : s}</Button>
+                      ))}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
